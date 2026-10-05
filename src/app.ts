@@ -177,8 +177,10 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof DealError) return reply.code(409).send({ error: err.reason, message: err.message });
-    log(`error: ${err.stack ?? err.message}`);
-    return reply.code((err as { statusCode?: number }).statusCode ?? 500).send({ error: 'internal error' });
+    const e = err as Error & { statusCode?: number };
+    log(`error: ${e.stack ?? e.message}`);
+    const code = e.statusCode ?? 500;
+    return reply.code(code).send({ error: code < 500 ? e.message : 'internal error' });
   });
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
