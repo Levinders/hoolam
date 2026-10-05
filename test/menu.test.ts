@@ -36,6 +36,8 @@ describe('message shapes', () => {
   it('the main menu fits WhatsApp limits', () => {
     const m = msg.menu('Ada Obi');
     expect(() => checkLimits(m)).not.toThrow();
+    expect(() => checkLimits(msg.welcome('Ada Obi'))).not.toThrow();
+    expect(() => checkLimits(msg.help())).not.toThrow();
     expect(m.kind).toBe('list');
     expect(MENU.flatMap((s) => s.rows).length).toBeLessThanOrEqual(10);
   });
@@ -45,7 +47,10 @@ describe('message shapes', () => {
     expect(p.type).toBe('interactive');
     expect(p.interactive.type).toBe('list');
     expect(p.interactive.action.button).toBe('Open menu');
-    expect(p.interactive.action.sections[0].rows[0]).toEqual({ id: 'menu:sell', title: 'Sell something', description: expect.any(String) });
+    expect(p.interactive.action.sections[0].rows[0]).toEqual({ id: 'menu:sell', title: '🏷️ Sell something', description: expect.any(String) });
+    const w = toPayload('2348000000000', msg.welcome(null)) as any;
+    expect(w.interactive.header).toEqual({ type: 'text', text: 'Welcome to Hoolam' });
+    expect(w.interactive.footer).toEqual({ text: 'Nobody gets burned.' });
   });
 
   it('rejects lists WhatsApp would refuse', () => {
@@ -91,18 +96,51 @@ describe('message shapes', () => {
 });
 
 describe('the menu in the chat', () => {
-  it('"hi" and opening the chat for the first time both show the menu list', async () => {
+  it('first contact tells the story once; after that "hi" is short', async () => {
     const p = phone();
     await h.say(p, 'hi', 'Ada Obi');
-    expect((await lastBody(p)).kind).toBe('list');
-    expect(h.last(p)).toMatch(/Hi Ada, welcome to Hoolam/);
+    const first = await lastBody(p);
+    expect(first.kind).toBe('list');
+    expect(first.header).toBe('Welcome to Hoolam');
+    expect(h.last(p)).toMatch(/Hi Ada 👋/);
+    expect(h.last(p)).toMatch(/Hoolam holds the money/);
+    await h.say(p, 'hi');
+    const again = await lastBody(p);
+    expect(again.kind).toBe('list');
+    expect(again.header).toBeUndefined();
+    expect(h.last(p)).toMatch(/What would you like to do/);
+
     const q = phone();
     await h.app.chat.handle({ id: `wel-${q}`, phone: q, name: 'Bayo', type: 'welcome', text: '', buttonId: null, mediaId: null });
-    expect((await lastBody(q)).kind).toBe('list');
+    expect((await lastBody(q)).header).toBe('Welcome to Hoolam');
+  });
+
+  it('someone new who already knows what they want skips the welcome', async () => {
+    const p = phone();
+    await h.say(p, 'I want to sell something safely'); // ice breaker
+    expect(h.last(p)).toMatch(/What are you selling/);
+    const q = phone();
+    await h.say(q, '/fees');
+    expect(h.last(q)).toMatch(/Fees/);
+  });
+
+  it('every ice breaker and command leads somewhere', async () => {
+    for (const t of ICE_BREAKERS) {
+      const p = phone();
+      await h.say(p, t);
+      expect((await lastBody(p)).header).toBeUndefined(); // not the generic welcome
+    }
+    for (const c of COMMANDS) {
+      const p = phone();
+      await h.say(p, 'hi');
+      await h.say(p, '/' + c.name);
+      expect(h.last(p)).not.toMatch(/didn't get that/);
+    }
   });
 
   it('unknown text shows the menu instead of a dead end', async () => {
     const p = phone();
+    await h.say(p, 'hi');
     await h.say(p, 'abeg wetin dey happen');
     expect((await lastBody(p)).kind).toBe('list');
   });
@@ -110,19 +148,19 @@ describe('the menu in the chat', () => {
   it('slash commands and ice-breaker phrases work', async () => {
     const p = phone();
     await h.say(p, '/fees');
-    expect(h.last(p)).toMatch(/2\.5% of the price/);
-    expect(h.last(p)).toMatch(/₦15,000 item: fee ₦400, buyer pays ₦15,400/);
+    expect(h.last(p)).toMatch(/2\.5%\* of the price/);
+    expect(h.last(p)).toMatch(/₦15,000 item → fee ₦400/);
     expect(h.last(p)).toMatch(/\[Main menu\]/);
     await h.say(p, '/help');
-    expect(h.last(p)).toMatch(/How Hoolam works/);
-    await h.say(p, 'I want to sell something');
+    expect(h.last(p)).toMatch(/One payment, start to finish/);
+    await h.say(p, 'I want to sell something safely');
     expect(h.last(p)).toMatch(/What are you selling/);
     await h.say(p, '/menu'); // leaves the sell flow
     expect(await state(p)).toBe('IDLE');
-    await h.say(p, 'How does Hoolam work?');
-    expect(h.last(p)).toMatch(/How Hoolam works/);
+    await h.say(p, 'How does Hoolam protect my money?');
+    expect(h.last(p)).toMatch(/One payment, start to finish/);
     await h.tap(p, 'menu:help'); // the old button id still works
-    expect(h.last(p)).toMatch(/How Hoolam works/);
+    expect(h.last(p)).toMatch(/One payment, start to finish/);
   });
 
   it('"Pay for a deal" asks for the code, then opens the deal', async () => {
@@ -143,8 +181,8 @@ describe('the menu in the chat', () => {
   it('"Report a problem" with no paid deals offers a person instead', async () => {
     const p = phone();
     await h.tap(p, 'menu:problem');
-    expect(h.last(p)).toMatch(/nothing to freeze/);
-    expect(h.last(p)).toMatch(/\[Talk to a person\]/);
+    expect(h.last(p)).toMatch(/no money to freeze/);
+    expect(h.last(p)).toMatch(/\[🙋 Talk to a person\]/);
   });
 
   it('"Report a problem" with one paid deal freezes it straight away', async () => {
@@ -175,10 +213,10 @@ describe('the menu in the chat', () => {
     expect(h.last(p)).toMatch(/account number and bank/); // none yet: asks for one
     await h.say(p, '0123456789 GTBank');
     await h.tap(p, 'bank:yes');
-    expect(h.last(p)).toMatch(/Saved\. New deals will be paid to .*••••6789/);
+    expect(h.last(p)).toMatch(/Saved\. New deals pay into .*••••6789/);
 
     await h.tap(p, 'menu:account');
-    expect(h.last(p)).toMatch(/We pay you here/);
+    expect(h.last(p)).toMatch(/We send your money here/);
     await h.tap(p, 'account:change');
     await h.say(p, '9876543210 Kuda');
     await h.tap(p, 'bank:yes');
@@ -190,10 +228,10 @@ describe('the menu in the chat', () => {
 
   it('"Talk to a person" saves the message for the team', async () => {
     const p = phone();
-    await h.say(p, 'I need to talk to a person');
+    await h.say(p, 'I want to talk to a person');
     expect(h.last(p)).toMatch(/Type your message/);
     await h.say(p, 'Can I use Hoolam for a car?');
-    expect(h.last(p)).toMatch(/ref S-\d+/);
+    expect(h.last(p)).toMatch(/Ref S-\d+/);
     const r = await h.db.query(`SELECT message, status FROM support_requests WHERE phone=$1`, [p]);
     expect(r.rows[0]).toEqual({ message: 'Can I use Hoolam for a car?', status: 'OPEN' });
 

@@ -45,7 +45,9 @@ async function flush() {
     const who: Who = row.phone === PEOPLE.seller.phone ? 'seller' : 'buyer';
     const label = who === 'seller' ? 'Hoolam → Seller' : 'Hoolam → Buyer';
     const extra = row.status === 'NEEDS_TEMPLATE' ? ` ${c.red}(outside 24h window: would need a template)${c.off}` : '';
-    console.log(`\n${c.cyan}${label}${c.off}${extra}\n${row.body.text}`);
+    const head = row.body.header ? `${c.yellow}${row.body.header}${c.off}\n` : '';
+    const foot = row.body.footer ? `\n${c.dim}${row.body.footer}${c.off}` : '';
+    console.log(`\n${c.cyan}${label}${c.off}${extra}\n${head}${row.body.text}${foot}`);
     if (row.body.kind === 'buttons') {
       lastButtons[who] = row.body.buttons;
       row.body.buttons.forEach((b: { title: string }, i: number) => console.log(`  ${c.green}[${i + 1}] ${b.title}${c.off}`));

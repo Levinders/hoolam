@@ -6,6 +6,7 @@ import type { Bank, PaymentProvider } from '../payments/provider.js';
 import { DealError, type DealService, type User } from '../deals/service.js';
 import type { Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
+import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
 import { msg, STATUS_WORDS } from './messages.js';
 
 /**
@@ -17,7 +18,7 @@ type State =
   | 'IDLE' | 'SELL_ITEM' | 'SELL_PRICE' | 'SELL_BANK' | 'SELL_BANK_CONFIRM' | 'SELL_CONFIRM'
   | 'DISPUTE_DETAIL' | 'REFUND_BANK' | 'REFUND_BANK_CONFIRM'
   | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE';
-interface Session { state: State; data: Record<string, any> }
+interface Session { state: State; data: Record<string, any>; isNew: boolean }
 
 export interface FlowOptions {
   db: Db;
@@ -31,20 +32,16 @@ export interface FlowOptions {
 
 const CODE_RE = /\bHL-?([A-Z2-9]{5})\b/i;
 
-type MenuItem = 'open' | 'sell' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human';
 
-/**
- * Slash commands (typed with "/" in WhatsApp). Keep in sync with COMMANDS in automation.ts.
- * Work at any point in the chat.
- */
-const SLASH: Record<string, MenuItem> = {
-  menu: 'open', start: 'open', sell: 'sell', pay: 'pay', deals: 'deals', account: 'account',
-  problem: 'problem', help: 'how', fees: 'fees', human: 'human',
-};
+const clean = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s/-]/gu, '').replace(/\s+/g, ' ').trim();
+
+/** "/sell" etc. Built from COMMANDS in automation.ts, so the two never drift apart. Works at any point. */
+const SLASH: Record<string, MenuItem> = { start: 'open', ...Object.fromEntries(COMMANDS.map((c) => [c.name, c.goTo])) };
 /** Words that always bring the menu back, whatever we were waiting for. */
-const GREETINGS = ['menu', 'hi', 'hello', 'start', 'help', 'hey', 'main menu'];
-/** Typed phrases (including the ice breakers) understood when nothing else is in progress. */
+const GREETINGS = ['menu', 'hi', 'hello', 'start', 'help', 'hey', 'main menu', 'good morning', 'good afternoon', 'good evening'];
+/** Typed phrases (the ice breakers first) understood when nothing else is in progress. */
 const PHRASES: Record<string, MenuItem> = {
+  ...Object.fromEntries(ICE_BREAKER_STEPS.map((i) => [clean(i.text), i.goTo])),
   'i want to sell something': 'sell', 'sell': 'sell', 'sell something': 'sell',
   'i have a deal code to pay': 'pay', 'pay': 'pay', 'pay for a deal': 'pay',
   'how does hoolam work': 'how', 'how it works': 'how', 'how hoolam works': 'how',
@@ -52,7 +49,6 @@ const PHRASES: Record<string, MenuItem> = {
   'my deals': 'deals', 'deals': 'deals', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
   'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'account': 'account',
 };
-const clean = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s/-]/gu, '').replace(/\s+/g, ' ').trim();
 
 export class Conversation {
   constructor(private readonly o: FlowOptions) {}
@@ -60,8 +56,8 @@ export class Conversation {
   private async session(phone: string): Promise<Session> {
     const r = await this.o.db.query(
       `INSERT INTO chat_sessions (phone, last_inbound_at) VALUES ($1, now())
-       ON CONFLICT (phone) DO UPDATE SET last_inbound_at=now() RETURNING state, data`, [phone]);
-    return { state: r.rows[0].state, data: r.rows[0].data ?? {} };
+       ON CONFLICT (phone) DO UPDATE SET last_inbound_at=now() RETURNING state, data, (xmax = 0) AS is_new`, [phone]);
+    return { state: r.rows[0].state, data: r.rows[0].data ?? {}, isNew: r.rows[0].is_new === true };
   }
 
   private async save(phone: string, state: State, data: Record<string, any> = {}) {
@@ -119,7 +115,7 @@ export class Conversation {
     // ----- they opened the chat for the first time -----
     if (m.type === 'welcome') {
       await this.save(m.phone, 'IDLE');
-      return this.send(m.phone, msg.menu(user.display_name));
+      return this.send(m.phone, msg.welcome(user.display_name));
     }
 
     // ----- voice notes: Phase 2 -----
@@ -132,6 +128,13 @@ export class Conversation {
       this.o.provider.pay(ref);
       await this.o.deals.handleCollection(ref);
       return;
+    }
+
+    // ----- the very first message from someone new: tell the story once, unless they already know what they want -----
+    const firstWords = clean(text);
+    if (s.isNew && !m.buttonId && !text.match(CODE_RE) && !PHRASES[firstWords] && !firstWords.startsWith('/')) {
+      await this.save(m.phone, 'IDLE');
+      return this.send(m.phone, msg.welcome(user.display_name));
     }
 
     // ----- anywhere: a slash command, "menu"/"hi", or a deal code -----
@@ -234,16 +237,16 @@ export class Conversation {
     const r = PRICING[c];
     const unit = c === 'NGN' ? 100 : 1;
     const f = (major: number) => formatMoney(major * unit, c);
-    const who = r.buyerShare >= 1 ? 'The buyer pays the fee. The seller gets the full price.'
-      : r.buyerShare <= 0 ? 'The seller pays the fee. The buyer pays just the price.'
-      : 'The buyer and seller share the fee.';
-    const rules = `${r.ratePercent}% of the price, at least ${f(r.min)} and never more than ${f(r.max)}, rounded to the nearest ${f(r.roundTo)}.\n${who}`;
+    const who = r.buyerShare >= 1 ? '💳 Buyer pays the fee\n🏷️ Seller gets the full price'
+      : r.buyerShare <= 0 ? '🏷️ Seller pays the fee\n💳 Buyer pays just the price'
+      : '🤝 Buyer and seller share the fee';
+    const rules = `*${r.ratePercent}%* of the price\nMin ${f(r.min)} · Max ${f(r.max)} · rounded to ${f(r.roundTo)}\n\n${who}`;
     const examples = [5_000, 15_000, 50_000]
       .map((major) => major * unit)
       .filter((minor) => minor <= this.maxDeal())
       .map((minor) => {
         const q = quote(minor, c);
-        return `• ${formatMoney(minor, c)} item: fee ${formatMoney(q.feeMinor, c)}, buyer pays ${formatMoney(q.buyerPaysMinor, c)}`;
+        return `${formatMoney(minor, c)} item → fee ${formatMoney(q.feeMinor, c)}`;
       });
     return msg.fees(rules, examples, { minor: this.maxDeal(), currency: c });
   }

@@ -11,23 +11,31 @@
  *
  * Every ice breaker and command here must also be understood in flow.ts (PHRASES and SLASH).
  */
-export const ICE_BREAKERS = [
-  'I want to sell something',
-  'I have a deal code to pay',
-  'How does Hoolam work?',
-  'I need to talk to a person',
-];
+export type MenuItem = 'open' | 'sell' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human';
 
-export const COMMANDS: { name: string; hint: string }[] = [
-  { name: 'menu', hint: 'Show everything you can do' },
-  { name: 'sell', hint: 'Create a protected deal for something you are selling' },
-  { name: 'pay', hint: 'Pay for a deal with the code the seller gave you' },
-  { name: 'deals', hint: 'See your deals and where the money is' },
-  { name: 'problem', hint: 'Report a problem with an item you paid for' },
-  { name: 'account', hint: 'See or change where we pay you' },
-  { name: 'fees', hint: 'What Hoolam costs and who pays' },
-  { name: 'help', hint: 'How Hoolam works, in 5 steps' },
-  { name: 'human', hint: 'Talk to a real person' },
+/**
+ * Shown in a brand-new chat. Each one is a first line a real person would say, and where it leads.
+ * WhatsApp rules: 4 max, 80 characters max, no emoji. The chat understands these exact words (flow.ts).
+ */
+export const ICE_BREAKER_STEPS: { text: string; goTo: MenuItem }[] = [
+  { text: 'I want to sell something safely', goTo: 'sell' },
+  { text: 'A seller sent me a deal code', goTo: 'pay' },
+  { text: 'How does Hoolam protect my money?', goTo: 'how' },
+  { text: 'I want to talk to a person', goTo: 'human' },
+];
+export const ICE_BREAKERS = ICE_BREAKER_STEPS.map((i) => i.text);
+
+/** Typed with "/" at any time. Short hints: they show up in a small pop-up list. */
+export const COMMANDS: { name: string; hint: string; goTo: MenuItem }[] = [
+  { name: 'menu', hint: 'Everything you can do', goTo: 'open' },
+  { name: 'sell', hint: 'Get a safe-pay link for your buyer', goTo: 'sell' },
+  { name: 'pay', hint: 'Pay with a code from a seller', goTo: 'pay' },
+  { name: 'deals', hint: 'Where your deals and money are', goTo: 'deals' },
+  { name: 'problem', hint: 'Freeze the money on a bad delivery', goTo: 'problem' },
+  { name: 'account', hint: 'Where we send your money', goTo: 'account' },
+  { name: 'fees', hint: 'What it costs and who pays', goTo: 'fees' },
+  { name: 'help', hint: 'How Hoolam keeps you safe', goTo: 'how' },
+  { name: 'human', hint: 'Talk to a real person', goTo: 'human' },
 ];
 
 export interface AutomationOptions {

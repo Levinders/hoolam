@@ -6,7 +6,7 @@ export interface ListSection { title: string; rows: ListRow[] }              // 
 export type Outbound =
   | { kind: 'text'; text: string }
   | { kind: 'buttons'; text: string; buttons: Button[] }
-  | { kind: 'list'; text: string; button: string; sections: ListSection[] }; // max 10 rows in total
+  | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string }; // max 10 rows; header/footer max 60
 
 /** Throws if a message breaks WhatsApp's limits, so mistakes show up in tests, not on someone's phone. */
 export function checkLimits(msg: Outbound): void {
@@ -16,6 +16,7 @@ export function checkLimits(msg: Outbound): void {
   }
   if (msg.kind === 'list') {
     if (msg.button.length > 20) throw new Error(`List button too long: "${msg.button}"`);
+    if ((msg.header ?? '').length > 60 || (msg.footer ?? '').length > 60) throw new Error('List header/footer max 60 characters');
     const rows = msg.sections.flatMap((s) => s.rows);
     if (rows.length < 1 || rows.length > 10) throw new Error('WhatsApp lists allow 1 to 10 rows in total');
     if (msg.sections.length > 10) throw new Error('WhatsApp lists allow up to 10 sections');
@@ -101,6 +102,8 @@ export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
     ...base, type: 'interactive',
     interactive: {
       type: 'list', body: { text: msg.text },
+      ...(msg.header ? { header: { type: 'text', text: msg.header } } : {}),
+      ...(msg.footer ? { footer: { text: msg.footer } } : {}),
       action: {
         button: msg.button,
         sections: msg.sections.map((s) => ({ title: s.title, rows: s.rows.map((r) => ({ id: r.id, title: r.title, ...(r.description ? { description: r.description } : {}) })) })),
@@ -112,5 +115,5 @@ export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
 export function render(msg: Outbound): string {
   if (msg.kind === 'text') return msg.text;
   if (msg.kind === 'buttons') return `${msg.text}  ${msg.buttons.map((b) => `[${b.title}]`).join(' ')}`;
-  return `${msg.text}  [${msg.button} ▾: ${msg.sections.flatMap((s) => s.rows.map((r) => r.title)).join(' | ')}]`;
+  return `${msg.header ? msg.header + '\n' : ''}${msg.text}${msg.footer ? '\n' + msg.footer : ''}  [${msg.button} ▾: ${msg.sections.flatMap((s) => s.rows.map((r) => r.title)).join(' | ')}]`;
 }
