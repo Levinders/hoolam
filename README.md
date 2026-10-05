@@ -1,0 +1,100 @@
+# Hoolam backend: Phase 1
+
+Safe deals on WhatsApp. Hoolam holds the buyer's money until they're happy, then pays the seller.
+
+This is the Phase 1 core loop for **Nigeria (NGN)**, with **Monnify (Moniepoint)** as the first payment partner:
+
+1. A seller creates a deal in the WhatsApp chat (item, price, payout account) and gets a link.
+2. The buyer opens the link and gets a one-time account number to transfer to.
+3. Monnify tells us the money landed; we **re-check it with Monnify's API** before believing it.
+4. The seller is told to ship. The buyer taps **I'm happy** or **Problem**.
+5. Happy: the seller is paid to their bank. Problem: the money is frozen and a person decides.
+
+Voice notes, riders and the 24-hour automatic release come in Phase 2.
+
+## Try it in two minutes (no accounts needed)
+
+Needs Node 20+.
+
+```bash
+npm install
+npm run simulate   # plays a whole deal and prints the WhatsApp conversation
+npm test           # 62 tests: pricing, ledger, payments, the full deal, disputes, payouts
+```
+
+Both start a throwaway database automatically. No real money or real WhatsApp is involved.
+
+## Run the server
+
+1. Create a Postgres database (Supabase works). Copy `.env.example` to `.env` and fill in `DATABASE_URL` and `ADMIN_TOKEN`.
+2. `npm run dev` (migrations run automatically on start).
+3. Check `http://localhost:3000/health`.
+
+With `PAYMENT_PROVIDER=fake` you can test payments locally: after a buyer taps **Pay now**,
+`POST /dev/pay/HL-XXXXX` pretends the transfer arrived.
+
+## Connect Monnify (sandbox first)
+
+1. Sign up at monnify.com (needs your CAC registration) and open the **sandbox** dashboard.
+2. Copy your **API key**, **secret key**, **contract code** and **wallet account number** into `.env`, set `PAYMENT_PROVIDER=monnify`.
+3. In the dashboard, set the webhook URL to `https://your-domain.com/webhook/payments`.
+4. Test transfers with Monnify's bank simulator: https://websim.sdk.monnify.com/#/bankingapp
+5. Before going live: set `MONNIFY_REQUIRE_SIGNATURE=true`, only accept webhooks from Monnify's IP (`35.242.133.146`) at your host or firewall, and confirm the two endpoints marked *confirm in sandbox* in `src/payments/monnify.ts`.
+
+**Payout approval:** Monnify can require an email OTP for each payout. Until they enable API payouts without it,
+payouts wait in `PAYOUT_PENDING` and you approve them with `POST /admin/payouts/:reference/authorize {"otp":"…"}`.
+
+> Monnify on its own is a payment gateway: money sits in your Monnify wallet. For real escrow you still need the
+> **designated client-funds account** agreement with Moniepoint (or another licensed bank) and a lawyer's sign-off.
+
+## Connect WhatsApp
+
+1. Create a Meta app with the WhatsApp product and verify your business.
+2. Fill in `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PUBLIC_NUMBER`, set `WHATSAPP_DRY_RUN=false`.
+3. Webhook URL: `https://your-domain.com/webhook/whatsapp`, verify token = `WHATSAPP_VERIFY_TOKEN`. Subscribe to `messages`.
+4. **Templates:** WhatsApp only allows free-form messages within 24 hours of the person's last message. Outside that window
+   we record the message as `NEEDS_TEMPLATE` (see `/admin/attention`). Submit these **utility** templates to Meta:
+   - `payment_received_seller`: "The buyer has paid for deal {{1}}. Your {{2}} is held safely by Hoolam. Ship the item now."
+   - `item_on_the_way`: "Your item for deal {{1}} is on the way. When it arrives, tell us if you're happy."
+   - `confirm_reminder`: "Has your item for deal {{1}} arrived? Your money is still safe with us."
+   - `seller_paid`: "You've been paid. {{1}} has been sent to your {{2}} account for deal {{3}}."
+   - `refund_sent`: "Your refund of {{1}} for deal {{2}} has been sent to your {{3}} account."
+
+## Admin (Phase 1 runs with a human in the loop)
+
+All need `Authorization: Bearer <ADMIN_TOKEN>`.
+
+| Route | What it does |
+|---|---|
+| `GET /admin/attention` | Problems, stuck payouts, quiet buyers, messages needing templates |
+| `GET /admin/deals?status=DISPUTED` | List deals |
+| `GET /admin/deals/HL-XXXXX` | Everything about one deal: history, payments, payouts, ledger |
+| `POST /admin/deals/HL-XXXXX/release` | Pay the seller (after reviewing a problem) |
+| `POST /admin/deals/HL-XXXXX/refund` | Refund the buyer in full |
+| `POST /admin/payouts/:ref/authorize` | Approve a payout with Monnify's OTP |
+| `POST /admin/payouts/:ref/retry` | Retry a failed payout (never pays twice) |
+| `GET /admin/ledger/balances` | Totals per ledger account |
+
+## How it's built
+
+- **Node + TypeScript, Fastify, Postgres.** Schema in `db/migrations/`.
+- **Money is integers in kobo**, always with a currency code. Benin (XOF) plugs into the same model.
+- **Double-entry ledger** (`ledger_entries`): every movement is balanced, and the database itself refuses an unbalanced one.
+- **Every status change is checked** against the allowed moves (`src/deals/states.ts`) and logged in `deal_events`.
+- **Webhooks are stored first, deduplicated, then processed**, with retries for anything that fails.
+- **Payments are swappable**: `src/payments/provider.ts` is the contract. Kuda, Safe Haven, or FedaPay/KKiaPay for Benin is one new file.
+- **Pricing** (`src/pricing.ts`) uses the same rule as the landing page: % with a minimum, a cap, rounded to the nearest ₦100. Numbers are placeholders.
+- **Limits:** deals are capped at ₦50,000 before identity checks (`MAX_DEAL_MINOR`).
+
+| Path | |
+|---|---|
+| `src/deals/service.ts` | The deal logic: create, pay, ship, release, refund, payouts |
+| `src/whatsapp/flow.ts` | The conversation |
+| `src/whatsapp/messages.ts` | Every message we send, in one place |
+| `src/payments/monnify.ts` | Monnify integration |
+| `src/app.ts` | HTTP routes, webhooks, admin, background retries |
+
+## Not in Phase 1 yet
+
+Voice notes (Whisper), riders and doorstep rejection splits, the 24-hour automatic release, identity checks (NIN/BVN),
+seller reputation, daily reconciliation against Monnify's settlement report, and WhatsApp template sending.
