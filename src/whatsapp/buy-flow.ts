@@ -56,7 +56,7 @@ export function buyFlowJson(bannerBase64 = readFileSync(BANNER).toString('base64
         terminal: true,
         data: {
           item: { type: 'string', __example__: 'Black sneakers, size 42' },
-          price: { type: 'string', __example__: '15000' },
+          price: { type: 'number', __example__: 15000 },
           seller_phone: { type: 'string', __example__: '08012345678' },
           arrive_by: { type: 'string', __example__: '2026-10-09' },
         },

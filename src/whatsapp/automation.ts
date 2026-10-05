@@ -137,10 +137,15 @@ export async function ensureSellerAlertTemplate(o: MetaSetupOptions): Promise<st
 /** Makes sure the buyer's form exists on Meta. Returns its id, or null (then the chat questions are used). */
 export async function ensureBuyFlow(o: MetaSetupOptions, json = buyFlowJson()): Promise<string | null> {
   const name = buyFlowName(json);
-  const list = await graph(o, 'GET', `${o.wabaId}/flows?fields=id,name,status&limit=100`);
+  const list = await graph(o, 'GET', `${o.wabaId}/flows?fields=id,name,status,validation_errors&limit=100`);
   if (!list.ok) { o.log?.(`buyer form: can't list forms (HTTP ${list.status}): ${list.text}`); return null; }
   const existing = (list.json?.data ?? []).find((x: { name: string }) => x.name === name);
   if (existing) {
+    const errs: { message?: string }[] = existing.validation_errors ?? [];
+    if (errs.length) {
+      o.log?.(`buyer form FAILED: ${name} has ${errs.length} problem(s): ${errs.map((e) => e.message).join(' | ').slice(0, 600)}`);
+      return null;
+    }
     o.log?.(`buyer form ready: ${name} (${existing.status}, sending as ${o.formMode})`);
     return existing.id;
   }
@@ -151,8 +156,12 @@ export async function ensureBuyFlow(o: MetaSetupOptions, json = buyFlowJson()): 
     o.log?.(`buyer form FAILED to create (HTTP ${created.status}): ${created.text}`);
     return null;
   }
-  const errors = created.json.validation_errors ?? [];
-  if (errors.length) o.log?.(`buyer form created with problems: ${JSON.stringify(errors).slice(0, 400)}`);
-  else o.log?.(`buyer form created: ${name} (${o.formMode})`);
+  const errors: { message?: string }[] = created.json.validation_errors ?? [];
+  if (errors.length) {
+    // Never send a broken form: buyers answer in the chat until it's fixed.
+    o.log?.(`buyer form FAILED: Meta found ${errors.length} problem(s): ${errors.map((e) => e.message).join(' | ').slice(0, 600)}`);
+    return null;
+  }
+  o.log?.(`buyer form created: ${name} (${o.formMode})`);
   return created.json.id;
 }

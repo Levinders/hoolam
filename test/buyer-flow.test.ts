@@ -300,6 +300,22 @@ describe('Meta setup', () => {
     expect(tplPost.body.components[2].buttons.map((b: any) => b.text)).toEqual(['View deal', 'Not me']);
   });
 
+  it('never uses a form Meta found problems with', async () => {
+    const bad = (async (url: string, init: RequestInit = {}) => (init.method === 'POST'
+      ? Response.json({ id: 'flow-x', success: true, validation_errors: [{ message: 'Property is expecting string but got number' }] })
+      : Response.json({ data: [] }))) as unknown as typeof fetch;
+    const log: string[] = [];
+    expect(await ensureBuyFlow({ ...base, fetchImpl: bad, log: (l) => log.push(l) })).toBeNull();
+    expect(log[0]).toMatch(/buyer form FAILED: Meta found 1 problem/);
+  });
+
+  it('the price field and the next screen agree on its type (number)', () => {
+    const json = buyFlowJson('aGVsbG8=') as any;
+    const price = json.screens[0].layout.children[1].children.find((c: any) => c.name === 'price');
+    expect(price['input-type']).toBe('number');
+    expect(json.screens[1].data.price.type).toBe('number');
+  });
+
   it('reuses what already exists', async () => {
     const { f, calls } = fakeMeta({ flows: [{ id: 'flow-9', name: buyFlowName(), status: 'DRAFT' }], templates: [{ name: SELLER_ALERT.name, status: 'APPROVED' }] });
     expect(await ensureBuyFlow({ ...base, fetchImpl: f })).toBe('flow-9');
