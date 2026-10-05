@@ -53,6 +53,16 @@ Hoolam creates its own tables the first time it starts.
    - Verify token: the `WHATSAPP_VERIFY_TOKEN` from Render
    - Click **Verify and save**. (If the server was asleep, wait a minute and click again.)
 2. Under **Webhook fields**, **Subscribe** to **messages**.
+3. Click **Test** next to **messages**. Render's logs should show `whatsapp in: …1181 text` (the reply then fails
+   with "not in allowed list", which is expected for Meta's sample number).
+4. **Attach your WhatsApp Business account to the app.** Without this, Meta's Test works but your real messages
+   never arrive. Run once, with the WhatsApp Business account ID from API Setup and your access token:
+
+   ```
+   curl -X POST "https://graph.facebook.com/v26.0/<WABA_ID>/subscribed_apps" -H "Authorization: Bearer <TOKEN>"
+   ```
+
+   You should get `{"success":true}`.
 
 ## E. Run a deal from your phone
 
@@ -69,7 +79,8 @@ Try **Problem** instead of I'm happy to test the dispute flow.
 
 | What you see | Likely cause | Fix |
 |---|---|---|
-| No reply at all | Webhook not subscribed, or server asleep | Check step D2; wait a minute and send again |
+| No reply at all, and nothing in Render's logs | WhatsApp account not attached to the app | Run the `subscribed_apps` command in step D4 |
+| No reply at all, server was idle | Server asleep (free plan) | Wait a minute and send again |
 | Render log shows `bad signature` | Wrong `WHATSAPP_APP_SECRET` | Copy it again from App settings → Basic |
 | Replies stopped after a day | The temporary token expired | Generate a new one in API Setup, update `WHATSAPP_TOKEN` in Render |
 | Messages "not delivered" | Your number isn't in the **To** list | Add and verify it in API Setup |
