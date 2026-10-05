@@ -4,10 +4,10 @@
   "description": "Hoolam: safe deals on WhatsApp (Phase 1 backend)",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
-    "migrate": "tsx scripts/migrate.ts",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "simulate": "tsx scripts/simulate.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
