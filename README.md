@@ -42,7 +42,10 @@ With `PAYMENT_PROVIDER=fake` you can test payments locally: after a buyer taps *
 1. Sign up at monnify.com (needs your CAC registration) and open the **sandbox** dashboard.
 2. Copy your **API key**, **secret key**, **contract code** and **wallet account number** into `.env`, set `PAYMENT_PROVIDER=monnify`.
 3. In the dashboard, set the webhook URL to `https://your-domain.com/webhook/payments`.
-4. Test transfers with Monnify's bank simulator: https://websim.sdk.monnify.com/#/bankingapp
+4. Check your keys first, with no database or WhatsApp needed: `npm run monnify:check`.
+   It logs in, lists banks, creates a ₦100 test payment you pay with Monnify's bank simulator
+   (https://websim.sdk.monnify.com/#/bankingapp), and can test a payout:
+   `npm run monnify:check -- --payout 058 0123456789`.
 5. Before going live: set `MONNIFY_REQUIRE_SIGNATURE=true`, only accept webhooks from Monnify's IP (`35.242.133.146`) at your host or firewall, and confirm the two endpoints marked *confirm in sandbox* in `src/payments/monnify.ts`.
 
 **Payout approval:** Monnify can require an email OTP for each payout. Until they enable API payouts without it,

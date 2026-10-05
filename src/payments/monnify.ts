@@ -46,8 +46,10 @@ export class MonnifyProvider implements PaymentProvider {
     if (this.token && Date.now() < this.token.expiresAt - 60_000) return this.token.value;
     const basic = Buffer.from(`${this.o.apiKey}:${this.o.secretKey}`).toString('base64');
     const res = await this.fetch(`${this.o.baseUrl}/api/v1/auth/login`, { method: 'POST', headers: { Authorization: `Basic ${basic}` } });
-    const body = (await res.json()) as Envelope<{ accessToken: string; expiresIn?: number }>;
-    if (!res.ok || !body.requestSuccessful) throw new Error(`Monnify login failed: ${body.responseMessage ?? res.status}`);
+    const text = await res.text();
+    let body: Envelope<{ accessToken: string; expiresIn?: number }>;
+    try { body = JSON.parse(text); } catch { throw new Error(`Monnify login failed: HTTP ${res.status}: ${text.slice(0, 120)}`); }
+    if (!res.ok || !body.requestSuccessful) throw new Error(`Monnify login failed: ${body.responseMessage || 'HTTP ' + res.status}`);
     this.token = { value: body.responseBody.accessToken, expiresAt: Date.now() + (body.responseBody.expiresIn ?? 3000) * 1000 };
     return this.token.value;
   }
@@ -59,8 +61,9 @@ export class MonnifyProvider implements PaymentProvider {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: json === undefined ? undefined : JSON.stringify(json),
     });
+    const text = await res.text();
     let body: Envelope<T>;
-    try { body = (await res.json()) as Envelope<T>; } catch { throw new Error(`Monnify ${method} ${path}: HTTP ${res.status}, no JSON body`); }
+    try { body = JSON.parse(text) as Envelope<T>; } catch { throw new Error(`Monnify ${method} ${path}: HTTP ${res.status}: ${text.slice(0, 120)}`); }
     if (!res.ok || !body.requestSuccessful) {
       const err = new Error(`Monnify ${method} ${path}: ${body.responseMessage || 'HTTP ' + res.status}`);
       (err as Error & { code?: string }).code = body.responseCode;

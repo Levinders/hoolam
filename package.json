@@ -11,7 +11,8 @@
     "simulate": "tsx scripts/simulate.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "chat": "tsx scripts/chat.ts"
+    "chat": "tsx scripts/chat.ts",
+    "monnify:check": "tsx --env-file-if-exists=.env scripts/monnify-check.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
@@ -30,6 +31,6 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }
