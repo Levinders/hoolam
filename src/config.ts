@@ -18,6 +18,9 @@ const schema = z.object({
   WHATSAPP_PUBLIC_NUMBER: z.string().default('2340000000000'), // digits only, used in wa.me links
   WHATSAPP_GRAPH_VERSION: z.string().default('v26.0'),
   WHATSAPP_SYNC_MENU: bool.default(true),             // on start, send ice breakers + commands to Meta (live mode only)
+  WHATSAPP_WABA_ID: z.string().default(''),           // WhatsApp Business Account ID: needed to create the buyer form and seller alert
+  WHATSAPP_BUY_FORM: bool.default(true),              // offer buyers the WhatsApp form (falls back to chat questions if unavailable)
+  WHATSAPP_FORM_MODE: z.enum(['draft', 'published']).default('draft'), // 'published' once your business is verified by Meta
 
   // Payments
   PAYMENT_PROVIDER: z.enum(['monnify', 'fake']).default('fake'),
@@ -35,6 +38,7 @@ const schema = z.object({
   CURRENCY: z.enum(['NGN', 'XOF']).default('NGN'),
   MAX_DEAL_MINOR: z.coerce.number().default(50_000_00), // Phase 1 cap per deal, before KYC: ₦50,000
   PAYMENT_WINDOW_MINUTES: z.coerce.number().default(40),
+  SELLER_ACCEPT_HOURS: z.coerce.number().default(48),   // a seller has this long to accept a buyer's deal
   NUDGE_AFTER_HOURS: z.coerce.number().default(24),     // remind the buyer to confirm
   FLAG_AFTER_HOURS: z.coerce.number().default(72),      // put the deal in front of a human
 });

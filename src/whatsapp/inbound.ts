@@ -4,10 +4,12 @@ export interface Inbound {
   id: string;            // WhatsApp message id, used to ignore duplicates
   phone: string;         // E.164 with +
   name: string | null;
-  type: 'text' | 'button' | 'audio' | 'image' | 'welcome' | 'other'; // welcome = they opened the chat for the first time
+  type: 'text' | 'button' | 'audio' | 'image' | 'welcome' | 'form' | 'other'; // welcome = they opened the chat for the first time; form = a WhatsApp form was submitted
   text: string;          // typed text, or the button title
   buttonId: string | null;
   mediaId: string | null;
+  mimeType?: string | null;              // for images
+  form?: Record<string, unknown> | null; // the answers from a submitted form (includes flow_token)
 }
 
 /** Checks X-Hub-Signature-256 against the raw request body. */
@@ -35,10 +37,15 @@ export function parseInbound(body: unknown): Inbound[] {
         if (m.type === 'text') out.push({ ...base, type: 'text', text: String(m.text?.body ?? '') });
         else if (m.type === 'interactive' && m.interactive?.button_reply) out.push({ ...base, type: 'button', text: String(m.interactive.button_reply.title ?? ''), buttonId: String(m.interactive.button_reply.id) });
         else if (m.type === 'interactive' && m.interactive?.list_reply) out.push({ ...base, type: 'button', text: String(m.interactive.list_reply.title ?? ''), buttonId: String(m.interactive.list_reply.id) });
+        else if (m.type === 'interactive' && m.interactive?.nfm_reply) {
+          let form: Record<string, unknown> = {};
+          try { form = JSON.parse(String(m.interactive.nfm_reply.response_json ?? '{}')); } catch { /* keep empty */ }
+          out.push({ ...base, type: 'form', text: '', form });
+        }
         else if (m.type === 'request_welcome') out.push({ ...base, type: 'welcome', text: '' });
         else if (m.type === 'button') out.push({ ...base, type: 'button', text: String(m.button?.text ?? ''), buttonId: String(m.button?.payload ?? m.button?.text ?? '') });
         else if (m.type === 'audio') out.push({ ...base, type: 'audio', text: '', mediaId: String(m.audio?.id ?? '') });
-        else if (m.type === 'image') out.push({ ...base, type: 'image', text: String(m.image?.caption ?? ''), mediaId: String(m.image?.id ?? '') });
+        else if (m.type === 'image') out.push({ ...base, type: 'image', text: String(m.image?.caption ?? ''), mediaId: String(m.image?.id ?? ''), mimeType: m.image?.mime_type ?? null });
         else out.push({ ...base, type: 'other', text: '' });
       }
     }

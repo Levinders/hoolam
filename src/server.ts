@@ -8,7 +8,7 @@ const config = loadConfig();
 const db = createPool(config.DATABASE_URL);
 await migrate(db, console.log);
 const provider = createProvider(config);
-const { app, tick, syncMenu } = buildApp({ config, db, provider });
+const { app, tick, setupMeta } = buildApp({ config, db, provider });
 
 const guard = (kind: 'fast' | 'slow') => async () => {
   try { await tick(kind); } catch (e) { console.error(`${kind} tick failed:`, (e as Error).message); }
@@ -19,8 +19,8 @@ const slow = setInterval(guard('slow'), 10 * 60_000);
 await app.listen({ port: config.PORT, host: '0.0.0.0' });
 console.log(`Hoolam listening on :${config.PORT} · payments: ${provider.name} · WhatsApp: ${config.WHATSAPP_DRY_RUN ? 'dry run' : 'live'}${config.ALLOW_SELF_DEAL ? ' · TEST MODE' : ''}`);
 
-// Ice breakers + "/" commands live on Meta's side; refresh them on every start.
-if (!config.WHATSAPP_DRY_RUN && config.WHATSAPP_SYNC_MENU) void syncMenu();
+// Ice breakers, "/" commands, the seller alert and the buyer's form live on Meta's side; check them on every start.
+void setupMeta();
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {

@@ -1,4 +1,5 @@
 export const DealStatus = {
+  AWAITING_SELLER: 'AWAITING_SELLER', // buyer started it; waiting for the seller to accept
   AWAITING_BUYER: 'AWAITING_BUYER',
   AWAITING_PAYMENT: 'AWAITING_PAYMENT',
   FUNDED: 'FUNDED',
@@ -18,6 +19,7 @@ const S = DealStatus;
 
 /** The only moves a deal is allowed to make. Anything else is a bug and is refused. */
 export const TRANSITIONS: Record<DealStatus, DealStatus[]> = {
+  AWAITING_SELLER: [S.AWAITING_PAYMENT, S.CANCELLED, S.EXPIRED],
   AWAITING_BUYER: [S.AWAITING_PAYMENT, S.CANCELLED, S.EXPIRED],
   AWAITING_PAYMENT: [S.FUNDED, S.CANCELLED, S.EXPIRED],
   FUNDED: [S.SHIPPED, S.DISPUTED, S.REFUNDING],

@@ -1,3 +1,5 @@
+import { buyFlowJson, buyFlowName } from './buy-flow.js';
+
 /**
  * The things WhatsApp shows before anyone types:
  *  - Ice breakers: up to 4 tappable suggestions in a brand-new chat (max 80 characters, no emoji).
@@ -11,23 +13,24 @@
  *
  * Every ice breaker and command here must also be understood in flow.ts (PHRASES and SLASH).
  */
-export type MenuItem = 'open' | 'sell' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human';
+export type MenuItem = 'open' | 'sell' | 'buy' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human';
 
 /**
  * Shown in a brand-new chat. Each one is a first line a real person would say, and where it leads.
  * WhatsApp rules: 4 max, 80 characters max, no emoji. The chat understands these exact words (flow.ts).
  */
 export const ICE_BREAKER_STEPS: { text: string; goTo: MenuItem }[] = [
-  { text: 'I want to sell something safely', goTo: 'sell' },
+  { text: 'I want to buy something safely', goTo: 'buy' },
   { text: 'A seller sent me a deal code', goTo: 'pay' },
+  { text: 'I want to sell something safely', goTo: 'sell' },
   { text: 'How does Hoolam protect my money?', goTo: 'how' },
-  { text: 'I want to talk to a person', goTo: 'human' },
 ];
 export const ICE_BREAKERS = ICE_BREAKER_STEPS.map((i) => i.text);
 
 /** Typed with "/" at any time. Short hints: they show up in a small pop-up list. */
 export const COMMANDS: { name: string; hint: string; goTo: MenuItem }[] = [
   { name: 'menu', hint: 'Everything you can do', goTo: 'open' },
+  { name: 'buy', hint: 'Start a safe deal with a seller', goTo: 'buy' },
   { name: 'sell', hint: 'Get a safe-pay link for your buyer', goTo: 'sell' },
   { name: 'pay', hint: 'Pay with a code from a seller', goTo: 'pay' },
   { name: 'deals', hint: 'Where your deals and money are', goTo: 'deals' },
@@ -72,4 +75,84 @@ export async function syncAutomation(o: AutomationOptions): Promise<{ ok: boolea
     o.log?.(`whatsapp menu sync FAILED: ${(e as Error).message}`);
     return { ok: false, status: 0, body: (e as Error).message };
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The buyer's form and the seller alert also live on Meta. Both are created automatically on start
+// (needs WHATSAPP_WABA_ID). If anything fails, the chat questions and the forwarded link still work.
+// ---------------------------------------------------------------------------------------------
+
+export interface MetaSetupOptions extends AutomationOptions { wabaId: string; formMode: 'draft' | 'published' }
+
+/** The seller alert. Utility template: strictly about the order, nothing promotional. */
+export const SELLER_ALERT = {
+  name: 'hoolam_order_request',
+  body:
+    '🛒 New order request on Hoolam\n\n{{1}} wants to buy {{2}} from you for {{3}}.\n\n' +
+    'They pay Hoolam first. You ship once the money is held, and you get paid when they are happy.\n\n' +
+    'Deal {{4}}. Tap below to see the photos and accept.',
+  example: ['Ada', 'Black sneakers, size 42', '₦15,000', 'HL-7K2QF'],
+  footer: 'Not expecting this? Tap Not me.',
+  buttons: ['View deal', 'Not me'],
+};
+
+async function graph(o: AutomationOptions, method: 'GET' | 'POST', path: string, body?: unknown) {
+  const f = o.fetchImpl ?? fetch;
+  const res = await f(`https://graph.facebook.com/${o.graphVersion}/${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${o.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = JSON.parse(text); } catch { /* not json */ }
+  return { ok: res.ok, status: res.status, json, text: text.slice(0, 400) };
+}
+
+/** Makes sure the seller-alert template exists. Returns its status (APPROVED, PENDING, REJECTED) or null. */
+export async function ensureSellerAlertTemplate(o: MetaSetupOptions): Promise<string | null> {
+  const t = SELLER_ALERT;
+  const found = await graph(o, 'GET', `${o.wabaId}/message_templates?name=${t.name}&fields=name,status,category,language`);
+  const existing = found.ok ? (found.json?.data ?? []).find((x: { name: string }) => x.name === t.name) : null;
+  if (existing) {
+    o.log?.(`seller alert template: ${existing.status}${existing.status === 'APPROVED' ? '' : ' (alerts start once Meta approves it)'}`);
+    return existing.status;
+  }
+  const created = await graph(o, 'POST', `${o.wabaId}/message_templates`, {
+    name: t.name, language: 'en', category: 'UTILITY', parameter_format: 'positional',
+    components: [
+      { type: 'BODY', text: t.body, example: { body_text: [t.example] } },
+      { type: 'FOOTER', text: t.footer },
+      { type: 'BUTTONS', buttons: t.buttons.map((text) => ({ type: 'QUICK_REPLY', text })) },
+    ],
+  });
+  if (!created.ok) {
+    o.log?.(`seller alert template FAILED to create (HTTP ${created.status}): ${created.text}`);
+    return null;
+  }
+  o.log?.(`seller alert template submitted to Meta: ${created.json?.status ?? 'PENDING'} (category ${created.json?.category ?? '?'})`);
+  return created.json?.status ?? 'PENDING';
+}
+
+/** Makes sure the buyer's form exists on Meta. Returns its id, or null (then the chat questions are used). */
+export async function ensureBuyFlow(o: MetaSetupOptions, json = buyFlowJson()): Promise<string | null> {
+  const name = buyFlowName(json);
+  const list = await graph(o, 'GET', `${o.wabaId}/flows?fields=id,name,status&limit=100`);
+  if (!list.ok) { o.log?.(`buyer form: can't list forms (HTTP ${list.status}): ${list.text}`); return null; }
+  const existing = (list.json?.data ?? []).find((x: { name: string }) => x.name === name);
+  if (existing) {
+    o.log?.(`buyer form ready: ${name} (${existing.status}, sending as ${o.formMode})`);
+    return existing.id;
+  }
+  const created = await graph(o, 'POST', `${o.wabaId}/flows`, {
+    name, categories: ['OTHER'], flow_json: JSON.stringify(json), publish: o.formMode === 'published',
+  });
+  if (!created.ok || !created.json?.id) {
+    o.log?.(`buyer form FAILED to create (HTTP ${created.status}): ${created.text}`);
+    return null;
+  }
+  const errors = created.json.validation_errors ?? [];
+  if (errors.length) o.log?.(`buyer form created with problems: ${JSON.stringify(errors).slice(0, 400)}`);
+  else o.log?.(`buyer form created: ${name} (${o.formMode})`);
+  return created.json.id;
 }

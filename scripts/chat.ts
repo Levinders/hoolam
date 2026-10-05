@@ -24,6 +24,7 @@ ${c.bold}How to use${c.off}
   Type anything              send it as the current person (try "hi")
   1, 2, 3 ...                tap a button (or menu option) from Hoolam's last message
   /menu, /sell, /pay ...     slash commands, like typing "/" in WhatsApp
+  photo                      send a photo (pretend)
   seller / buyer             switch who you are
   open                       as the buyer, open the newest deal link
   pay                        the buyer's transfer lands in full
@@ -47,7 +48,8 @@ async function flush() {
     const extra = row.status === 'NEEDS_TEMPLATE' ? ` ${c.red}(outside 24h window: would need a template)${c.off}` : '';
     const head = row.body.header ? `${c.yellow}${row.body.header}${c.off}\n` : '';
     const foot = row.body.footer ? `\n${c.dim}${row.body.footer}${c.off}` : '';
-    console.log(`\n${c.cyan}${label}${c.off}${extra}\n${head}${row.body.text}${foot}`);
+    const text = row.body.kind === 'image' ? `${c.dim}[📷 photo]${c.off}` : row.body.kind === 'form' ? `${row.body.text}\n  ${c.green}[📝 ${row.body.cta}]${c.off} ${c.dim}(a WhatsApp form on a phone; here, answer in the chat)${c.off}` : row.body.text;
+    console.log(`\n${c.cyan}${label}${c.off}${extra}\n${head}${text}${foot}`);
     if (row.body.kind === 'buttons') {
       lastButtons[who] = row.body.buttons;
       row.body.buttons.forEach((b: { title: string }, i: number) => console.log(`  ${c.green}[${i + 1}] ${b.title}${c.off}`));
@@ -121,6 +123,10 @@ async function command(line: string): Promise<boolean> {
     }
   }
   const p = PEOPLE[me];
+  if (line === 'photo') {
+    await h.app.chat.handle({ id: `photo-${Date.now()}`, phone: p.phone, name: p.name, type: 'image', text: '', buttonId: null, mediaId: `local-${Date.now()}`, mimeType: 'image/jpeg' });
+    return true;
+  }
   const n = /^([1-9]|10)$/.test(line) ? Number(line) : 0;
   if (n) {
     const btn = lastButtons[me][n - 1];

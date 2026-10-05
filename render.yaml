@@ -34,3 +34,7 @@ services:
         sync: false          # the test number, digits only, e.g. 15551234567
       - key: WHATSAPP_GRAPH_VERSION
         value: v26.0
+      - key: WHATSAPP_WABA_ID
+        sync: false          # WhatsApp Business Account ID: creates the buyer form and the seller alert
+      - key: WHATSAPP_FORM_MODE
+        value: draft         # switch to "published" once Meta has verified your business

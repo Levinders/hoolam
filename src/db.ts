@@ -6,6 +6,7 @@ export type Queryable = Pick<pg.Pool, 'query'> | Pick<pg.PoolClient, 'query'>;
 
 // BIGINT comes back as a string by default; our amounts fit safely in a JS number (< 2^53).
 pg.types.setTypeParser(20, (v) => Number(v));
+pg.types.setTypeParser(1082, (v: string) => v); // DATE stays 'YYYY-MM-DD' (no time-zone surprises)
 
 export function createPool(databaseUrl: string): Db {
   const needsSsl = /supabase\.(co|com)|sslmode=require/.test(databaseUrl);

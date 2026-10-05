@@ -3,11 +3,14 @@ import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { PRICING, quote } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
 import type { Bank, PaymentProvider } from '../payments/provider.js';
-import { DealError, type DealService, type User } from '../deals/service.js';
+import { DealError, type BuyerDealInput, type DealService, type User } from '../deals/service.js';
 import type { Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
 import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
 import { msg, STATUS_WORDS } from './messages.js';
+import { readBuyForm } from './buy-flow.js';
+import { normalizePhone } from './inbound.js';
+import { dayText } from '../deals/service.js';
 
 /**
  * The WhatsApp conversation. Each person has a small state (what we're waiting for from them)
@@ -17,7 +20,9 @@ import { msg, STATUS_WORDS } from './messages.js';
 type State =
   | 'IDLE' | 'SELL_ITEM' | 'SELL_PRICE' | 'SELL_BANK' | 'SELL_BANK_CONFIRM' | 'SELL_CONFIRM'
   | 'DISPUTE_DETAIL' | 'REFUND_BANK' | 'REFUND_BANK_CONFIRM'
-  | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE';
+  | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE'
+  | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_PRICE' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
+  | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM';
 interface Session { state: State; data: Record<string, any>; isNew: boolean }
 
 export interface FlowOptions {
@@ -27,8 +32,14 @@ export interface FlowOptions {
   messenger: Messenger;
   currency: Currency;
   testMode?: boolean;
+  /** The buyer's WhatsApp form, once it exists on Meta. Null = ask in the chat instead. */
+  buyForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   log?: (line: string) => void;
 }
+
+/** What a buyer has told us so far, kept in the chat session until they tap "Send to seller". */
+interface BuyDraft { item?: string; priceMinor?: number; sellerPhone?: string | null; arriveBy?: string | null; photos?: { mediaId: string; mimeType?: string | null }[] }
+const MAX_PHOTOS = 3;
 
 const CODE_RE = /\bHL-?([A-Z2-9]{5})\b/i;
 
@@ -43,9 +54,10 @@ const GREETINGS = ['menu', 'hi', 'hello', 'start', 'help', 'hey', 'main menu', '
 const PHRASES: Record<string, MenuItem> = {
   ...Object.fromEntries(ICE_BREAKER_STEPS.map((i) => [clean(i.text), i.goTo])),
   'i want to sell something': 'sell', 'sell': 'sell', 'sell something': 'sell',
-  'i have a deal code to pay': 'pay', 'pay': 'pay', 'pay for a deal': 'pay',
+  'i have a deal code to pay': 'pay', 'pay': 'pay', 'pay for a deal': 'pay', 'i have a deal code': 'pay', 'code': 'pay',
+  'buy': 'buy', 'buy something': 'buy', 'i want to buy something': 'buy', 'buy safely': 'buy',
   'how does hoolam work': 'how', 'how it works': 'how', 'how hoolam works': 'how',
-  'i need to talk to a person': 'human', 'talk to a person': 'human', 'agent': 'human', 'support': 'human',
+  'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'agent': 'human', 'support': 'human',
   'my deals': 'deals', 'deals': 'deals', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
   'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'account': 'account',
 };
@@ -85,7 +97,7 @@ export class Conversation {
     }
   }
 
-  private async route(m: Inbound, s: Session, user: User): Promise<void> {
+  private async route(m: Inbound, s: Session, user: User): Promise<unknown> {
     const text = m.text.trim();
     const lower = text.toLowerCase();
 
@@ -106,6 +118,18 @@ export class Conversation {
         case 'problem':
           return this.startProblem(m.phone, user, code!);
         case 'bank': return this.bankAnswer(m.phone, s, user, code === 'yes');
+        // ----- buyer's deal -----
+        case 'buy':
+          if (code === 'send') return this.finishBuying(m.phone, s, user);
+          if (code === 'restart') return this.startBuying(m.phone);
+          if (code === 'nophotos' || code === 'photosdone') return this.askForSeller(m.phone, s.data);
+          if (code === 'nophone') return this.showBuySummary(m.phone, { ...s.data, sellerPhone: null });
+          return;
+        // ----- the seller's side of a buyer's deal -----
+        case 'sview': await this.save(m.phone, 'IDLE'); return this.o.deals.showToSeller(code!, user);
+        case 'saccept': return this.sellerAccepts(m.phone, user, code!);
+        case 'sdecline': await this.save(m.phone, 'IDLE'); return this.o.deals.declineAsSeller(code!, user);
+        case 'snotme': await this.save(m.phone, 'IDLE'); return this.o.deals.declineAsSeller(code!, user, true);
         case 'sell':
           if (code === 'confirm') return this.finishSelling(m.phone, s, user);
           return this.startSelling(m.phone);
@@ -117,6 +141,9 @@ export class Conversation {
       await this.save(m.phone, 'IDLE');
       return this.send(m.phone, msg.welcome(user.display_name));
     }
+
+    // ----- a submitted WhatsApp form -----
+    if (m.type === 'form') return this.buyFormSubmitted(m.phone, m.form ?? {});
 
     // ----- voice notes: Phase 2 -----
     if (m.type === 'audio' && !['DISPUTE_DETAIL', 'HUMAN_MESSAGE'].includes(s.state)) return this.send(m.phone, msg.voiceSoon());
@@ -143,9 +170,13 @@ export class Conversation {
     if (slash) return this.openMenuItem(m.phone, user, SLASH[slash[1]!] ?? 'open');
     if (GREETINGS.includes(words)) return this.openMenuItem(m.phone, user, 'open');
     const codeMatch = text.match(CODE_RE);
-    if (codeMatch && (['IDLE', 'BUY_CODE'].includes(s.state) || /^pay\b/i.test(text))) {
+    if (codeMatch && (['IDLE', 'BUY_CODE'].includes(s.state) || /^(pay|view)\b/i.test(text))) {
       await this.save(m.phone, 'IDLE');
-      return this.o.deals.joinAsBuyer('HL-' + codeMatch[1]!.toUpperCase(), user);
+      const code = 'HL-' + codeMatch[1]!.toUpperCase();
+      const deal = await this.o.deals.findByCode(code);
+      // A buyer's deal waiting for its seller: whoever opens it is shown it as the seller.
+      if (deal?.status === 'AWAITING_SELLER' || (deal?.started_by === 'BUYER' && deal.buyer_id !== user.id)) return this.o.deals.showToSeller(code, user);
+      return this.o.deals.joinAsBuyer(code, user);
     }
     if (s.state === 'IDLE' && PHRASES[words]) return this.openMenuItem(m.phone, user, PHRASES[words]!);
 
@@ -172,9 +203,42 @@ export class Conversation {
       case 'SELL_BANK':
       case 'REFUND_BANK':
       case 'ACCOUNT_BANK':
+      case 'SELLER_BANK':
         return this.bankTyped(m.phone, s, text);
       case 'BUY_CODE':
         return this.send(m.phone, msg.badDealCode());
+      case 'BUY_FORM': // they typed instead of opening the form: that's fine, carry on in the chat
+      case 'BUY_ITEM': {
+        if (text.length < 2) return this.send(m.phone, msg.askBuyItem());
+        await this.save(m.phone, 'BUY_PRICE', { item: text.slice(0, 200) });
+        return this.send(m.phone, msg.askBuyPrice());
+      }
+      case 'BUY_PRICE': {
+        const major = parseAmount(text);
+        if (!major) return this.send(m.phone, msg.badPrice());
+        const priceMinor = toMinor(major, this.o.currency);
+        if (priceMinor > this.maxDeal()) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }));
+        await this.save(m.phone, 'BUY_PHOTOS', { ...s.data, priceMinor, photos: [] });
+        return this.send(m.phone, msg.askBuyPhotos());
+      }
+      case 'BUY_PHOTOS': {
+        if (m.type === 'image' && m.mediaId) {
+          const photos = [...(s.data.photos ?? []), { mediaId: m.mediaId, mimeType: m.mimeType ?? null }].slice(0, MAX_PHOTOS);
+          if (photos.length >= MAX_PHOTOS) {
+            await this.send(m.phone, msg.photoAdded(photos.length, MAX_PHOTOS));
+            return this.askForSeller(m.phone, { ...s.data, photos });
+          }
+          await this.save(m.phone, 'BUY_PHOTOS', { ...s.data, photos });
+          return this.send(m.phone, msg.photoAdded(photos.length, MAX_PHOTOS));
+        }
+        return this.askForSeller(m.phone, s.data); // "no", "done", anything typed: move on
+      }
+      case 'BUY_SELLER': {
+        if (/^(skip|no|none|later)$/i.test(text)) return this.showBuySummary(m.phone, { ...s.data, sellerPhone: null });
+        const phone = normalizePhone(text);
+        if (!phone) return this.send(m.phone, msg.badSellerPhone());
+        return this.showBuySummary(m.phone, { ...s.data, sellerPhone: phone });
+      }
       case 'HUMAN_MESSAGE': {
         const body = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
         if (!body) return this.send(m.phone, msg.askHumanMessage());
@@ -206,6 +270,7 @@ export class Conversation {
   private async openMenuItem(phone: string, user: User, item: MenuItem) {
     switch (item) {
       case 'sell': return this.startSelling(phone);
+      case 'buy': return this.startBuying(phone);
       case 'pay':
         await this.save(phone, 'BUY_CODE');
         return this.send(phone, msg.askDealCode());
@@ -290,6 +355,79 @@ export class Conversation {
     return this.send(phone, msg.dealsList(lines));
   }
 
+
+  // ===== BUYER STARTS A DEAL =====
+  private async startBuying(phone: string) {
+    const form = this.o.buyForm?.() ?? null;
+    if (form) {
+      await this.save(phone, 'BUY_FORM');
+      const status = await this.send(phone, msg.buyForm(form.flowId, form.mode));
+      if (status !== 'FAILED') return;
+      this.o.log?.('buyer form could not be sent; asking in the chat instead');
+    }
+    await this.save(phone, 'BUY_ITEM');
+    return this.send(phone, msg.askBuyItem());
+  }
+
+  /** The answers from the WhatsApp form. Anything missing or wrong is asked again in the chat. */
+  private async buyFormSubmitted(phone: string, form: Record<string, unknown>) {
+    const f = readBuyForm(form);
+    const draft: BuyDraft = { photos: f.photos, arriveBy: f.arriveBy };
+    if (!f.item) { await this.save(phone, 'BUY_ITEM', draft); return this.send(phone, msg.askBuyItem()); }
+    draft.item = f.item.slice(0, 200);
+    const major = f.price ? parseAmount(f.price) : null;
+    const priceMinor = major ? toMinor(major, this.o.currency) : 0;
+    if (!priceMinor || priceMinor > this.maxDeal()) {
+      await this.save(phone, 'BUY_PRICE', draft);
+      return this.send(phone, priceMinor ? msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }) : msg.askBuyPrice());
+    }
+    draft.priceMinor = priceMinor;
+    if (f.sellerPhone) {
+      const p = normalizePhone(f.sellerPhone);
+      if (!p) { await this.save(phone, 'BUY_SELLER', draft); return this.send(phone, msg.badSellerPhone()); }
+      draft.sellerPhone = p;
+    }
+    return this.showBuySummary(phone, draft);
+  }
+
+  private async askForSeller(phone: string, data: BuyDraft) {
+    await this.save(phone, 'BUY_SELLER', data as Record<string, any>);
+    return this.send(phone, msg.askSellerPhone());
+  }
+
+  private async showBuySummary(phone: string, d: BuyDraft) {
+    if (!d.item || !d.priceMinor) return this.startBuying(phone);
+    const q = this.o.deals.previewDeal(d.priceMinor);
+    await this.save(phone, 'BUY_CONFIRM', d as Record<string, any>);
+    const c = this.o.currency;
+    return this.send(phone, msg.buySummary({
+      item: d.item, photos: d.photos?.length ?? 0, arriveBy: d.arriveBy ? dayText(d.arriveBy) : null, sellerPhone: d.sellerPhone ?? null,
+      price: { minor: q.priceMinor, currency: c }, fee: { minor: q.feeMinor, currency: c }, total: { minor: q.buyerPaysMinor, currency: c },
+    }));
+  }
+
+  private async finishBuying(phone: string, s: Session, user: User) {
+    const d = s.data as BuyDraft;
+    if (s.state !== 'BUY_CONFIRM' || !d.item || !d.priceMinor) return this.startBuying(phone);
+    await this.save(phone, 'IDLE');
+    const input: BuyerDealInput = { item: d.item, priceMinor: d.priceMinor, sellerPhone: d.sellerPhone ?? null, arriveBy: d.arriveBy ?? null, photos: d.photos ?? [] };
+    await this.o.deals.createBuyerDeal(user, input);
+  }
+
+  // ===== THE SELLER ACCEPTS A BUYER'S DEAL =====
+  private async sellerAccepts(phone: string, user: User, code: string) {
+    const deal = await this.o.deals.findByCode(code);
+    if (!deal) throw new DealError('NOT_FOUND');
+    const acct = await this.o.deals.defaultBankAccount(user.id);
+    if (deal.status !== 'AWAITING_SELLER') return this.o.deals.acceptAsSeller(code, user, acct?.id ?? ''); // explains why not
+    if (acct) {
+      await this.save(phone, 'IDLE');
+      return this.o.deals.acceptAsSeller(code, user, acct.id);
+    }
+    await this.save(phone, 'SELLER_BANK', { code });
+    return this.send(phone, msg.askSellerBank());
+  }
+
   // ----- bank accounts -----
   private async bankTyped(phone: string, s: Session, text: string) {
     const parsed = parseBankInput(text);
@@ -298,21 +436,27 @@ export class Conversation {
     if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
     const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
     if (!name) return this.send(phone, msg.accountNotFound());
-    const next: State = s.state === 'SELL_BANK' ? 'SELL_BANK_CONFIRM' : s.state === 'ACCOUNT_BANK' ? 'ACCOUNT_BANK_CONFIRM' : 'REFUND_BANK_CONFIRM';
+    const next: State = s.state === 'SELL_BANK' ? 'SELL_BANK_CONFIRM' : s.state === 'ACCOUNT_BANK' ? 'ACCOUNT_BANK_CONFIRM'
+      : s.state === 'SELLER_BANK' ? 'SELLER_BANK_CONFIRM' : 'REFUND_BANK_CONFIRM';
     await this.save(phone, next, { ...s.data, pendingAccount: { bank_code: bank.code, bank_name: bank.name, account_number: parsed.accountNumber, account_name: name } });
     return this.send(phone, msg.confirmBank(name, bank.name, parsed.accountNumber.slice(-4)));
   }
 
   private async bankAnswer(phone: string, s: Session, user: User, yes: boolean) {
-    if (!['SELL_BANK_CONFIRM', 'REFUND_BANK_CONFIRM', 'ACCOUNT_BANK_CONFIRM'].includes(s.state) || !s.data.pendingAccount) return this.send(phone, msg.didntUnderstand());
+    if (!['SELL_BANK_CONFIRM', 'REFUND_BANK_CONFIRM', 'ACCOUNT_BANK_CONFIRM', 'SELLER_BANK_CONFIRM'].includes(s.state) || !s.data.pendingAccount) return this.send(phone, msg.didntUnderstand());
     const selling = s.state === 'SELL_BANK_CONFIRM';
     const changing = s.state === 'ACCOUNT_BANK_CONFIRM';
+    const accepting = s.state === 'SELLER_BANK_CONFIRM';
     const { pendingAccount, ...rest } = s.data;
     if (!yes) {
-      await this.save(phone, selling ? 'SELL_BANK' : changing ? 'ACCOUNT_BANK' : 'REFUND_BANK', rest);
-      return this.send(phone, selling ? msg.askBank() : changing ? msg.askNewAccount() : msg.askRefundBank());
+      await this.save(phone, selling ? 'SELL_BANK' : changing ? 'ACCOUNT_BANK' : accepting ? 'SELLER_BANK' : 'REFUND_BANK', rest);
+      return this.send(phone, selling ? msg.askBank() : changing ? msg.askNewAccount() : accepting ? msg.askSellerBank() : msg.askRefundBank());
     }
     const acct = await this.o.deals.saveBankAccount(user.id, pendingAccount);
+    if (accepting) {
+      await this.save(phone, 'IDLE');
+      return this.o.deals.acceptAsSeller(rest.code, user, acct.id);
+    }
     if (selling) return this.showSellSummary(phone, { ...rest, accountId: acct.id });
     if (changing) {
       await this.save(phone, 'IDLE');

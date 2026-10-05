@@ -75,10 +75,28 @@ Message the test number on WhatsApp. One phone plays both sides:
 
 Try **Problem** instead of I'm happy to test the dispute flow.
 
+## F. Buyer starts the deal (form + seller alert)
+
+**One-time setup**
+1. Render → Environment → add `WHATSAPP_WABA_ID` = your WhatsApp Business Account ID (Meta → WhatsApp → API Setup). Save.
+2. Meta → WhatsApp → API Setup → **To** → add your *second* phone (the "seller"). The test number can only message numbers on that list.
+3. In Render's logs after the restart, look for:
+   - `seller alert template submitted to Meta: PENDING` → Meta reviews it (minutes to a day). Next restarts say `APPROVED`.
+   - `buyer form created: hoolam_buy_…` → buyers get the form. If it says FAILED, buyers answer in the chat instead (paste the log line to fix it).
+
+**Try it** (phone A = buyer, phone B = seller)
+1. A: **hi** → **Open menu** → **🛒 Buy something** → fill the form (or answer in the chat) → put phone B's number as the seller → **📨 Send to seller**.
+2. B gets "🛒 New order request" → **View deal** → photos + details → **✅ Accept** → bank account → **Yes, that's me**.
+3. A gets "🎉 … accepted your deal!" → **💳 Pay now** → reply **paid** (test mode) → the rest is the normal deal.
+
+Also try: **✕ Decline**, **🚫 Not me** (that number is never alerted again), or no seller number (A forwards the link to B).
+
 ## When something doesn't work
 
 | What you see | Likely cause | Fix |
 |---|---|---|
+| Seller never gets the alert, log says `(template)` FAILED | Template not approved yet, or B isn't on the test "To" list | Wait for APPROVED; add B's number in API Setup → To |
+| `buyer form FAILED` in the logs | Meta refused the form (permissions or business checks) | Paste the line; buyers still answer in the chat meanwhile |
 | No reply at all, and nothing in Render's logs | WhatsApp account not attached to the app | Run the `subscribed_apps` command in step D4 |
 | No reply at all, server was idle | Server asleep (free plan) | Wait a minute and send again |
 | Render log shows `bad signature` | Wrong `WHATSAPP_APP_SECRET` | Copy it again from App settings → Basic |

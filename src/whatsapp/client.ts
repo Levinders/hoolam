@@ -6,7 +6,24 @@ export interface ListSection { title: string; rows: ListRow[] }              // 
 export type Outbound =
   | { kind: 'text'; text: string }
   | { kind: 'buttons'; text: string; buttons: Button[] }
-  | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string }; // max 10 rows; header/footer max 60
+  | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string } // max 10 rows; header/footer max 60
+  | { kind: 'image'; mediaId: string; caption?: string }                                                      // caption max 1024
+  | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string };
+
+/** A pre-approved template: the only way to message someone who hasn't written to us in the last 24 hours. */
+export interface Template {
+  name: string;
+  language: string;
+  params: string[];          // fills {{1}}, {{2}}, ... in the body
+  buttonPayloads?: string[]; // what each quick-reply button sends back to us
+  buttonTitles?: string[];   // the button labels as approved in the template (for logs and the terminal chat)
+  preview: string;           // readable version for logs and the outbound_messages table
+}
+
+export type SendStatus = 'SENT' | 'DRY_RUN' | 'FAILED' | 'NEEDS_TEMPLATE';
+
+/** WhatsApp rejects template values with new lines, tabs or long runs of spaces. */
+export const templateText = (s: string, max = 120) => s.replace(/[\n\r\t]+/g, ' ').replace(/ {4,}/g, '   ').trim().slice(0, max);
 
 /** Throws if a message breaks WhatsApp's limits, so mistakes show up in tests, not on someone's phone. */
 export function checkLimits(msg: Outbound): void {
@@ -28,6 +45,8 @@ export function checkLimits(msg: Outbound): void {
     }
     if (new Set(rows.map((r) => r.id)).size !== rows.length) throw new Error('List row ids must be unique');
   }
+  if (msg.kind === 'form' && msg.cta.length > 30) throw new Error(`Form button too long: "${msg.cta}"`);
+  if (msg.kind === 'image' && (msg.caption ?? '').length > 1024) throw new Error('Image caption too long');
 }
 
 export interface MessengerOptions {
@@ -53,22 +72,43 @@ export class Messenger {
     this.fetch = o.fetchImpl ?? fetch;
   }
 
-  async send(phone: string, msg: Outbound): Promise<void> {
+  async send(phone: string, msg: Outbound): Promise<SendStatus> {
     checkLimits(msg);
     const s = await this.db.query('SELECT last_inbound_at FROM chat_sessions WHERE phone=$1', [phone]);
     const last: Date | null = s.rows[0]?.last_inbound_at ?? null;
     if (!last || Date.now() - new Date(last).getTime() > DAY_MS) {
       this.o.log?.(`whatsapp not sent to …${phone.slice(-4)}: outside the 24-hour window (needs a template)`);
       await this.record(phone, msg, 'NEEDS_TEMPLATE', 'Outside the 24-hour window; send an approved template instead');
-      return;
+      return 'NEEDS_TEMPLATE';
     }
+    return this.deliver(phone, msg, toPayload(phone.replace(/^\+/, ''), msg));
+  }
+
+  /** Sends an approved template. Allowed outside the 24-hour window. */
+  async sendTemplate(phone: string, t: Template): Promise<SendStatus> {
+    const to = phone.replace(/^\+/, '');
+    const payload = {
+      messaging_product: 'whatsapp', to, type: 'template',
+      template: {
+        name: t.name, language: { code: t.language },
+        components: [
+          ...(t.params.length ? [{ type: 'body', parameters: t.params.map((p) => ({ type: 'text', text: templateText(p) })) }] : []),
+          ...(t.buttonPayloads ?? []).map((p, i) => ({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: p }] })),
+        ],
+      },
+    };
+    const shown: Outbound = t.buttonTitles?.length && t.buttonPayloads?.length
+      ? { kind: 'buttons', text: `[template ${t.name}] ${t.preview}`, buttons: t.buttonPayloads.map((id, i) => ({ id, title: t.buttonTitles![i] ?? id })) }
+      : { kind: 'text', text: `[template ${t.name}] ${t.preview}` };
+    return this.deliver(phone, shown, payload, 'template');
+  }
+
+  private async deliver(phone: string, msg: Outbound, payload: Record<string, unknown>, kind?: string): Promise<SendStatus> {
     if (this.o.dryRun) {
       this.o.log?.(`[whatsapp → ${phone}] ${render(msg)}`);
-      await this.record(phone, msg, 'DRY_RUN');
-      return;
+      await this.record(phone, msg, 'DRY_RUN', undefined, kind);
+      return 'DRY_RUN';
     }
-    const to = phone.replace(/^\+/, '');
-    const payload = toPayload(to, msg);
     try {
       const res = await this.fetch(`https://graph.facebook.com/${this.o.graphVersion}/${this.o.phoneNumberId}/messages`, {
         method: 'POST',
@@ -76,22 +116,42 @@ export class Messenger {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-      this.o.log?.(`whatsapp sent to …${phone.slice(-4)}`);
-      await this.record(phone, msg, 'SENT');
+      this.o.log?.(`whatsapp sent to …${phone.slice(-4)}${kind ? ' (' + kind + ')' : ''}`);
+      await this.record(phone, msg, 'SENT', undefined, kind);
+      return 'SENT';
     } catch (err) {
-      this.o.log?.(`whatsapp send FAILED to …${phone.slice(-4)}: ${(err as Error).message}`);
-      await this.record(phone, msg, 'FAILED', (err as Error).message);
+      this.o.log?.(`whatsapp send FAILED to …${phone.slice(-4)}${kind ? ' (' + kind + ')' : ''}: ${(err as Error).message}`);
+      await this.record(phone, msg, 'FAILED', (err as Error).message, kind);
+      return 'FAILED';
     }
   }
 
-  private async record(phone: string, msg: Outbound, status: string, error?: string) {
-    await this.db.query('INSERT INTO outbound_messages (phone, kind, body, status, error) VALUES ($1,$2,$3,$4,$5)', [phone, msg.kind, JSON.stringify(msg), status, error ?? null]);
+  private async record(phone: string, msg: Outbound, status: string, error?: string, kind?: string) {
+    await this.db.query('INSERT INTO outbound_messages (phone, kind, body, status, error) VALUES ($1,$2,$3,$4,$5)', [phone, kind ?? msg.kind, JSON.stringify(msg), status, error ?? null]);
   }
 }
 
 export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
   const base = { messaging_product: 'whatsapp', to };
   if (msg.kind === 'text') return { ...base, type: 'text', text: { body: msg.text, preview_url: false } };
+  if (msg.kind === 'image') return { ...base, type: 'image', image: { id: msg.mediaId, ...(msg.caption ? { caption: msg.caption } : {}) } };
+  if (msg.kind === 'form') {
+    return {
+      ...base, type: 'interactive',
+      interactive: {
+        type: 'flow', body: { text: msg.text },
+        ...(msg.header ? { header: { type: 'text', text: msg.header } } : {}),
+        ...(msg.footer ? { footer: { text: msg.footer } } : {}),
+        action: {
+          name: 'flow',
+          parameters: {
+            flow_message_version: '3', flow_id: msg.flowId, flow_token: msg.flowToken, flow_cta: msg.cta, mode: msg.mode,
+            flow_action: 'navigate', flow_action_payload: { screen: msg.screen },
+          },
+        },
+      },
+    };
+  }
   if (msg.kind === 'buttons') {
     return {
       ...base, type: 'interactive',
@@ -115,5 +175,7 @@ export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
 export function render(msg: Outbound): string {
   if (msg.kind === 'text') return msg.text;
   if (msg.kind === 'buttons') return `${msg.text}  ${msg.buttons.map((b) => `[${b.title}]`).join(' ')}`;
+  if (msg.kind === 'image') return `[photo]${msg.caption ? ' ' + msg.caption : ''}`;
+  if (msg.kind === 'form') return `${msg.text}  [📝 ${msg.cta}]`;
   return `${msg.header ? msg.header + '\n' : ''}${msg.text}${msg.footer ? '\n' + msg.footer : ''}  [${msg.button} ▾: ${msg.sections.flatMap((s) => s.rows.map((r) => r.title)).join(' | ')}]`;
 }

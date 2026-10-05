@@ -72,6 +72,21 @@ payouts wait in `PAYOUT_PENDING` and you approve them with `POST /admin/payouts/
    - `seller_paid`: "You've been paid. {{1}} has been sent to your {{2}} account for deal {{3}}."
    - `refund_sent`: "Your refund of {{1}} for deal {{2}} has been sent to your {{3}} account."
 
+## Buyer starts the deal
+
+A buyer describes what they're buying (item, agreed price, up to 3 photos, the seller's WhatsApp, an optional
+arrival date) in a **WhatsApp form**, or answers the same questions in the chat. Hoolam then:
+
+1. Saves the deal as `AWAITING_SELLER`, with the photos kept as proof of what was promised.
+2. Alerts the seller once with the approved template `hoolam_order_request` (**View deal** / **Not me**), and gives the
+   buyer a `View HL-…` link to forward too. "Not me" numbers are never alerted again (`contact_optouts`).
+3. The seller sees the photos and taps **Accept** (adds a bank account if needed) or **Decline**.
+4. The buyer is asked to pay. From there it's the normal deal. Unanswered deals expire after `SELLER_ACCEPT_HOURS` (48).
+
+Form: `src/whatsapp/buy-flow.ts` (banner: `assets/buy-banner.png`). Template wording: `SELLER_ALERT` in
+`src/whatsapp/automation.ts`. Both are created on Meta at startup when `WHATSAPP_WABA_ID` is set; see
+[docs/WHATSAPP-TEST-SETUP.md](docs/WHATSAPP-TEST-SETUP.md) section F. Photos: `GET /admin/deals/HL-XXXXX` lists them.
+
 ## The WhatsApp menu
 
 People never face an empty chat:

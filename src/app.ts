@@ -6,7 +6,8 @@ import { DealError, DealService } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { syncAutomation } from './whatsapp/automation.js';
+import { ensureBuyFlow, ensureSellerAlertTemplate, syncAutomation } from './whatsapp/automation.js';
+import { Media } from './whatsapp/media.js';
 import { Messenger } from './whatsapp/client.js';
 import { Conversation } from './whatsapp/flow.js';
 import { parseInbound, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
@@ -20,9 +21,15 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const messenger = new Messenger(db, {
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
+  const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider instanceof FakeProvider;
-  const deals = new DealService({ db, provider, messenger, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER, testMode, log });
-  const chat = new Conversation({ db, deals, provider, messenger, currency: c.CURRENCY, testMode, log });
+  const deals = new DealService({
+    db, provider, messenger, media, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER,
+    acceptHours: c.SELLER_ACCEPT_HOURS, testMode, log,
+  });
+  // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
+  let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
+  const chat = new Conversation({ db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, buyForm: () => buyForm });
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -114,8 +121,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     admin.get('/deals', async (req) => {
       const status = (req.query as { status?: string }).status;
       const r = await db.query(
-        `SELECT d.code, d.item, d.status, d.buyer_pays_minor, d.seller_gets_minor, d.currency, s.phone AS seller, b.phone AS buyer, d.updated_at
-         FROM deals d JOIN users s ON s.id=d.seller_id LEFT JOIN users b ON b.id=d.buyer_id
+        `SELECT d.code, d.item, d.status, d.started_by, d.buyer_pays_minor, d.seller_gets_minor, d.currency, s.phone AS seller, b.phone AS buyer, d.updated_at
+         FROM deals d LEFT JOIN users s ON s.id=d.seller_id LEFT JOIN users b ON b.id=d.buyer_id
          ${status ? 'WHERE d.status=$1' : ''} ORDER BY d.updated_at DESC LIMIT 100`, status ? [status] : []);
       return r.rows;
     });
@@ -147,7 +154,16 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         db.query('SELECT account, amount_minor, memo, created_at FROM ledger_entries WHERE deal_id=$1 ORDER BY id', [id]),
         db.query('SELECT * FROM disputes WHERE deal_id=$1 ORDER BY created_at', [id]),
       ]);
-      return { deal: d.rows[0], events: events.rows, payments: payments.rows, payouts: payouts.rows, ledger: ledger.rows, disputes: disputes.rows };
+      const photos = (await deals.photosFor(id)).map((p) => ({ ...p, url: `/admin/deals/${d.rows[0].code}/photos/${p.id}` }));
+      return { deal: d.rows[0], photos, events: events.rows, payments: payments.rows, payouts: payouts.rows, ledger: ledger.rows, disputes: disputes.rows };
+    });
+    // The photos the buyer sent: proof of what was promised.
+    admin.get('/deals/:code/photos/:id', async (req, reply) => {
+      const { code, id } = req.params as { code: string; id: string };
+      const r = await db.query(
+        'SELECT p.mime_type, p.bytes FROM deal_photos p JOIN deals d ON d.id=p.deal_id WHERE d.code=$1 AND p.id=$2', [code.toUpperCase(), id]);
+      if (!r.rows[0]?.bytes) return reply.code(404).send({ error: 'no photo' });
+      return reply.type(r.rows[0].mime_type).send(r.rows[0].bytes);
     });
 
     admin.post('/deals/:code/release', async (req) => {
@@ -197,7 +213,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     // Re-send the ice breakers and slash commands to Meta.
     admin.post('/whatsapp/sync-menu', async (_req, reply) => {
       if (c.WHATSAPP_DRY_RUN) return reply.code(400).send({ error: 'WhatsApp is in dry-run mode' });
-      return syncMenu();
+      await setupMeta();
+      return { ok: true, buyForm };
     });
     admin.get('/ledger/balances', async () => {
       const r = await db.query('SELECT account, currency, SUM(amount_minor)::bigint AS balance_minor FROM ledger_entries GROUP BY account, currency ORDER BY account');
@@ -215,6 +232,26 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   const syncMenu = () => syncAutomation({ token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log });
 
+  /** On start (live mode): the menu extras, the seller alert template and the buyer's form. Never throws. */
+  async function setupMeta(): Promise<void> {
+    if (c.WHATSAPP_DRY_RUN) return;
+    try {
+      if (c.WHATSAPP_SYNC_MENU) await syncMenu();
+      if (!c.WHATSAPP_WABA_ID) {
+        log('buyer form + seller alerts need WHATSAPP_WABA_ID in Render. Buyers answer in the chat until then.');
+        return;
+      }
+      const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log };
+      await ensureSellerAlertTemplate(o);
+      if (c.WHATSAPP_BUY_FORM) {
+        const flowId = await ensureBuyFlow(o);
+        buyForm = flowId ? { flowId, mode: c.WHATSAPP_FORM_MODE } : null;
+      }
+    } catch (e) {
+      log(`WhatsApp setup failed: ${(e as Error).message}`);
+    }
+  }
+
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
   async function tick(kind: 'fast' | 'slow') {
     if (kind === 'fast') {
@@ -228,7 +265,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     }
   }
 
-  return { app, deals, chat, messenger, tick, syncMenu };
+  return { app, deals, chat, messenger, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; } };
 }
 
 function header(req: FastifyRequest, name: string): string | undefined {

@@ -5,14 +5,31 @@ import type { Currency } from '../money.js';
 import { quote } from '../pricing.js';
 import type { PaymentProvider, PayoutResult } from '../payments/provider.js';
 import type { Messenger, Outbound } from '../whatsapp/client.js';
+import type { Media } from '../whatsapp/media.js';
+import { SELLER_ALERT } from '../whatsapp/automation.js';
 import { msg } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
 
 export interface Deal {
-  id: string; code: string; seller_id: string; buyer_id: string | null; item: string; currency: Currency;
+  id: string; code: string; seller_id: string | null; buyer_id: string | null; item: string; currency: Currency;
   price_minor: number; fee_minor: number; buyer_pays_minor: number; seller_gets_minor: number;
   seller_account_id: string | null; status: Status; created_at: Date; funded_at: Date | null; shipped_at: Date | null;
+  started_by: 'SELLER' | 'BUYER'; invited_phone: string | null; arrive_by: string | Date | null; accept_by: Date | null;
 }
+
+/** What a buyer gives us to start a deal (from the WhatsApp form or the chat questions). */
+export interface BuyerDealInput {
+  item: string;
+  priceMinor: number;
+  sellerPhone: string | null;
+  arriveBy: string | null;                          // YYYY-MM-DD
+  photos: { mediaId: string; mimeType?: string | null }[];
+}
+
+/** What happened to the alert we tried to send the seller. */
+export type SellerAlert = 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed';
+
+export const SELLER_ALERT_TEMPLATE = SELLER_ALERT.name;
 export interface User { id: string; phone: string; display_name: string | null }
 export interface BankAccount { id: string; user_id: string; bank_code: string; bank_name: string; account_number: string; account_name: string }
 
@@ -41,6 +58,8 @@ export interface DealServiceOptions {
   maxDealMinor: number;
   waNumber: string;           // digits, for wa.me links
   testMode?: boolean;         // fake money: allow self-deals and show a test hint
+  media?: Media;              // photos in and out of WhatsApp
+  acceptHours?: number;       // how long a seller has to accept a buyer's deal (default 48)
   log?: (line: string) => void;
 }
 
@@ -62,6 +81,12 @@ export class DealService {
   }
 
   private money(minor: number) { return { minor, currency: this.o.currency }; }
+
+  /** The seller of a deal that is past the "seller accepted" point. */
+  private async sellerOf(q: Queryable, deal: Deal): Promise<User> {
+    if (!deal.seller_id) throw new Error(`Deal ${deal.code} has no seller yet`);
+    return this.userById(q, deal.seller_id);
+  }
 
   // ---------- users & bank accounts ----------
   async upsertUser(phone: string, name: string | null): Promise<User> {
@@ -161,6 +186,164 @@ export class DealService {
     return `https://wa.me/${this.o.waNumber}?text=${encodeURIComponent('Pay ' + code)}`;
   }
 
+
+  // ---------- 1b. a BUYER starts the deal ----------
+  sellerLink(code: string): string {
+    return `https://wa.me/${this.o.waNumber}?text=${encodeURIComponent('View ' + code)}`;
+  }
+
+  private acceptHours(): number { return this.o.acceptHours ?? 48; }
+
+  /**
+   * The buyer describes what they're buying. We save it (with photos, as proof of what was promised),
+   * give the buyer a link for the seller, and alert the seller directly if the buyer gave their number.
+   */
+  async createBuyerDeal(buyer: User, input: BuyerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
+    const q = this.previewDeal(input.priceMinor);
+    // Fetch the photos before the transaction: WhatsApp links only work for a few minutes.
+    const photos: { mediaId: string; mimeType: string; bytes: Buffer | null; sha256: string | null }[] = [];
+    for (const p of input.photos.slice(0, 3)) {
+      try {
+        const d = this.o.media ? await this.o.media.download(p.mediaId) : null;
+        photos.push({ mediaId: p.mediaId, mimeType: d?.mimeType ?? p.mimeType ?? 'image/jpeg', bytes: d?.bytes ?? null, sha256: d?.sha256 ?? null });
+      } catch (e) { this.log(`photo ${p.mediaId} skipped: ${(e as Error).message}`); }
+    }
+    const deal = await this.run(async (tx) => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const code = newCode();
+        const r = await tx.query(
+          `INSERT INTO deals (code, buyer_id, item, currency, price_minor, fee_minor, buyer_pays_minor, seller_gets_minor,
+                              status, started_by, invited_phone, arrive_by, accept_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AWAITING_SELLER','BUYER',$9,$10, now() + make_interval(hours => $11))
+           ON CONFLICT (code) DO NOTHING RETURNING *`,
+          [code, buyer.id, input.item.slice(0, 200), this.o.currency, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor,
+            input.sellerPhone, input.arriveBy, this.acceptHours()],
+        );
+        if (!r.rows[0]) continue;
+        const d: Deal = r.rows[0];
+        await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [d.id, d.status, 'buyer']);
+        for (const p of photos) {
+          await tx.query('INSERT INTO deal_photos (deal_id, uploaded_by, mime_type, bytes, sha256, wa_media_id) VALUES ($1,$2,$3,$4,$5,$6)',
+            [d.id, buyer.id, p.mimeType, p.bytes, p.sha256, p.mediaId]);
+        }
+        return d;
+      }
+      throw new Error('Could not allocate a deal code');
+    });
+
+    const link = this.sellerLink(deal.code);
+    const alert = await this.alertSeller(deal, buyer);
+    await this.o.messenger.send(buyer.phone, msg.buyDealReady(deal.code, link, alert, this.acceptHours()));
+    if (alert === 'failed') await this.o.messenger.send(buyer.phone, msg.buyerAlertFailed());
+    return { deal, link, alert };
+  }
+
+  /** One alert, once, to the number the buyer typed. Never to someone who tapped "Not me". */
+  private async alertSeller(deal: Deal, buyer: User): Promise<SellerAlert> {
+    const phone = deal.invited_phone;
+    if (!phone) return 'none';
+    if (phone === buyer.phone && !this.o.testMode) return 'own-number';
+    const out = await this.o.db.query('SELECT 1 FROM contact_optouts WHERE phone=$1', [phone]);
+    if (out.rowCount) return 'opted-out';
+    const name = firstName(buyer.display_name) ?? 'A buyer';
+    const price = msg.moneyText(this.money(deal.price_minor));
+    const status = await this.o.messenger.sendTemplate(phone, {
+      name: SELLER_ALERT_TEMPLATE, language: 'en',
+      params: [name, deal.item, price, deal.code],
+      buttonPayloads: [`sview:${deal.code}`, `snotme:${deal.code}`],
+      buttonTitles: SELLER_ALERT.buttons,
+      preview: `🛒 New order request on Hoolam\n\n${name} wants to buy ${deal.item} from you for ${price}. Deal ${deal.code}.`,
+    });
+    if (status === 'FAILED') { this.log(`seller alert for ${deal.code} failed; the buyer still has the link`); return 'failed'; }
+    return 'sent';
+  }
+
+  /** Someone opened a buyer's deal (from the alert or the link): show them the photos and what's asked. */
+  async showToSeller(code: string, viewer: User): Promise<void> {
+    const deal = await this.findByCode(code);
+    if (!deal) throw new DealError('NOT_FOUND');
+    if (deal.status !== 'AWAITING_SELLER') {
+      const isParty = deal.seller_id === viewer.id || deal.buyer_id === viewer.id;
+      await this.o.messenger.send(viewer.phone, isParty ? msg.dealStatusNow(deal.code, deal.status) : deal.seller_id ? msg.dealHasSeller(deal.code) : msg.dealClosed(deal.code));
+      return;
+    }
+    if (deal.buyer_id === viewer.id && !this.o.testMode) {
+      await this.o.messenger.send(viewer.phone, msg.ownBuyDeal(deal.code, this.sellerLink(deal.code)));
+      return;
+    }
+    const buyer = await this.userById(this.o.db, deal.buyer_id!);
+    for (const mediaId of await this.photoIdsForSending(deal.id)) {
+      await this.o.messenger.send(viewer.phone, { kind: 'image', mediaId });
+    }
+    const hoursLeft = deal.accept_by ? Math.max(1, Math.round((new Date(deal.accept_by).getTime() - Date.now()) / 3600_000)) : this.acceptHours();
+    await this.o.messenger.send(viewer.phone, msg.sellerDealCard({
+      code: deal.code, buyerName: firstName(buyer.display_name) ?? 'A buyer', item: deal.item,
+      price: this.money(deal.price_minor), sellerGets: this.money(deal.seller_gets_minor),
+      arriveBy: deal.arrive_by ? dayText(deal.arrive_by) : null, hoursLeft,
+      invited: deal.invited_phone === viewer.phone,
+    }));
+  }
+
+  /** Re-uploads the deal's photos to WhatsApp (reusing an upload for up to 25 days). */
+  private async photoIdsForSending(dealId: string): Promise<string[]> {
+    const r = await this.o.db.query('SELECT id, mime_type, bytes, sent_media_id, sent_media_at FROM deal_photos WHERE deal_id=$1 ORDER BY id', [dealId]);
+    const ids: string[] = [];
+    for (const p of r.rows) {
+      const fresh = p.sent_media_id && p.sent_media_at && Date.now() - new Date(p.sent_media_at).getTime() < 25 * 86400_000;
+      if (fresh) { ids.push(p.sent_media_id); continue; }
+      try {
+        const id = this.o.media ? await this.o.media.upload(p.bytes, p.mime_type) : 'dry-run-media';
+        await this.o.db.query('UPDATE deal_photos SET sent_media_id=$2, sent_media_at=now() WHERE id=$1', [p.id, id]);
+        ids.push(id);
+      } catch (e) { this.log(`photo ${p.id} upload failed: ${(e as Error).message}`); }
+    }
+    return ids;
+  }
+
+  /** The seller says yes. From here on it's a normal deal: the buyer is asked to pay. */
+  async acceptAsSeller(code: string, seller: User, accountId: string): Promise<void> {
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (deal.status !== 'AWAITING_SELLER') {
+        out.push({ phone: seller.phone, message: deal.seller_id === seller.id ? msg.dealStatusNow(deal.code, deal.status) : deal.seller_id ? msg.dealHasSeller(deal.code) : msg.dealClosed(deal.code) });
+        return;
+      }
+      if (deal.accept_by && new Date(deal.accept_by).getTime() < Date.now()) throw new DealError('CLOSED');
+      if (deal.buyer_id === seller.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+      const acct = await tx.query('SELECT bank_name, account_number FROM bank_accounts WHERE id=$1 AND user_id=$2', [accountId, seller.id]);
+      if (!acct.rows[0]) throw new DealError('NOT_ALLOWED');
+      await tx.query('UPDATE deals SET seller_id=$2, seller_account_id=$3 WHERE id=$1', [deal.id, seller.id, accountId]);
+      await this.move(tx, deal, 'AWAITING_PAYMENT', 'seller', 'Seller accepted the buyer\'s deal');
+      const buyer = await this.userById(tx, deal.buyer_id!);
+      out.push({ phone: seller.phone, message: msg.sellerAcceptedOk(deal.code, firstName(buyer.display_name) ?? 'The buyer', acct.rows[0].bank_name, String(acct.rows[0].account_number).slice(-4)) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.buyer_pays_minor)) });
+    });
+  }
+
+  /** The seller says no, or "Not me" (wrong number: we never alert that number again). */
+  async declineAsSeller(code: string, viewer: User, notMe = false): Promise<void> {
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (notMe) {
+        await tx.query('INSERT INTO contact_optouts (phone, reason) VALUES ($1,$2) ON CONFLICT (phone) DO NOTHING', [viewer.phone, `Not me on ${deal.code}`]);
+      }
+      if (deal.status !== 'AWAITING_SELLER') {
+        out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.dealClosed(deal.code) });
+        return;
+      }
+      if (deal.buyer_id === viewer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+      await this.move(tx, deal, 'CANCELLED', 'seller', notMe ? 'Not me: the alerted number is not the seller' : 'Seller declined');
+      const buyer = await this.userById(tx, deal.buyer_id!);
+      out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.sellerDeclinedOk(deal.code) });
+      out.push({ phone: buyer.phone, message: notMe ? msg.buyerNotMe(deal.code) : msg.buyerSellerDeclined(deal.code) });
+    });
+  }
+
+  async photosFor(dealId: string): Promise<{ id: number; mime_type: string; size: number | null; created_at: Date }[]> {
+    const r = await this.o.db.query('SELECT id, mime_type, octet_length(bytes) AS size, created_at FROM deal_photos WHERE deal_id=$1 ORDER BY id', [dealId]);
+    return r.rows;
+  }
+
   // ---------- 2. buyer opens the link ----------
   async joinAsBuyer(code: string, buyer: User): Promise<void> {
     await this.run(async (tx, out) => {
@@ -168,7 +351,7 @@ export class DealService {
       if (deal.seller_id === buyer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
       if (deal.buyer_id && deal.buyer_id !== buyer.id) throw new DealError('TAKEN');
       if (!['AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(deal.status)) throw new DealError('CLOSED');
-      const seller = await this.userById(tx, deal.seller_id);
+      const seller = await this.sellerOf(tx, deal);
       if (!deal.buyer_id) {
         await tx.query('UPDATE deals SET buyer_id=$2 WHERE id=$1', [deal.id, buyer.id]);
         await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer');
@@ -228,13 +411,15 @@ export class DealService {
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
-      if (deal.status !== 'AWAITING_PAYMENT') throw new DealError('CLOSED');
+      if (deal.status !== 'AWAITING_PAYMENT' && deal.status !== 'AWAITING_SELLER') throw new DealError('CLOSED');
       const paid = await tx.query(`SELECT 1 FROM payment_intents WHERE deal_id=$1 AND status IN ('PAID','PARTIAL')`, [deal.id]);
       if (paid.rowCount) throw new DealError('NOT_ALLOWED');
       await this.move(tx, deal, 'CANCELLED', 'buyer');
-      const seller = await this.userById(tx, deal.seller_id);
       out.push({ phone: buyer.phone, message: msg.cancelled(deal.code) });
-      out.push({ phone: seller.phone, message: msg.sellerBuyerCancelled(deal.code) });
+      if (deal.seller_id && deal.seller_id !== buyer.id) {
+        const seller = await this.sellerOf(tx, deal);
+        out.push({ phone: seller.phone, message: msg.sellerBuyerCancelled(deal.code) });
+      }
     });
   }
 
@@ -255,7 +440,7 @@ export class DealService {
 
       const deal = await this.lockById(tx, pi.deal_id);
       const buyer = deal.buyer_id ? await this.userById(tx, deal.buyer_id) : null;
-      const seller = await this.userById(tx, deal.seller_id);
+      const seller = await this.sellerOf(tx, deal);
       const cash = `cash:${this.o.provider.name}`;
       const paid = check.amountPaidMinor;
 
@@ -346,7 +531,7 @@ export class DealService {
       if (!['FUNDED', 'SHIPPED'].includes(deal.status)) throw new DealError('NOT_ALLOWED');
       await this.move(tx, deal, 'DISPUTED', 'buyer');
       await tx.query('INSERT INTO disputes (deal_id, opened_by) VALUES ($1,$2)', [deal.id, buyer.id]);
-      const seller = await this.userById(tx, deal.seller_id);
+      const seller = await this.sellerOf(tx, deal);
       out.push({ phone: buyer.phone, message: msg.askProblem(deal.code) });
       out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code) });
     });
@@ -448,11 +633,11 @@ export class DealService {
         const acct = await tx.query('SELECT bank_name FROM bank_accounts WHERE id=$1', [p.bank_account_id]);
         const bankName = acct.rows[0]?.bank_name ?? 'bank';
         if (p.kind === 'SELLER') {
-          const seller = await this.userById(tx, deal.seller_id);
+          const seller = await this.sellerOf(tx, deal);
           out.push({ phone: seller.phone, message: msg.sellerPaid(deal.code, this.money(p.amount_minor), bankName) });
         } else {
           const buyer = await this.userById(tx, deal.buyer_id!);
-          const seller = await this.userById(tx, deal.seller_id);
+          const seller = await this.sellerOf(tx, deal);
           out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName) });
           out.push({ phone: seller.phone, message: msg.sellerRefunded(deal.code) });
         }
@@ -466,7 +651,7 @@ export class DealService {
       if (deal.status !== 'PAYOUT_PENDING') {
         await this.move(tx, deal, 'PAYOUT_PENDING', 'provider', `NEEDS_ATTENTION: payout ${reference} ${result.status}${result.message ? ': ' + result.message : ''}`);
         if (p.kind === 'SELLER') {
-          const seller = await this.userById(tx, deal.seller_id);
+          const seller = await this.sellerOf(tx, deal);
           out.push({ phone: seller.phone, message: msg.sellerPayoutDelayed(deal.code) });
         }
       }
@@ -505,8 +690,30 @@ export class DealService {
         if (deal.status === 'AWAITING_BUYER' || deal.status === 'AWAITING_PAYMENT') { await this.move(tx, deal, 'EXPIRED', 'system'); expired++; }
       });
     }
+    const unanswered = await this.o.db.query(`SELECT id FROM deals WHERE status='AWAITING_SELLER' AND accept_by < now() LIMIT 100`);
+    for (const row of unanswered.rows) {
+      await this.run(async (tx, out) => {
+        const deal = await this.lockById(tx, row.id);
+        if (deal.status !== 'AWAITING_SELLER') return;
+        await this.move(tx, deal, 'EXPIRED', 'system', 'Seller did not accept in time');
+        const buyer = await this.userById(tx, deal.buyer_id!);
+        out.push({ phone: buyer.phone, message: msg.buyerSellerExpired(deal.code) });
+        expired++;
+      });
+    }
     return { nudged, expired };
   }
+}
+
+function firstName(name: string | null): string | null {
+  const f = name?.trim().split(/\s+/)[0];
+  return f ? f.slice(0, 30) : null;
+}
+
+/** "2026-10-09" → "Fri 9 Oct" */
+export function dayText(d: string | Date): string {
+  const date = typeof d === 'string' ? new Date(d + (d.length === 10 ? 'T12:00:00Z' : '')) : d;
+  return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' }).replace(',', '');
 }
 
 function minutesLeft(expiresAt: Date | string | null): number | null {
