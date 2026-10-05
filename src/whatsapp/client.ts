@@ -36,6 +36,7 @@ export class Messenger {
     const s = await this.db.query('SELECT last_inbound_at FROM chat_sessions WHERE phone=$1', [phone]);
     const last: Date | null = s.rows[0]?.last_inbound_at ?? null;
     if (!last || Date.now() - new Date(last).getTime() > DAY_MS) {
+      this.o.log?.(`whatsapp not sent to …${phone.slice(-4)}: outside the 24-hour window (needs a template)`);
       await this.record(phone, msg, 'NEEDS_TEMPLATE', 'Outside the 24-hour window; send an approved template instead');
       return;
     }
@@ -58,8 +59,10 @@ export class Messenger {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      this.o.log?.(`whatsapp sent to …${phone.slice(-4)}`);
       await this.record(phone, msg, 'SENT');
     } catch (err) {
+      this.o.log?.(`whatsapp send FAILED to …${phone.slice(-4)}: ${(err as Error).message}`);
       await this.record(phone, msg, 'FAILED', (err as Error).message);
     }
   }

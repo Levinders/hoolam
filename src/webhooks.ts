@@ -25,7 +25,7 @@ export async function processEvent(db: Db, id: number, handler: Handler, log?: (
     const result = await handler(claim.rows[0].payload);
     if (result === 'done') await db.query('UPDATE webhook_events SET processed_at=now(), last_error=NULL WHERE id=$1', [id]);
   } catch (e) {
-    log?.(`webhook ${id} failed: ${(e as Error).message}`);
+    log?.(`webhook ${id} failed: ${(e as Error).stack ?? (e as Error).message}`);
     await db.query('UPDATE webhook_events SET last_error=$2 WHERE id=$1', [id, (e as Error).message.slice(0, 500)]);
   }
 }

@@ -64,9 +64,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   app.post('/webhook/whatsapp', async (req, reply) => {
     const unsignedAllowed = c.WHATSAPP_DRY_RUN && !c.WHATSAPP_APP_SECRET;
     if (!unsignedAllowed && !verifyMetaSignature(req.rawBody ?? '', header(req, 'x-hub-signature-256'), c.WHATSAPP_APP_SECRET)) {
+      log('whatsapp webhook REJECTED: bad signature. Check WHATSAPP_APP_SECRET matches Meta > App settings > Basic');
       return reply.code(401).send('bad signature');
     }
-    for (const m of parseInbound(req.body)) {
+    const inbound = parseInbound(req.body);
+    if (!inbound.length) log('whatsapp webhook: delivery/read update (no new message)');
+    for (const m of inbound) {
       log(`whatsapp in: …${m.phone.slice(-4)} ${m.type}${m.buttonId ? ' ' + m.buttonId : ''}`);
       const id = await storeEvent(db, 'whatsapp', m.id, m);
       if (id) runSoon('whatsapp', id);
