@@ -72,6 +72,19 @@ payouts wait in `PAYOUT_PENDING` and you approve them with `POST /admin/payouts/
    - `seller_paid`: "You've been paid. {{1}} has been sent to your {{2}} account for deal {{3}}."
    - `refund_sent`: "Your refund of {{1}} for deal {{2}} has been sent to your {{3}} account."
 
+## The WhatsApp menu
+
+People never face an empty chat:
+
+- **Main menu**: "hi", "menu", any unknown text, or the **Main menu** button under finished steps shows a list
+  behind an **Open menu** button. Edit the options in `MENU` at the top of `src/whatsapp/messages.ts`
+  (10 options max, title up to 24 characters, description up to 72), then handle a new option in
+  `openMenuItem` in `src/whatsapp/flow.ts`.
+- **Ice breakers** (4 suggestions in a brand-new chat) and **`/` commands**: in `src/whatsapp/automation.ts`.
+  They're sent to Meta every time the server starts (log line `whatsapp menu sync OK`). Turn that off with
+  `WHATSAPP_SYNC_MENU=false`. If Meta refuses, set them by hand in WhatsApp Manager > Automations.
+- **Welcome**: when someone opens the chat for the first time, WhatsApp tells us and we send the menu.
+
 ## Admin (Phase 1 runs with a human in the loop)
 
 All need `Authorization: Bearer <ADMIN_TOKEN>`.
@@ -87,6 +100,10 @@ All need `Authorization: Bearer <ADMIN_TOKEN>`.
 | `POST /admin/payouts/:ref/retry` | Retry a failed payout (never pays twice) |
 | `GET /admin/messages?status=FAILED` | What Hoolam tried to send, and WhatsApp's error if it failed |
 | `GET /admin/ledger/balances` | Totals per ledger account |
+| `GET /admin/support` | Messages from "Talk to a person" (add `?status=CLOSED` for old ones) |
+| `POST /admin/messages/send` `{"phone":"+234…","text":"…"}` | Reply to someone as Hoolam (within 24 hours of their last message) |
+| `POST /admin/support/:id/close` | Mark a "Talk to a person" message as handled |
+| `POST /admin/whatsapp/sync-menu` | Re-send the ice breakers and `/` commands to Meta |
 
 ## How it's built
 

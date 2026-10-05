@@ -6,6 +6,7 @@ import { DealError, DealService } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
+import { syncAutomation } from './whatsapp/automation.js';
 import { Messenger } from './whatsapp/client.js';
 import { Conversation } from './whatsapp/flow.js';
 import { parseInbound, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
@@ -130,7 +131,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
          ORDER BY d.id, e.id DESC`, [c.FLAG_AFTER_HOURS]);
       const templates = await db.query(`SELECT phone, body, created_at FROM outbound_messages WHERE status='NEEDS_TEMPLATE' AND created_at > now() - interval '3 days' ORDER BY id DESC LIMIT 50`);
       const stuck = await db.query(`SELECT id, source, event_key, attempts, last_error FROM webhook_events WHERE processed_at IS NULL AND attempts >= 3 ORDER BY id DESC LIMIT 50`);
-      return { deals: deals.rows, messagesNeedingTemplates: templates.rows, stuckWebhooks: stuck.rows };
+      const support = await db.query(`SELECT id, phone, message, created_at FROM support_requests WHERE status='OPEN' ORDER BY id LIMIT 50`);
+      return { deals: deals.rows, supportRequests: support.rows, messagesNeedingTemplates: templates.rows, stuckWebhooks: stuck.rows };
     });
 
     admin.get('/deals/:code', async (req, reply) => {
@@ -172,6 +174,31 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
          ${status ? 'WHERE status=$1' : ''} ORDER BY id DESC LIMIT 50`, status ? [status] : []);
       return r.rows;
     });
+    // "Talk to a person": read the messages, answer them, close them.
+    admin.get('/support', async (req) => {
+      const status = (req.query as { status?: string }).status ?? 'OPEN';
+      const r = await db.query('SELECT id, phone, message, status, created_at, closed_at FROM support_requests WHERE status=$1 ORDER BY id DESC LIMIT 100', [status.toUpperCase()]);
+      return r.rows;
+    });
+    admin.post('/support/:id/close', async (req, reply) => {
+      const r = await db.query(`UPDATE support_requests SET status='CLOSED', closed_at=now() WHERE id=$1 AND status='OPEN' RETURNING id`, [(req.params as { id: string }).id]);
+      if (!r.rows[0]) return reply.code(404).send({ error: 'no open request with that id' });
+      return { ok: true };
+    });
+    // Reply to someone as Hoolam (only works within 24 hours of their last message).
+    admin.post('/messages/send', async (req, reply) => {
+      const { phone, text } = (req.body ?? {}) as { phone?: string; text?: string };
+      if (!phone || !text) return reply.code(400).send({ error: 'phone and text required' });
+      const to = phone.startsWith('+') ? phone : '+' + phone.replace(/\D/g, '');
+      await messenger.send(to, { kind: 'buttons', text, buttons: [{ id: 'menu:open', title: 'Main menu' }] });
+      const r = await db.query('SELECT status, error FROM outbound_messages WHERE phone=$1 ORDER BY id DESC LIMIT 1', [to]);
+      return r.rows[0] ?? { status: 'unknown' };
+    });
+    // Re-send the ice breakers and slash commands to Meta.
+    admin.post('/whatsapp/sync-menu', async (_req, reply) => {
+      if (c.WHATSAPP_DRY_RUN) return reply.code(400).send({ error: 'WhatsApp is in dry-run mode' });
+      return syncMenu();
+    });
     admin.get('/ledger/balances', async () => {
       const r = await db.query('SELECT account, currency, SUM(amount_minor)::bigint AS balance_minor FROM ledger_entries GROUP BY account, currency ORDER BY account');
       return r.rows;
@@ -186,6 +213,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.code(code).send({ error: code < 500 ? e.message : 'internal error' });
   });
 
+  const syncMenu = () => syncAutomation({ token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log });
+
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
   async function tick(kind: 'fast' | 'slow') {
     if (kind === 'fast') {
@@ -199,7 +228,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     }
   }
 
-  return { app, deals, chat, messenger, tick };
+  return { app, deals, chat, messenger, tick, syncMenu };
 }
 
 function header(req: FastifyRequest, name: string): string | undefined {

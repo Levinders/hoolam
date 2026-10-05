@@ -1,5 +1,6 @@
 import type { Db } from '../db.js';
 import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
+import { PRICING, quote } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
 import type { Bank, PaymentProvider } from '../payments/provider.js';
 import { DealError, type DealService, type User } from '../deals/service.js';
@@ -12,7 +13,10 @@ import { msg, STATUS_WORDS } from './messages.js';
  * stored in chat_sessions. Buttons carry the deal code, so most taps need no state at all.
  */
 
-type State = 'IDLE' | 'SELL_ITEM' | 'SELL_PRICE' | 'SELL_BANK' | 'SELL_BANK_CONFIRM' | 'SELL_CONFIRM' | 'DISPUTE_DETAIL' | 'REFUND_BANK' | 'REFUND_BANK_CONFIRM';
+type State =
+  | 'IDLE' | 'SELL_ITEM' | 'SELL_PRICE' | 'SELL_BANK' | 'SELL_BANK_CONFIRM' | 'SELL_CONFIRM'
+  | 'DISPUTE_DETAIL' | 'REFUND_BANK' | 'REFUND_BANK_CONFIRM'
+  | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE';
 interface Session { state: State; data: Record<string, any> }
 
 export interface FlowOptions {
@@ -26,6 +30,29 @@ export interface FlowOptions {
 }
 
 const CODE_RE = /\bHL-?([A-Z2-9]{5})\b/i;
+
+type MenuItem = 'open' | 'sell' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human';
+
+/**
+ * Slash commands (typed with "/" in WhatsApp). Keep in sync with COMMANDS in automation.ts.
+ * Work at any point in the chat.
+ */
+const SLASH: Record<string, MenuItem> = {
+  menu: 'open', start: 'open', sell: 'sell', pay: 'pay', deals: 'deals', account: 'account',
+  problem: 'problem', help: 'how', fees: 'fees', human: 'human',
+};
+/** Words that always bring the menu back, whatever we were waiting for. */
+const GREETINGS = ['menu', 'hi', 'hello', 'start', 'help', 'hey', 'main menu'];
+/** Typed phrases (including the ice breakers) understood when nothing else is in progress. */
+const PHRASES: Record<string, MenuItem> = {
+  'i want to sell something': 'sell', 'sell': 'sell', 'sell something': 'sell',
+  'i have a deal code to pay': 'pay', 'pay': 'pay', 'pay for a deal': 'pay',
+  'how does hoolam work': 'how', 'how it works': 'how', 'how hoolam works': 'how',
+  'i need to talk to a person': 'human', 'talk to a person': 'human', 'agent': 'human', 'support': 'human',
+  'my deals': 'deals', 'deals': 'deals', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
+  'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'account': 'account',
+};
+const clean = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s/-]/gu, '').replace(/\s+/g, ' ').trim();
 
 export class Conversation {
   constructor(private readonly o: FlowOptions) {}
@@ -71,17 +98,17 @@ export class Conversation {
       const [action, code] = m.buttonId.split(':');
       switch (action) {
         case 'menu':
-          if (code === 'sell') return this.startSelling(m.phone);
-          if (code === 'deals') return this.listDeals(m.phone, user);
-          return this.send(m.phone, msg.help());
+          return this.openMenuItem(m.phone, user, (code === 'help' ? 'how' : code) as MenuItem);
+        case 'account':
+          await this.save(m.phone, 'ACCOUNT_BANK');
+          return this.send(m.phone, msg.askNewAccount());
         case 'pay': return this.o.deals.requestPayment(code!, user);
         case 'newacct': return this.o.deals.requestPayment(code!, user, true);
         case 'cancel': return this.o.deals.cancelByBuyer(code!, user);
         case 'shipped': return this.o.deals.markShipped(code!, user);
         case 'happy': return this.o.deals.confirmHappy(code!, user);
         case 'problem':
-          await this.o.deals.openDispute(code!, user);
-          return this.save(m.phone, 'DISPUTE_DETAIL', { code });
+          return this.startProblem(m.phone, user, code!);
         case 'bank': return this.bankAnswer(m.phone, s, user, code === 'yes');
         case 'sell':
           if (code === 'confirm') return this.finishSelling(m.phone, s, user);
@@ -89,8 +116,14 @@ export class Conversation {
       }
     }
 
+    // ----- they opened the chat for the first time -----
+    if (m.type === 'welcome') {
+      await this.save(m.phone, 'IDLE');
+      return this.send(m.phone, msg.menu(user.display_name));
+    }
+
     // ----- voice notes: Phase 2 -----
-    if (m.type === 'audio' && s.state !== 'DISPUTE_DETAIL') return this.send(m.phone, msg.voiceSoon());
+    if (m.type === 'audio' && !['DISPUTE_DETAIL', 'HUMAN_MESSAGE'].includes(s.state)) return this.send(m.phone, msg.voiceSoon());
 
     // ----- test mode: pretend the buyer's transfer landed -----
     if (this.o.provider instanceof FakeProvider && this.o.testMode && ['paid', 'i paid', 'i have paid', 'done'].includes(lower)) {
@@ -101,16 +134,17 @@ export class Conversation {
       return;
     }
 
-    // ----- anywhere: "menu", "hi", or a deal code -----
-    if (['menu', 'hi', 'hello', 'start', 'help', 'hey'].includes(lower)) {
-      await this.save(m.phone, 'IDLE');
-      return this.send(m.phone, msg.menu(user.display_name));
-    }
+    // ----- anywhere: a slash command, "menu"/"hi", or a deal code -----
+    const words = clean(text);
+    const slash = words.match(/^\/(\w+)/);
+    if (slash) return this.openMenuItem(m.phone, user, SLASH[slash[1]!] ?? 'open');
+    if (GREETINGS.includes(words)) return this.openMenuItem(m.phone, user, 'open');
     const codeMatch = text.match(CODE_RE);
-    if (codeMatch && (s.state === 'IDLE' || /^pay\b/i.test(text))) {
+    if (codeMatch && (['IDLE', 'BUY_CODE'].includes(s.state) || /^pay\b/i.test(text))) {
       await this.save(m.phone, 'IDLE');
       return this.o.deals.joinAsBuyer('HL-' + codeMatch[1]!.toUpperCase(), user);
     }
+    if (s.state === 'IDLE' && PHRASES[words]) return this.openMenuItem(m.phone, user, PHRASES[words]!);
 
     // ----- typed answers, depending on what we asked -----
     switch (s.state) {
@@ -134,7 +168,19 @@ export class Conversation {
       }
       case 'SELL_BANK':
       case 'REFUND_BANK':
+      case 'ACCOUNT_BANK':
         return this.bankTyped(m.phone, s, text);
+      case 'BUY_CODE':
+        return this.send(m.phone, msg.badDealCode());
+      case 'HUMAN_MESSAGE': {
+        const body = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
+        if (!body) return this.send(m.phone, msg.askHumanMessage());
+        const r = await this.o.db.query(
+          'INSERT INTO support_requests (user_id, phone, message) VALUES ($1,$2,$3) RETURNING id', [user.id, m.phone, body.slice(0, 2000)]);
+        await this.save(m.phone, 'IDLE');
+        this.o.log?.(`support request #${r.rows[0].id} from …${m.phone.slice(-4)}`);
+        return this.send(m.phone, msg.humanLogged('S-' + r.rows[0].id));
+      }
       case 'DISPUTE_DETAIL': {
         const detail = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
         const ref = await this.o.deals.addDisputeDetail(s.data.code, user, detail);
@@ -152,6 +198,69 @@ export class Conversation {
   }
 
   private maxDeal(): number { return this.o.deals.maxDealMinor; }
+
+  /** Everything the main menu (and the slash commands) can do. */
+  private async openMenuItem(phone: string, user: User, item: MenuItem) {
+    switch (item) {
+      case 'sell': return this.startSelling(phone);
+      case 'pay':
+        await this.save(phone, 'BUY_CODE');
+        return this.send(phone, msg.askDealCode());
+      case 'problem':
+        await this.save(phone, 'IDLE');
+        return this.pickProblemDeal(phone, user);
+      case 'account': {
+        const acct = await this.o.deals.defaultBankAccount(user.id);
+        if (!acct) {
+          await this.save(phone, 'ACCOUNT_BANK');
+          return this.send(phone, msg.askBank());
+        }
+        await this.save(phone, 'IDLE');
+        return this.send(phone, msg.accountInfo(acct.account_name, acct.bank_name, acct.account_number.slice(-4)));
+      }
+      case 'human':
+        await this.save(phone, 'HUMAN_MESSAGE');
+        return this.send(phone, msg.askHumanMessage());
+    }
+    await this.save(phone, 'IDLE');
+    if (item === 'deals') return this.listDeals(phone, user);
+    if (item === 'how') return this.send(phone, msg.help());
+    if (item === 'fees') return this.send(phone, this.feesMessage());
+    return this.send(phone, msg.menu(user.display_name));
+  }
+
+  private feesMessage(): Outbound {
+    const c = this.o.currency;
+    const r = PRICING[c];
+    const unit = c === 'NGN' ? 100 : 1;
+    const f = (major: number) => formatMoney(major * unit, c);
+    const who = r.buyerShare >= 1 ? 'The buyer pays the fee. The seller gets the full price.'
+      : r.buyerShare <= 0 ? 'The seller pays the fee. The buyer pays just the price.'
+      : 'The buyer and seller share the fee.';
+    const rules = `${r.ratePercent}% of the price, at least ${f(r.min)} and never more than ${f(r.max)}, rounded to the nearest ${f(r.roundTo)}.\n${who}`;
+    const examples = [5_000, 15_000, 50_000]
+      .map((major) => major * unit)
+      .filter((minor) => minor <= this.maxDeal())
+      .map((minor) => {
+        const q = quote(minor, c);
+        return `• ${formatMoney(minor, c)} item: fee ${formatMoney(q.feeMinor, c)}, buyer pays ${formatMoney(q.buyerPaysMinor, c)}`;
+      });
+    return msg.fees(rules, examples, { minor: this.maxDeal(), currency: c });
+  }
+
+  /** Paid deals this person bought that can still be frozen. */
+  private async pickProblemDeal(phone: string, user: User) {
+    const r = await this.o.db.query(
+      `SELECT code, item FROM deals WHERE buyer_id=$1 AND status IN ('FUNDED','SHIPPED') ORDER BY created_at DESC LIMIT 10`, [user.id]);
+    if (r.rows.length === 0) return this.send(phone, msg.noDealsToReport());
+    if (r.rows.length === 1) return this.startProblem(phone, user, r.rows[0].code);
+    return this.send(phone, msg.pickDealForProblem(r.rows));
+  }
+
+  private async startProblem(phone: string, user: User, code: string) {
+    await this.o.deals.openDispute(code, user);
+    return this.save(phone, 'DISPUTE_DETAIL', { code });
+  }
 
   private async startSelling(phone: string) {
     await this.save(phone, 'SELL_ITEM');
@@ -186,21 +295,26 @@ export class Conversation {
     if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
     const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
     if (!name) return this.send(phone, msg.accountNotFound());
-    const next: State = s.state === 'SELL_BANK' ? 'SELL_BANK_CONFIRM' : 'REFUND_BANK_CONFIRM';
+    const next: State = s.state === 'SELL_BANK' ? 'SELL_BANK_CONFIRM' : s.state === 'ACCOUNT_BANK' ? 'ACCOUNT_BANK_CONFIRM' : 'REFUND_BANK_CONFIRM';
     await this.save(phone, next, { ...s.data, pendingAccount: { bank_code: bank.code, bank_name: bank.name, account_number: parsed.accountNumber, account_name: name } });
     return this.send(phone, msg.confirmBank(name, bank.name, parsed.accountNumber.slice(-4)));
   }
 
   private async bankAnswer(phone: string, s: Session, user: User, yes: boolean) {
-    if (!['SELL_BANK_CONFIRM', 'REFUND_BANK_CONFIRM'].includes(s.state) || !s.data.pendingAccount) return this.send(phone, msg.didntUnderstand());
+    if (!['SELL_BANK_CONFIRM', 'REFUND_BANK_CONFIRM', 'ACCOUNT_BANK_CONFIRM'].includes(s.state) || !s.data.pendingAccount) return this.send(phone, msg.didntUnderstand());
     const selling = s.state === 'SELL_BANK_CONFIRM';
+    const changing = s.state === 'ACCOUNT_BANK_CONFIRM';
     const { pendingAccount, ...rest } = s.data;
     if (!yes) {
-      await this.save(phone, selling ? 'SELL_BANK' : 'REFUND_BANK', rest);
-      return this.send(phone, selling ? msg.askBank() : msg.askRefundBank());
+      await this.save(phone, selling ? 'SELL_BANK' : changing ? 'ACCOUNT_BANK' : 'REFUND_BANK', rest);
+      return this.send(phone, selling ? msg.askBank() : changing ? msg.askNewAccount() : msg.askRefundBank());
     }
     const acct = await this.o.deals.saveBankAccount(user.id, pendingAccount);
     if (selling) return this.showSellSummary(phone, { ...rest, accountId: acct.id });
+    if (changing) {
+      await this.save(phone, 'IDLE');
+      return this.send(phone, msg.accountSaved(acct.bank_name, acct.account_number.slice(-4)));
+    }
     await this.save(phone, 'IDLE');
     return this.send(phone, msg.problemLogged(rest.code, caseRef(rest.caseId ?? '')));
   }

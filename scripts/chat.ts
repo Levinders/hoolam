@@ -22,7 +22,8 @@ const lastButtons: Record<Who, { id: string; title: string }[]> = { seller: [], 
 const help = () => console.log(`
 ${c.bold}How to use${c.off}
   Type anything              send it as the current person (try "hi")
-  1, 2, 3                    tap a button from Hoolam's last message
+  1, 2, 3 ...                tap a button (or menu option) from Hoolam's last message
+  /menu, /sell, /pay ...     slash commands, like typing "/" in WhatsApp
   seller / buyer             switch who you are
   open                       as the buyer, open the newest deal link
   pay                        the buyer's transfer lands in full
@@ -48,6 +49,18 @@ async function flush() {
     if (row.body.kind === 'buttons') {
       lastButtons[who] = row.body.buttons;
       row.body.buttons.forEach((b: { title: string }, i: number) => console.log(`  ${c.green}[${i + 1}] ${b.title}${c.off}`));
+    }
+    if (row.body.kind === 'list') {
+      // On a phone this is one "Open menu" button that opens the list. Here every row gets a number.
+      const rows: { id: string; title: string }[] = [];
+      for (const sec of row.body.sections as { title: string; rows: { id: string; title: string; description?: string }[] }[]) {
+        console.log(`  ${c.dim}${sec.title}${c.off}`);
+        for (const r of sec.rows) {
+          rows.push(r);
+          console.log(`  ${c.green}[${rows.length}] ${r.title}${c.off}${r.description ? c.dim + '  ' + r.description + c.off : ''}`);
+        }
+      }
+      lastButtons[who] = rows;
     }
   }
 }
@@ -106,7 +119,7 @@ async function command(line: string): Promise<boolean> {
     }
   }
   const p = PEOPLE[me];
-  const n = /^[123]$/.test(line) ? Number(line) : 0;
+  const n = /^([1-9]|10)$/.test(line) ? Number(line) : 0;
   if (n) {
     const btn = lastButtons[me][n - 1];
     if (!btn) { console.log(`${c.red}No button ${n} on the ${me}'s last message.${c.off}`); return true; }

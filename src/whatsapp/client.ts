@@ -1,9 +1,33 @@
 import type { Queryable } from '../db.js';
 
 export interface Button { id: string; title: string } // WhatsApp: max 3 buttons, title max 20 chars
+export interface ListRow { id: string; title: string; description?: string } // title max 24, description max 72
+export interface ListSection { title: string; rows: ListRow[] }              // section title max 24
 export type Outbound =
   | { kind: 'text'; text: string }
-  | { kind: 'buttons'; text: string; buttons: Button[] };
+  | { kind: 'buttons'; text: string; buttons: Button[] }
+  | { kind: 'list'; text: string; button: string; sections: ListSection[] }; // max 10 rows in total
+
+/** Throws if a message breaks WhatsApp's limits, so mistakes show up in tests, not on someone's phone. */
+export function checkLimits(msg: Outbound): void {
+  if (msg.kind === 'buttons') {
+    if (msg.buttons.length < 1 || msg.buttons.length > 3) throw new Error('WhatsApp allows 1 to 3 buttons');
+    for (const b of msg.buttons) if (b.title.length > 20) throw new Error(`Button title too long: "${b.title}"`);
+  }
+  if (msg.kind === 'list') {
+    if (msg.button.length > 20) throw new Error(`List button too long: "${msg.button}"`);
+    const rows = msg.sections.flatMap((s) => s.rows);
+    if (rows.length < 1 || rows.length > 10) throw new Error('WhatsApp lists allow 1 to 10 rows in total');
+    if (msg.sections.length > 10) throw new Error('WhatsApp lists allow up to 10 sections');
+    for (const s of msg.sections) if (s.title.length > 24) throw new Error(`Section title too long: "${s.title}"`);
+    for (const r of rows) {
+      if (r.title.length > 24) throw new Error(`List row title too long: "${r.title}"`);
+      if ((r.description ?? '').length > 72) throw new Error(`List row description too long: "${r.description}"`);
+      if (r.id.length > 200) throw new Error('List row id too long');
+    }
+    if (new Set(rows.map((r) => r.id)).size !== rows.length) throw new Error('List row ids must be unique');
+  }
+}
 
 export interface MessengerOptions {
   dryRun: boolean;
@@ -29,10 +53,7 @@ export class Messenger {
   }
 
   async send(phone: string, msg: Outbound): Promise<void> {
-    if (msg.kind === 'buttons') {
-      if (msg.buttons.length < 1 || msg.buttons.length > 3) throw new Error('WhatsApp allows 1 to 3 buttons');
-      for (const b of msg.buttons) if (b.title.length > 20) throw new Error(`Button title too long: "${b.title}"`);
-    }
+    checkLimits(msg);
     const s = await this.db.query('SELECT last_inbound_at FROM chat_sessions WHERE phone=$1', [phone]);
     const last: Date | null = s.rows[0]?.last_inbound_at ?? null;
     if (!last || Date.now() - new Date(last).getTime() > DAY_MS) {
@@ -46,12 +67,7 @@ export class Messenger {
       return;
     }
     const to = phone.replace(/^\+/, '');
-    const payload = msg.kind === 'text'
-      ? { messaging_product: 'whatsapp', to, type: 'text', text: { body: msg.text, preview_url: false } }
-      : {
-          messaging_product: 'whatsapp', to, type: 'interactive',
-          interactive: { type: 'button', body: { text: msg.text }, action: { buttons: msg.buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })) } },
-        };
+    const payload = toPayload(to, msg);
     try {
       const res = await this.fetch(`https://graph.facebook.com/${this.o.graphVersion}/${this.o.phoneNumberId}/messages`, {
         method: 'POST',
@@ -72,6 +88,29 @@ export class Messenger {
   }
 }
 
+export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
+  const base = { messaging_product: 'whatsapp', to };
+  if (msg.kind === 'text') return { ...base, type: 'text', text: { body: msg.text, preview_url: false } };
+  if (msg.kind === 'buttons') {
+    return {
+      ...base, type: 'interactive',
+      interactive: { type: 'button', body: { text: msg.text }, action: { buttons: msg.buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })) } },
+    };
+  }
+  return {
+    ...base, type: 'interactive',
+    interactive: {
+      type: 'list', body: { text: msg.text },
+      action: {
+        button: msg.button,
+        sections: msg.sections.map((s) => ({ title: s.title, rows: s.rows.map((r) => ({ id: r.id, title: r.title, ...(r.description ? { description: r.description } : {}) })) })),
+      },
+    },
+  };
+}
+
 export function render(msg: Outbound): string {
-  return msg.kind === 'text' ? msg.text : `${msg.text}  ${msg.buttons.map((b) => `[${b.title}]`).join(' ')}`;
+  if (msg.kind === 'text') return msg.text;
+  if (msg.kind === 'buttons') return `${msg.text}  ${msg.buttons.map((b) => `[${b.title}]`).join(' ')}`;
+  return `${msg.text}  [${msg.button} ▾: ${msg.sections.flatMap((s) => s.rows.map((r) => r.title)).join(' | ')}]`;
 }

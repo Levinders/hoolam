@@ -4,7 +4,7 @@ export interface Inbound {
   id: string;            // WhatsApp message id, used to ignore duplicates
   phone: string;         // E.164 with +
   name: string | null;
-  type: 'text' | 'button' | 'audio' | 'image' | 'other';
+  type: 'text' | 'button' | 'audio' | 'image' | 'welcome' | 'other'; // welcome = they opened the chat for the first time
   text: string;          // typed text, or the button title
   buttonId: string | null;
   mediaId: string | null;
@@ -34,6 +34,8 @@ export function parseInbound(body: unknown): Inbound[] {
         const base = { id: String(m.id), phone: '+' + from.replace(/^\+/, ''), name, buttonId: null as string | null, mediaId: null as string | null };
         if (m.type === 'text') out.push({ ...base, type: 'text', text: String(m.text?.body ?? '') });
         else if (m.type === 'interactive' && m.interactive?.button_reply) out.push({ ...base, type: 'button', text: String(m.interactive.button_reply.title ?? ''), buttonId: String(m.interactive.button_reply.id) });
+        else if (m.type === 'interactive' && m.interactive?.list_reply) out.push({ ...base, type: 'button', text: String(m.interactive.list_reply.title ?? ''), buttonId: String(m.interactive.list_reply.id) });
+        else if (m.type === 'request_welcome') out.push({ ...base, type: 'welcome', text: '' });
         else if (m.type === 'button') out.push({ ...base, type: 'button', text: String(m.button?.text ?? ''), buttonId: String(m.button?.payload ?? m.button?.text ?? '') });
         else if (m.type === 'audio') out.push({ ...base, type: 'audio', text: '', mediaId: String(m.audio?.id ?? '') });
         else if (m.type === 'image') out.push({ ...base, type: 'image', text: String(m.image?.caption ?? ''), mediaId: String(m.image?.id ?? '') });

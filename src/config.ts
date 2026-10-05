@@ -17,6 +17,7 @@ const schema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().default(''),
   WHATSAPP_PUBLIC_NUMBER: z.string().default('2340000000000'), // digits only, used in wa.me links
   WHATSAPP_GRAPH_VERSION: z.string().default('v26.0'),
+  WHATSAPP_SYNC_MENU: bool.default(true),             // on start, send ice breakers + commands to Meta (live mode only)
 
   // Payments
   PAYMENT_PROVIDER: z.enum(['monnify', 'fake']).default('fake'),
