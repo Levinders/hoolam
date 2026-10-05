@@ -18,9 +18,13 @@ Needs Node 20+.
 
 ```bash
 npm install
-npm run simulate   # plays a whole deal and prints the WhatsApp conversation
+npm run chat       # chat with Hoolam in your terminal, playing both seller and buyer
+npm run simulate   # plays a whole deal automatically and prints the conversation
 npm test           # 62 tests: pricing, ledger, payments, the full deal, disputes, payouts
 ```
+
+In `npm run chat`, type `help` for the commands: `open` (buyer taps the seller's link), `pay` / `pay 5000`
+(the transfer lands, in full or short), `1` `2` `3` to tap buttons, `payout fail|otp|ok`, and `admin refund|release`.
 
 Both start a throwaway database automatically. No real money or real WhatsApp is involved.
 

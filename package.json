@@ -10,7 +10,8 @@
     "migrate": "tsx scripts/migrate.ts",
     "simulate": "tsx scripts/simulate.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "chat": "tsx scripts/chat.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
