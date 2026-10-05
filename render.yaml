@@ -1,0 +1,36 @@
+# One-click setup on Render (render.com): New → Blueprint → pick this repo.
+# Free plan: the server sleeps after 15 minutes without traffic and takes about a minute to wake up.
+services:
+  - type: web
+    name: hoolam
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false          # Supabase "Session pooler" connection string
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: PAYMENT_PROVIDER
+        value: fake          # pretend money until Monnify keys arrive
+      - key: ALLOW_SELF_DEAL
+        value: "true"        # one phone can play seller and buyer; reply "paid" to fake a transfer
+      - key: WHATSAPP_DRY_RUN
+        value: "false"
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_PUBLIC_NUMBER
+        sync: false          # the test number, digits only, e.g. 15551234567
+      - key: WHATSAPP_GRAPH_VERSION
+        value: v26.0

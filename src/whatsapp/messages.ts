@@ -31,6 +31,7 @@ export const msg = {
       'Buying? Ask the seller for their Hoolam link.',
   }),
 
+  testNothingToPay: (): Outbound => ({ kind: 'text', text: 'TEST MODE: there is no payment waiting. Open a deal link and tap "Pay now" first.' }),
   voiceSoon: (): Outbound => ({ kind: 'text', text: 'Voice notes are coming soon. For now, please type your answer.' }),
 
   // ----- seller creates a deal -----
@@ -75,12 +76,13 @@ export const msg = {
       'Your money stays with Hoolam, not the seller. They only get paid after you receive your item and say you\'re happy. If it never comes, you get your money back.',
     buttons: [{ id: `pay:${code}`, title: 'Pay now' }, { id: `cancel:${code}`, title: 'Not now' }],
   }),
-  payInstructions: (total: Money, accountNumber: string, bankName: string, accountName: string, minutes: number | null, code: string): Outbound => ({
+  payInstructions: (total: Money, accountNumber: string, bankName: string, accountName: string, minutes: number | null, code: string, testMode = false): Outbound => ({
     kind: 'buttons',
     text:
       `Transfer exactly ${m(total)} to:\n\n${accountNumber}\n${bankName}\n${accountName}\n\n` +
       (minutes ? `This account number works for ${minutes} minutes. ` : '') +
-      'You can pay from any bank app, Opay, Moniepoint or PalmPay. We\'ll confirm the moment it lands.',
+      'You can pay from any bank app, Opay, Moniepoint or PalmPay. We\'ll confirm the moment it lands.' +
+      (testMode ? '\n\nTEST MODE: no real money. Reply "paid" to pretend you made the transfer.' : ''),
     buttons: [{ id: `newacct:${code}`, title: 'New account number' }],
   }),
   paymentPartial: (paid: Money, due: Money): Outbound => ({

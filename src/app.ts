@@ -19,8 +19,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const messenger = new Messenger(db, {
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
-  const deals = new DealService({ db, provider, messenger, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER, log });
-  const chat = new Conversation({ db, deals, provider, messenger, currency: c.CURRENCY, log });
+  const testMode = c.ALLOW_SELF_DEAL && provider instanceof FakeProvider;
+  const deals = new DealService({ db, provider, messenger, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER, testMode, log });
+  const chat = new Conversation({ db, deals, provider, messenger, currency: c.CURRENCY, testMode, log });
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -50,7 +51,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // ---------- health ----------
   app.get('/health', async () => {
     await db.query('SELECT 1');
-    return { ok: true, provider: provider.name, whatsapp: c.WHATSAPP_DRY_RUN ? 'dry-run' : 'live' };
+    return { ok: true, provider: provider.name, whatsapp: c.WHATSAPP_DRY_RUN ? 'dry-run' : 'live', testMode };
   });
 
   // ---------- WhatsApp ----------
@@ -66,6 +67,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return reply.code(401).send('bad signature');
     }
     for (const m of parseInbound(req.body)) {
+      log(`whatsapp in: …${m.phone.slice(-4)} ${m.type}${m.buttonId ? ' ' + m.buttonId : ''}`);
       const id = await storeEvent(db, 'whatsapp', m.id, m);
       if (id) runSoon('whatsapp', id);
     }
@@ -159,6 +161,13 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     admin.post('/payouts/:reference/retry', async (req) => {
       await deals.retryPayout((req.params as { reference: string }).reference);
       return { ok: true };
+    });
+    admin.get('/messages', async (req) => {
+      const status = (req.query as { status?: string }).status;
+      const r = await db.query(
+        `SELECT id, phone, kind, status, error, body->>'text' AS text, created_at FROM outbound_messages
+         ${status ? 'WHERE status=$1' : ''} ORDER BY id DESC LIMIT 50`, status ? [status] : []);
+      return r.rows;
     });
     admin.get('/ledger/balances', async () => {
       const r = await db.query('SELECT account, currency, SUM(amount_minor)::bigint AS balance_minor FROM ledger_entries GROUP BY account, currency ORDER BY account');

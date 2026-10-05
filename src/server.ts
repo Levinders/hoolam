@@ -17,7 +17,7 @@ const fast = setInterval(guard('fast'), 30_000);
 const slow = setInterval(guard('slow'), 10 * 60_000);
 
 await app.listen({ port: config.PORT, host: '0.0.0.0' });
-console.log(`Hoolam listening on :${config.PORT} · payments: ${provider.name} · WhatsApp: ${config.WHATSAPP_DRY_RUN ? 'dry run' : 'live'}`);
+console.log(`Hoolam listening on :${config.PORT} · payments: ${provider.name} · WhatsApp: ${config.WHATSAPP_DRY_RUN ? 'dry run' : 'live'}${config.ALLOW_SELF_DEAL ? ' · TEST MODE' : ''}`);
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {

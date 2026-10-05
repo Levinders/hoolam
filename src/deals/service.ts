@@ -40,6 +40,7 @@ export interface DealServiceOptions {
   currency: Currency;
   maxDealMinor: number;
   waNumber: string;           // digits, for wa.me links
+  testMode?: boolean;         // fake money: allow self-deals and show a test hint
   log?: (line: string) => void;
 }
 
@@ -164,14 +165,14 @@ export class DealService {
   async joinAsBuyer(code: string, buyer: User): Promise<void> {
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
-      if (deal.seller_id === buyer.id) throw new DealError('OWN_DEAL');
+      if (deal.seller_id === buyer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
       if (deal.buyer_id && deal.buyer_id !== buyer.id) throw new DealError('TAKEN');
       if (!['AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(deal.status)) throw new DealError('CLOSED');
       const seller = await this.userById(tx, deal.seller_id);
       if (!deal.buyer_id) {
         await tx.query('UPDATE deals SET buyer_id=$2 WHERE id=$1', [deal.id, buyer.id]);
         await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer');
-        out.push({ phone: seller.phone, message: msg.sellerBuyerJoined(deal.code) });
+        if (seller.id !== buyer.id) out.push({ phone: seller.phone, message: msg.sellerBuyerJoined(deal.code) });
       }
       out.push({
         phone: buyer.phone,
@@ -193,7 +194,7 @@ export class DealService {
          ORDER BY created_at DESC LIMIT 1`, [deal.id]);
       const pi = existing.rows[0];
       if (pi) {
-        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, minutesLeft(pi.expires_at), deal.code));
+        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, minutesLeft(pi.expires_at), deal.code, this.o.testMode));
         return;
       }
     }
@@ -212,7 +213,15 @@ export class DealService {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [deal.id, this.o.provider.name, paymentReference, instr.providerReference, deal.buyer_pays_minor, deal.currency, instr.accountNumber, instr.accountName, instr.bankName, instr.expiresAt],
     );
-    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, minutesLeft(instr.expiresAt), deal.code));
+    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, minutesLeft(instr.expiresAt), deal.code, this.o.testMode));
+  }
+
+  /** Test mode only: the newest unpaid payment this person asked for. */
+  async latestPendingPaymentFor(buyerId: string): Promise<string | null> {
+    const r = await this.o.db.query(
+      `SELECT pi.provider_reference FROM payment_intents pi JOIN deals d ON d.id=pi.deal_id
+       WHERE d.buyer_id=$1 AND d.status='AWAITING_PAYMENT' AND pi.status='PENDING' ORDER BY pi.created_at DESC LIMIT 1`, [buyerId]);
+    return r.rows[0]?.provider_reference ?? null;
   }
 
   async cancelByBuyer(code: string, buyer: User): Promise<void> {

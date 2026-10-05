@@ -26,7 +26,7 @@ export interface Harness {
 
 let n = 0;
 
-export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: string, text: string) => void } = {}): Promise<Harness> {
+export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: string, text: string) => void; env?: Record<string, string> } = {}): Promise<Harness> {
   const port = 55000 + Math.floor(Math.random() * 4000);
   const dir = join(process.platform === 'win32' ? tmpdir() : '/var/tmp', `hoolam-pg-${process.pid}-${port}`);
   const pg = new EmbeddedPostgres({ databaseDir: dir, user: 'postgres', password: 'hoolam', port, persistent: false, onLog: () => {}, onError: () => {} });
@@ -45,6 +45,7 @@ export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: 
   const config = loadConfig({
     DATABASE_URL: 'unused', ADMIN_TOKEN: 'test-admin-token-123456', PAYMENT_PROVIDER: 'fake', WHATSAPP_DRY_RUN: 'true',
     WHATSAPP_PUBLIC_NUMBER: '2349000000000',
+    ...opts.env,
   } as NodeJS.ProcessEnv);
   const provider = new FakeProvider();
   const app = buildApp({ config, db, provider, log });

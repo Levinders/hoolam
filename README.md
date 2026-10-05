@@ -20,13 +20,18 @@ Needs Node 20+.
 npm install
 npm run chat       # chat with Hoolam in your terminal, playing both seller and buyer
 npm run simulate   # plays a whole deal automatically and prints the conversation
-npm test           # 62 tests: pricing, ledger, payments, the full deal, disputes, payouts
+npm test           # 65 tests: pricing, ledger, payments, the full deal, disputes, payouts
 ```
 
 In `npm run chat`, type `help` for the commands: `open` (buyer taps the seller's link), `pay` / `pay 5000`
 (the transfer lands, in full or short), `1` `2` `3` to tap buttons, `payout fail|otp|ok`, and `admin refund|release`.
 
 Both start a throwaway database automatically. No real money or real WhatsApp is involved.
+
+## Test on your own phone (real WhatsApp, pretend money)
+
+Follow [docs/WHATSAPP-TEST-SETUP.md](docs/WHATSAPP-TEST-SETUP.md): Supabase + Meta's free test number + Render, about 30 minutes.
+With `ALLOW_SELF_DEAL=true`, one phone plays both seller and buyer, and replying "paid" pretends the transfer landed.
 
 ## Run the server
 
@@ -80,6 +85,7 @@ All need `Authorization: Bearer <ADMIN_TOKEN>`.
 | `POST /admin/deals/HL-XXXXX/refund` | Refund the buyer in full |
 | `POST /admin/payouts/:ref/authorize` | Approve a payout with Monnify's OTP |
 | `POST /admin/payouts/:ref/retry` | Retry a failed payout (never pays twice) |
+| `GET /admin/messages?status=FAILED` | What Hoolam tried to send, and WhatsApp's error if it failed |
 | `GET /admin/ledger/balances` | Totals per ledger account |
 
 ## How it's built

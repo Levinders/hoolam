@@ -16,7 +16,7 @@ const schema = z.object({
   WHATSAPP_TOKEN: z.string().default(''),
   WHATSAPP_PHONE_NUMBER_ID: z.string().default(''),
   WHATSAPP_PUBLIC_NUMBER: z.string().default('2340000000000'), // digits only, used in wa.me links
-  WHATSAPP_GRAPH_VERSION: z.string().default('v21.0'),
+  WHATSAPP_GRAPH_VERSION: z.string().default('v26.0'),
 
   // Payments
   PAYMENT_PROVIDER: z.enum(['monnify', 'fake']).default('fake'),
@@ -26,6 +26,9 @@ const schema = z.object({
   MONNIFY_CONTRACT_CODE: z.string().default(''),
   MONNIFY_WALLET_ACCOUNT: z.string().default(''),     // source account for payouts
   MONNIFY_REQUIRE_SIGNATURE: bool.default(false),     // sandbox webhooks are unsigned; set true in production
+
+  // Testing: lets one phone play both seller and buyer. Only allowed with the fake payment provider.
+  ALLOW_SELF_DEAL: bool.default(false),
 
   // Deals
   CURRENCY: z.enum(['NGN', 'XOF']).default('NGN'),
@@ -49,6 +52,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   if (!c.WHATSAPP_DRY_RUN && (!c.WHATSAPP_TOKEN || !c.WHATSAPP_PHONE_NUMBER_ID || !c.WHATSAPP_APP_SECRET)) {
     throw new Error('WHATSAPP_DRY_RUN=false needs WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_APP_SECRET');
+  }
+  if (c.ALLOW_SELF_DEAL && c.PAYMENT_PROVIDER !== 'fake') {
+    throw new Error('ALLOW_SELF_DEAL only works with PAYMENT_PROVIDER=fake');
   }
   return c;
 }

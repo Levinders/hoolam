@@ -1,5 +1,6 @@
 import type { Db } from '../db.js';
 import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
+import { FakeProvider } from '../payments/fake.js';
 import type { Bank, PaymentProvider } from '../payments/provider.js';
 import { DealError, type DealService, type User } from '../deals/service.js';
 import type { Messenger, Outbound } from './client.js';
@@ -20,6 +21,7 @@ export interface FlowOptions {
   provider: PaymentProvider;
   messenger: Messenger;
   currency: Currency;
+  testMode?: boolean;
   log?: (line: string) => void;
 }
 
@@ -89,6 +91,15 @@ export class Conversation {
 
     // ----- voice notes: Phase 2 -----
     if (m.type === 'audio' && s.state !== 'DISPUTE_DETAIL') return this.send(m.phone, msg.voiceSoon());
+
+    // ----- test mode: pretend the buyer's transfer landed -----
+    if (this.o.provider instanceof FakeProvider && this.o.testMode && ['paid', 'i paid', 'i have paid', 'done'].includes(lower)) {
+      const ref = await this.o.deals.latestPendingPaymentFor(user.id);
+      if (!ref) return this.send(m.phone, msg.testNothingToPay());
+      this.o.provider.pay(ref);
+      await this.o.deals.handleCollection(ref);
+      return;
+    }
 
     // ----- anywhere: "menu", "hi", or a deal code -----
     if (['menu', 'hi', 'hello', 'start', 'help', 'hey'].includes(lower)) {
