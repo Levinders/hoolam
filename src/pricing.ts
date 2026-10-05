@@ -28,7 +28,14 @@ export interface Quote {
 
 const MINOR: Record<Currency, number> = { NGN: 100, XOF: 1 };
 
-export function quote(priceMinor: number, currency: Currency, rules: PricingRules = PRICING[currency]): Quote {
+/**
+ * Who pays the fee. Hoolam's rule: whoever starts the deal pays it.
+ * Leave it out to use the rules' own buyerShare (the landing page calculator does that).
+ */
+export type FeePayer = 'buyer' | 'seller';
+
+export function quote(priceMinor: number, currency: Currency, rules: PricingRules = PRICING[currency], payer?: FeePayer): Quote {
+  if (payer) rules = { ...rules, buyerShare: payer === 'buyer' ? 1 : 0 };
   if (!Number.isInteger(priceMinor) || priceMinor <= 0) throw new Error('price must be a positive integer (minor units)');
   const unit = MINOR[currency];
   const price = priceMinor / unit;

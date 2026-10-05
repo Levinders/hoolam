@@ -21,6 +21,7 @@ async function paidDeal(seller: string, buyer: string, item = 'Blue handbag'): P
   await h.tap(seller, 'menu:sell');
   await h.say(seller, item);
   await h.say(seller, '10000');
+  await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone');
   if (/account number and bank/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
   await h.tap(seller, 'sell:confirm');
   const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
@@ -166,6 +167,7 @@ describe('the menu in the chat', () => {
   it('"Pay for a deal" asks for the code, then opens the deal', async () => {
     const seller = phone(), buyer = phone();
     await h.say(seller, 'hi'); await h.tap(seller, 'menu:sell'); await h.say(seller, 'Shoes'); await h.say(seller, '8000');
+    await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone');
     await h.say(seller, '0123456789 Opay'); await h.tap(seller, 'bank:yes'); await h.tap(seller, 'sell:confirm');
     const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
 

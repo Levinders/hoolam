@@ -18,6 +18,8 @@ async function dealUpToPayment(seller: string, buyer: string): Promise<{ code: s
   await h.tap(seller, 'menu:sell');
   await h.say(seller, 'Sneakers size 42');
   await h.say(seller, '15,000');
+  await h.tap(seller, 'sell:nophotos');
+  await h.tap(seller, 'sell:nophone');
   if (/account number and bank/.test(h.last(seller))) {
     await h.say(seller, '0123456789 GTBank');
     await h.tap(seller, 'bank:yes');
@@ -43,20 +45,20 @@ describe('the full deal', () => {
   it('seller creates, buyer pays, seller ships, buyer is happy, seller is paid', async () => {
     const { seller, buyer } = people();
     const { code, ref } = await dealUpToPayment(seller, buyer);
-    expect(h.last(buyer)).toMatch(/Transfer exactly ₦15,400/);
+    expect(h.last(buyer)).toMatch(/Transfer exactly ₦15,000/); // the seller started the deal, so the seller pays the fee
     expect(await status(code)).toBe('AWAITING_PAYMENT');
 
     h.provider.pay(ref);
     expect(await h.app.deals.handleCollection(ref)).toBe('funded');
     expect(await status(code)).toBe('FUNDED');
-    expect(h.last(seller)).toMatch(/Your ₦15,000 is held safely/);
+    expect(h.last(seller)).toMatch(/Your ₦14,600 is held safely/);
 
     await h.tap(seller, `shipped:${code}`);
     expect(h.last(buyer)).toMatch(/on the way/);
     await h.tap(buyer, `happy:${code}`);
 
     expect(await status(code)).toBe('COMPLETED');
-    expect(h.last(seller)).toMatch(/₦15,000 has been sent to your/);
+    expect(h.last(seller)).toMatch(/₦14,600 has been sent to your/);
     // Everything held for the deal has been paid out; only Hoolam's ₦400 fee remains as cash.
     expect(await ledger(code)).toEqual({ 'cash:fake': 40_000, 'held:deal': 0, 'payable:seller': 0, 'revenue:fees': -40_000 });
   }, 30_000);
@@ -67,7 +69,7 @@ describe('the full deal', () => {
     h.provider.pay(ref);
     expect(await h.app.deals.handleCollection(ref)).toBe('funded');
     expect(await h.app.deals.handleCollection(ref)).toBe('duplicate');
-    expect((await ledger(code))['cash:fake']).toBe(1_540_000);
+    expect((await ledger(code))['cash:fake']).toBe(1_500_000);
   }, 30_000);
 
   it('a webhook before the money actually lands does nothing', async () => {
@@ -83,7 +85,7 @@ describe('the full deal', () => {
     h.provider.pay(ref, 1_000_000);
     expect(await h.app.deals.handleCollection(ref)).toBe('partial');
     expect(await status(code)).toBe('AWAITING_PAYMENT');
-    expect(h.last(buyer)).toMatch(/We received ₦10,000, but the total is ₦15,400/);
+    expect(h.last(buyer)).toMatch(/We received ₦10,000, but the total is ₦15,000/);
     expect(await ledger(code)).toEqual({ 'cash:fake': 1_000_000, 'payable:buyer': -1_000_000 });
   }, 30_000);
 
@@ -92,7 +94,7 @@ describe('the full deal', () => {
     const { code, ref } = await dealUpToPayment(seller, buyer);
     h.provider.pay(ref, 1_600_000);
     expect(await h.app.deals.handleCollection(ref)).toBe('funded');
-    expect(await ledger(code)).toEqual({ 'cash:fake': 1_600_000, 'held:deal': -1_540_000, 'payable:buyer': -60_000 });
+    expect(await ledger(code)).toEqual({ 'cash:fake': 1_600_000, 'held:deal': -1_500_000, 'payable:buyer': -100_000 });
   }, 30_000);
 });
 
@@ -118,7 +120,7 @@ describe('problems and refunds', () => {
 
     await h.app.deals.adminRefund(code, 'Seller sent the wrong size');
     expect(await status(code)).toBe('REFUNDED');
-    expect(h.last(buyer)).toMatch(/refund of ₦15,400/);
+    expect(h.last(buyer)).toMatch(/refund of ₦15,000/);
     expect(await ledger(code)).toEqual({ 'cash:fake': 0, 'held:deal': 0, 'payable:buyer': 0 });
   }, 30_000);
 
@@ -159,7 +161,7 @@ describe('payouts that need a human', () => {
     h.provider.payoutOutcome = 'FAILED';
     await h.tap(buyer, `happy:${code}`);
     expect(await status(code)).toBe('PAYOUT_PENDING');
-    expect((await ledger(code))['payable:seller']).toBe(-1_500_000); // still owed
+    expect((await ledger(code))['payable:seller']).toBe(-1_460_000); // still owed (₦15,000 minus the seller's ₦400 fee)
     h.provider.payoutOutcome = 'SUCCESS';
     const p = await h.db.query(`SELECT reference FROM payouts WHERE deal_id=(SELECT id FROM deals WHERE code=$1)`, [code]);
     await h.app.deals.retryPayout(p.rows[0].reference);

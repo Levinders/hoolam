@@ -91,6 +91,18 @@ Try **Problem** instead of I'm happy to test the dispute flow.
 
 Also try: **✕ Decline**, **🚫 Not me** (that number is never alerted again), or no seller number (A forwards the link to B).
 
+## G. Seller starts the deal
+
+1. B (seller): **hi** → **Open menu** → **🏷️ Sell something** → item → price → a photo → **Done** → A's number (**+229…**) →
+   **✅ Create deal**. The summary shows "You receive" (the seller pays the fee on deals they start).
+2. A (buyer) gets "💳 Payment request" (once Meta approves `hoolam_payment_request`), or B forwards the link →
+   **View deal** → photos → **💳 Pay now** → reply **paid**.
+3. B taps **I've sent it**, then sends a photo of the package or a tracking number. A sees it.
+4. A taps **I'm happy**. B gets "You've been paid".
+
+**Change price:** A starts a deal (section F). B opens it → **✏️ Change price** → types a new price. A gets the new
+total → **✅ Accept new price** or **✕ Cancel deal**.
+
 ## When something doesn't work
 
 | What you see | Likely cause | Fix |

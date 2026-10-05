@@ -53,8 +53,8 @@ describe('the buyer form', () => {
   });
 
   it('reads form answers, including photos and dates', () => {
-    const f = readBuyForm({ item: ' Phone case ', price: 8000, seller_phone: '0803 000 0000', arrive_by: '2026-10-09', photos: [{ id: '111', mime_type: 'image/png', file_name: 'a.png' }] });
-    expect(f).toEqual({ item: 'Phone case', price: '8000', sellerPhone: '0803 000 0000', arriveBy: '2026-10-09', photos: [{ mediaId: '111', mimeType: 'image/png' }] });
+    const f = readBuyForm({ item: ' Phone case ', price: 8000, other_phone: '0803 000 0000', arrive_by: '2026-10-09', photos: [{ id: '111', mime_type: 'image/png', file_name: 'a.png' }] });
+    expect(f).toEqual({ item: 'Phone case', price: '8000', otherPhone: '0803 000 0000', arriveBy: '2026-10-09', photos: [{ mediaId: '111', mimeType: 'image/png' }] });
     expect(readBuyForm({ arrive_by: '1791504000000' }).arriveBy).toBe('2026-10-09');
     expect(readBuyForm({ arrive_by: '' }).arriveBy).toBeNull();
   });
@@ -139,7 +139,7 @@ describe('the seller answers', () => {
     await h.app.chat.handle({ id: `t${++n}`, phone: seller, name: 'Bayo Shoes', type: 'button', text: 'View deal', buttonId: `sview:${code}`, mediaId: null });
     expect(h.last(seller)).toMatch(/Ada wants to buy from you/);
     expect(h.last(seller)).toMatch(/you receive ₦15,000/);
-    expect(h.last(seller)).toMatch(/\[✅ Accept\] \[✕ Decline\] \[🚫 Not me\]/);
+    expect(h.last(seller)).toMatch(/\[✅ Accept\] \[✏️ Change price\] \[✕ Decline\]/);
     const images = await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='image'`, [seller]);
     expect(images.rows[0].c).toBe(2);
 
@@ -169,6 +169,8 @@ describe('the seller answers', () => {
     const code = await buyByChat(buyer, { sellerPhone: seller });
     await h.tap(seller, `sview:${code}`);
     await h.tap(seller, `sdecline:${code}`);
+    expect(h.last(seller)).toMatch(/\[Not interested\] \[🚫 Wrong number\]/); // they were alerted by number
+    await h.tap(seller, `sno:${code}`);
     expect((await deal(code)).status).toBe('CANCELLED');
     expect(h.last(buyer)).toMatch(/seller declined/);
     expect(h.last(seller)).toMatch(/declined. No money moved/);

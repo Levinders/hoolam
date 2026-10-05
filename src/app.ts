@@ -6,7 +6,7 @@ import { DealError, DealService } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { ensureBuyFlow, ensureSellerAlertTemplate, syncAutomation } from './whatsapp/automation.js';
+import { BUYER_ALERT, ensureBuyFlow, ensureSellFlow, ensureSellerAlertTemplate, ensureTemplate, syncAutomation } from './whatsapp/automation.js';
 import { Media } from './whatsapp/media.js';
 import { Messenger } from './whatsapp/client.js';
 import { Conversation } from './whatsapp/flow.js';
@@ -29,7 +29,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
   let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
-  const chat = new Conversation({ db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, buyForm: () => buyForm, onFormRefused: () => { buyForm = null; } });
+  let sellForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
+  const chat = new Conversation({
+    db, deals, provider, messenger, currency: c.CURRENCY, testMode, log,
+    buyForm: () => buyForm, sellForm: () => sellForm,
+    onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
+  });
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -214,7 +219,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     admin.post('/whatsapp/sync-menu', async (_req, reply) => {
       if (c.WHATSAPP_DRY_RUN) return reply.code(400).send({ error: 'WhatsApp is in dry-run mode' });
       await setupMeta();
-      return { ok: true, buyForm };
+      return { ok: true, buyForm, sellForm };
     });
     admin.get('/ledger/balances', async () => {
       const r = await db.query('SELECT account, currency, SUM(amount_minor)::bigint AS balance_minor FROM ledger_entries GROUP BY account, currency ORDER BY account');
@@ -243,9 +248,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       }
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log };
       await ensureSellerAlertTemplate(o);
+      await ensureTemplate(o, BUYER_ALERT, 'buyer alert');
       if (c.WHATSAPP_BUY_FORM) {
-        const flowId = await ensureBuyFlow(o);
-        buyForm = flowId ? { flowId, mode: c.WHATSAPP_FORM_MODE } : null;
+        const buyId = await ensureBuyFlow(o);
+        buyForm = buyId ? { flowId: buyId, mode: c.WHATSAPP_FORM_MODE } : null;
+        const sellId = await ensureSellFlow(o);
+        sellForm = sellId ? { flowId: sellId, mode: c.WHATSAPP_FORM_MODE } : null;
       }
     } catch (e) {
       log(`WhatsApp setup failed: ${(e as Error).message}`);
@@ -265,7 +273,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     }
   }
 
-  return { app, deals, chat, messenger, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; } };
+  return { app, deals, chat, messenger, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
 }
 
 function header(req: FastifyRequest, name: string): string | undefined {

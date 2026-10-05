@@ -13,13 +13,15 @@ describe('test mode: one phone plays both sides', () => {
     await h.tap(me, 'menu:sell');
     await h.say(me, 'Test sneakers');
     await h.say(me, '10000');
+    await h.tap(me, 'sell:nophotos');
+    await h.tap(me, 'sell:nophone');
     await h.say(me, '0123456789 GTBank');
     await h.tap(me, 'bank:yes');
     await h.tap(me, 'sell:confirm');
     const code = h.last(me).match(/HL-[A-Z2-9]{5}/)![0];
 
     await h.say(me, `Pay ${code}`);
-    expect(h.last(me)).toMatch(/You pay: ₦10,300/);
+    expect(h.last(me)).toMatch(/You pay: ₦10,000/);
     await h.tap(me, `pay:${code}`);
     expect(h.last(me)).toMatch(/TEST MODE: no real money/);
 

@@ -87,6 +87,18 @@ Form: `src/whatsapp/buy-flow.ts` (banner: `assets/buy-banner.png`). Template wor
 `src/whatsapp/automation.ts`. Both are created on Meta at startup when `WHATSAPP_WABA_ID` is set; see
 [docs/WHATSAPP-TEST-SETUP.md](docs/WHATSAPP-TEST-SETUP.md) section F. Photos: `GET /admin/deals/HL-XXXXX` lists them.
 
+## Seller starts the deal
+
+**Whoever starts the deal pays Hoolam's fee.** A seller's deal: the buyer pays just the price, the seller receives
+the price minus the fee. A buyer's deal: the buyer pays price + fee, the seller receives the full price.
+
+1. The seller gives the item, price, up to 3 photos and (optionally) the buyer's WhatsApp, in the seller form or the chat.
+2. The buyer is alerted once with the template `hoolam_payment_request` (**View deal** / **Not me**); the seller also gets
+   a `Pay HL-…` link to forward. The buyer sees the photos, then **Pay now**.
+3. On a buyer's deal the seller can **✏️ Change price**: the buyer gets the new total and accepts or cancels.
+4. After **I've sent it**, the seller can send a photo or a tracking note as proof of shipping. The buyer sees it; it's
+   kept with the deal (`deal_photos.kind = 'SHIPPING'`, `deals.shipping_note`) for disputes.
+
 ## The WhatsApp menu
 
 People never face an empty chat:

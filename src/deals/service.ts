@@ -2,11 +2,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { withTx, type Db, type Queryable, type Tx } from '../db.js';
 import { post } from '../ledger.js';
 import type { Currency } from '../money.js';
-import { quote } from '../pricing.js';
+import { quote, type FeePayer } from '../pricing.js';
 import type { PaymentProvider, PayoutResult } from '../payments/provider.js';
 import type { Messenger, Outbound } from '../whatsapp/client.js';
 import type { Media } from '../whatsapp/media.js';
-import { SELLER_ALERT } from '../whatsapp/automation.js';
+import { BUYER_ALERT, SELLER_ALERT } from '../whatsapp/automation.js';
 import { msg } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
 
@@ -15,6 +15,18 @@ export interface Deal {
   price_minor: number; fee_minor: number; buyer_pays_minor: number; seller_gets_minor: number;
   seller_account_id: string | null; status: Status; created_at: Date; funded_at: Date | null; shipped_at: Date | null;
   started_by: 'SELLER' | 'BUYER'; invited_phone: string | null; arrive_by: string | Date | null; accept_by: Date | null;
+  fee_payer: 'BUYER' | 'SELLER'; counter_price_minor: number | null; counter_seller_id: string | null; counter_account_id: string | null;
+  shipping_note: string | null;
+}
+
+/** What a seller gives us to start a deal. */
+export interface SellerDealInput {
+  sellerId: string;
+  item: string;
+  priceMinor: number;
+  sellerAccountId: string;
+  buyerPhone?: string | null;
+  photos?: { mediaId: string; mimeType?: string | null }[];
 }
 
 /** What a buyer gives us to start a deal (from the WhatsApp form or the chat questions). */
@@ -30,6 +42,7 @@ export interface BuyerDealInput {
 export type SellerAlert = 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed';
 
 export const SELLER_ALERT_TEMPLATE = SELLER_ALERT.name;
+export type Alert = SellerAlert;
 export interface User { id: string; phone: string; display_name: string | null }
 export interface BankAccount { id: string; user_id: string; bank_code: string; bank_name: string; account_number: string; account_name: string }
 
@@ -157,28 +170,85 @@ export class DealService {
   }
 
   // ---------- 1. seller creates ----------
-  previewDeal(priceMinor: number) {
+  /** Price, fee and totals. Hoolam's rule: whoever starts the deal pays the fee. */
+  previewDeal(priceMinor: number, payer: FeePayer = 'seller') {
     if (priceMinor > this.o.maxDealMinor) throw new DealError('TOO_BIG');
-    return quote(priceMinor, this.o.currency);
+    return quote(priceMinor, this.o.currency, undefined, payer);
   }
 
-  async createDeal(args: { sellerId: string; item: string; priceMinor: number; sellerAccountId: string }): Promise<{ deal: Deal; link: string }> {
-    const q = this.previewDeal(args.priceMinor);
-    return this.run(async (tx) => {
+  async createDeal(args: SellerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
+    const q = this.previewDeal(args.priceMinor, 'seller');
+    const photos = await this.fetchPhotos(args.photos ?? []);
+    const deal = await this.run(async (tx) => {
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newCode();
         const r = await tx.query(
-          `INSERT INTO deals (code, seller_id, item, currency, price_minor, fee_minor, buyer_pays_minor, seller_gets_minor, seller_account_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (code) DO NOTHING RETURNING *`,
-          [code, args.sellerId, args.item.slice(0, 200), this.o.currency, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor, args.sellerAccountId],
+          `INSERT INTO deals (code, seller_id, item, currency, price_minor, fee_minor, buyer_pays_minor, seller_gets_minor, seller_account_id, fee_payer, invited_phone)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SELLER',$10) ON CONFLICT (code) DO NOTHING RETURNING *`,
+          [code, args.sellerId, args.item.slice(0, 200), this.o.currency, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor, args.sellerAccountId, args.buyerPhone ?? null],
         );
-        if (r.rows[0]) {
-          const deal: Deal = r.rows[0];
-          await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [deal.id, deal.status, 'seller']);
-          return { deal, link: this.payLink(deal.code) };
-        }
+        if (!r.rows[0]) continue;
+        const d: Deal = r.rows[0];
+        await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [d.id, d.status, 'seller']);
+        await this.savePhotos(tx, d.id, args.sellerId, photos, 'ITEM');
+        return d;
       }
       throw new Error('Could not allocate a deal code');
+    });
+    const seller = await this.userById(this.o.db, args.sellerId);
+    const alert = await this.alertBuyer(deal, seller);
+    return { deal, link: this.payLink(deal.code), alert };
+  }
+
+  /** Downloads photos from WhatsApp before a transaction (their links only work for a few minutes). */
+  private async fetchPhotos(list: { mediaId: string; mimeType?: string | null }[]) {
+    const photos: { mediaId: string; mimeType: string; bytes: Buffer | null; sha256: string | null }[] = [];
+    for (const p of list.slice(0, 3)) {
+      try {
+        const d = this.o.media ? await this.o.media.download(p.mediaId) : null;
+        photos.push({ mediaId: p.mediaId, mimeType: d?.mimeType ?? p.mimeType ?? 'image/jpeg', bytes: d?.bytes ?? null, sha256: d?.sha256 ?? null });
+      } catch (e) { this.log(`photo ${p.mediaId} skipped: ${(e as Error).message}`); }
+    }
+    return photos;
+  }
+
+  private async savePhotos(tx: Tx, dealId: string, userId: string, photos: Awaited<ReturnType<DealService['fetchPhotos']>>, kind: 'ITEM' | 'SHIPPING') {
+    for (const p of photos) {
+      await tx.query('INSERT INTO deal_photos (deal_id, uploaded_by, mime_type, bytes, sha256, wa_media_id, kind) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [dealId, userId, p.mimeType, p.bytes, p.sha256, p.mediaId, kind]);
+    }
+  }
+
+  /** One alert, once, to the buyer's number the seller typed. Never to someone who tapped "Not me". */
+  private async alertBuyer(deal: Deal, seller: User): Promise<SellerAlert> {
+    const phone = deal.invited_phone;
+    if (!phone) return 'none';
+    if (phone === seller.phone && !this.o.testMode) return 'own-number';
+    const out = await this.o.db.query('SELECT 1 FROM contact_optouts WHERE phone=$1', [phone]);
+    if (out.rowCount) return 'opted-out';
+    const name = firstName(seller.display_name) ?? 'A seller';
+    const total = msg.moneyText(this.money(deal.buyer_pays_minor));
+    const status = await this.o.messenger.sendTemplate(phone, {
+      name: BUYER_ALERT.name, language: 'en',
+      params: [name, deal.item, total, deal.code],
+      buttonPayloads: [`bview:${deal.code}`, `bnotme:${deal.code}`],
+      buttonTitles: BUYER_ALERT.buttons,
+      preview: `💳 Payment request on Hoolam\n\n${name} is selling you ${deal.item} for ${total}. Deal ${deal.code}.`,
+    });
+    if (status === 'FAILED') { this.log(`buyer alert for ${deal.code} failed; the seller still has the link`); return 'failed'; }
+    return 'sent';
+  }
+
+  /** "Not me" on a seller's alert: wrong number. Close the deal and never alert that number again. */
+  async buyerNotMe(code: string, viewer: User): Promise<void> {
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      await tx.query('INSERT INTO contact_optouts (phone, reason) VALUES ($1,$2) ON CONFLICT (phone) DO NOTHING', [viewer.phone, `Not me on ${deal.code}`]);
+      out.push({ phone: viewer.phone, message: msg.sellerNotMeOk() });
+      if (deal.status !== 'AWAITING_BUYER' || deal.invited_phone !== viewer.phone) return;
+      await this.move(tx, deal, 'CANCELLED', 'buyer', 'Not me: the alerted number is not the buyer');
+      const seller = await this.sellerOf(tx, deal);
+      out.push({ phone: seller.phone, message: msg.sellerBuyerNotMe(deal.code) });
     });
   }
 
@@ -199,22 +269,15 @@ export class DealService {
    * give the buyer a link for the seller, and alert the seller directly if the buyer gave their number.
    */
   async createBuyerDeal(buyer: User, input: BuyerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
-    const q = this.previewDeal(input.priceMinor);
-    // Fetch the photos before the transaction: WhatsApp links only work for a few minutes.
-    const photos: { mediaId: string; mimeType: string; bytes: Buffer | null; sha256: string | null }[] = [];
-    for (const p of input.photos.slice(0, 3)) {
-      try {
-        const d = this.o.media ? await this.o.media.download(p.mediaId) : null;
-        photos.push({ mediaId: p.mediaId, mimeType: d?.mimeType ?? p.mimeType ?? 'image/jpeg', bytes: d?.bytes ?? null, sha256: d?.sha256 ?? null });
-      } catch (e) { this.log(`photo ${p.mediaId} skipped: ${(e as Error).message}`); }
-    }
+    const q = this.previewDeal(input.priceMinor, 'buyer');
+    const photos = await this.fetchPhotos(input.photos);
     const deal = await this.run(async (tx) => {
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newCode();
         const r = await tx.query(
           `INSERT INTO deals (code, buyer_id, item, currency, price_minor, fee_minor, buyer_pays_minor, seller_gets_minor,
-                              status, started_by, invited_phone, arrive_by, accept_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AWAITING_SELLER','BUYER',$9,$10, now() + make_interval(hours => $11))
+                              status, started_by, fee_payer, invited_phone, arrive_by, accept_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AWAITING_SELLER','BUYER','BUYER',$9,$10, now() + make_interval(hours => $11))
            ON CONFLICT (code) DO NOTHING RETURNING *`,
           [code, buyer.id, input.item.slice(0, 200), this.o.currency, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor,
             input.sellerPhone, input.arriveBy, this.acceptHours()],
@@ -222,10 +285,7 @@ export class DealService {
         if (!r.rows[0]) continue;
         const d: Deal = r.rows[0];
         await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [d.id, d.status, 'buyer']);
-        for (const p of photos) {
-          await tx.query('INSERT INTO deal_photos (deal_id, uploaded_by, mime_type, bytes, sha256, wa_media_id) VALUES ($1,$2,$3,$4,$5,$6)',
-            [d.id, buyer.id, p.mimeType, p.bytes, p.sha256, p.mediaId]);
-        }
+        await this.savePhotos(tx, d.id, buyer.id, photos, 'ITEM');
         return d;
       }
       throw new Error('Could not allocate a deal code');
@@ -271,6 +331,10 @@ export class DealService {
       await this.o.messenger.send(viewer.phone, msg.ownBuyDeal(deal.code, this.sellerLink(deal.code)));
       return;
     }
+    if (deal.counter_seller_id) {
+      await this.o.messenger.send(viewer.phone, deal.counter_seller_id === viewer.id ? msg.counterWaiting(deal.code) : msg.dealHasSeller(deal.code));
+      return;
+    }
     const buyer = await this.userById(this.o.db, deal.buyer_id!);
     for (const mediaId of await this.photoIdsForSending(deal.id)) {
       await this.o.messenger.send(viewer.phone, { kind: 'image', mediaId });
@@ -285,8 +349,8 @@ export class DealService {
   }
 
   /** Re-uploads the deal's photos to WhatsApp (reusing an upload for up to 25 days). */
-  private async photoIdsForSending(dealId: string): Promise<string[]> {
-    const r = await this.o.db.query('SELECT id, mime_type, bytes, sent_media_id, sent_media_at FROM deal_photos WHERE deal_id=$1 ORDER BY id', [dealId]);
+  private async photoIdsForSending(dealId: string, kind: 'ITEM' | 'SHIPPING' = 'ITEM'): Promise<string[]> {
+    const r = await this.o.db.query('SELECT id, mime_type, bytes, sent_media_id, sent_media_at FROM deal_photos WHERE deal_id=$1 AND kind=$2 ORDER BY id', [dealId, kind]);
     const ids: string[] = [];
     for (const p of r.rows) {
       const fresh = p.sent_media_id && p.sent_media_at && Date.now() - new Date(p.sent_media_at).getTime() < 25 * 86400_000;
@@ -310,6 +374,8 @@ export class DealService {
       }
       if (deal.accept_by && new Date(deal.accept_by).getTime() < Date.now()) throw new DealError('CLOSED');
       if (deal.buyer_id === seller.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+      if (deal.counter_seller_id && deal.counter_seller_id !== seller.id) { out.push({ phone: seller.phone, message: msg.dealHasSeller(deal.code) }); return; }
+      if (deal.counter_seller_id) await tx.query('UPDATE deals SET counter_price_minor=NULL, counter_seller_id=NULL, counter_account_id=NULL WHERE id=$1', [deal.id]);
       const acct = await tx.query('SELECT bank_name, account_number FROM bank_accounts WHERE id=$1 AND user_id=$2', [accountId, seller.id]);
       if (!acct.rows[0]) throw new DealError('NOT_ALLOWED');
       await tx.query('UPDATE deals SET seller_id=$2, seller_account_id=$3 WHERE id=$1', [deal.id, seller.id, accountId]);
@@ -317,6 +383,44 @@ export class DealService {
       const buyer = await this.userById(tx, deal.buyer_id!);
       out.push({ phone: seller.phone, message: msg.sellerAcceptedOk(deal.code, firstName(buyer.display_name) ?? 'The buyer', acct.rows[0].bank_name, String(acct.rows[0].account_number).slice(-4)) });
       out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.buyer_pays_minor)) });
+    });
+  }
+
+
+  // ---------- Change price: the seller suggests a different price on a buyer's deal ----------
+  async counterAsSeller(code: string, seller: User, accountId: string, newPriceMinor: number): Promise<void> {
+    if (newPriceMinor > this.o.maxDealMinor) throw new DealError('TOO_BIG');
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (deal.status !== 'AWAITING_SELLER') { out.push({ phone: seller.phone, message: deal.seller_id ? msg.dealHasSeller(deal.code) : msg.dealClosed(deal.code) }); return; }
+      if (deal.buyer_id === seller.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+      if (deal.counter_seller_id && deal.counter_seller_id !== seller.id) { out.push({ phone: seller.phone, message: msg.dealHasSeller(deal.code) }); return; }
+      const acct = await tx.query('SELECT 1 FROM bank_accounts WHERE id=$1 AND user_id=$2', [accountId, seller.id]);
+      if (!acct.rowCount) throw new DealError('NOT_ALLOWED');
+      await tx.query('UPDATE deals SET counter_price_minor=$2, counter_seller_id=$3, counter_account_id=$4, updated_at=now() WHERE id=$1', [deal.id, newPriceMinor, seller.id, accountId]);
+      await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', `Suggested a new price: ${newPriceMinor}`]);
+      const buyer = await this.userById(tx, deal.buyer_id!);
+      const q = quote(newPriceMinor, this.o.currency, undefined, 'buyer');
+      out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor)) });
+      out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor)) });
+    });
+  }
+
+  /** The buyer agrees to the seller's new price: the deal is on, at the new price. */
+  async acceptCounter(code: string, buyer: User): Promise<void> {
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
+      if (deal.status !== 'AWAITING_SELLER' || !deal.counter_price_minor || !deal.counter_seller_id) { out.push({ phone: buyer.phone, message: msg.dealClosed(deal.code) }); return; }
+      const q = quote(deal.counter_price_minor, this.o.currency, undefined, 'buyer');
+      await tx.query(
+        `UPDATE deals SET price_minor=$2, fee_minor=$3, buyer_pays_minor=$4, seller_gets_minor=$5, seller_id=$6, seller_account_id=$7,
+                          counter_price_minor=NULL, counter_seller_id=NULL, counter_account_id=NULL WHERE id=$1`,
+        [deal.id, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor, deal.counter_seller_id, deal.counter_account_id]);
+      const seller = await this.userById(tx, deal.counter_seller_id);
+      await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer', `Buyer accepted the new price ${q.priceMinor}`);
+      out.push({ phone: seller.phone, message: msg.sellerCounterAccepted(deal.code, firstName(buyer.display_name) ?? 'The buyer', this.money(q.sellerGetsMinor)) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(q.buyerPaysMinor)) });
     });
   }
 
@@ -346,6 +450,9 @@ export class DealService {
 
   // ---------- 2. buyer opens the link ----------
   async joinAsBuyer(code: string, buyer: User): Promise<void> {
+    const peek = await this.findByCode(code);
+    const canSee = peek && ['AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(peek.status) && (!peek.buyer_id || peek.buyer_id === buyer.id);
+    const photoIds = canSee ? await this.photoIdsForSending(peek.id) : [];
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.seller_id === buyer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
@@ -357,9 +464,10 @@ export class DealService {
         await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer');
         if (seller.id !== buyer.id) out.push({ phone: seller.phone, message: msg.sellerBuyerJoined(deal.code) });
       }
+      for (const mediaId of photoIds) out.push({ phone: buyer.phone, message: { kind: 'image', mediaId } });
       out.push({
         phone: buyer.phone,
-        message: msg.dealForBuyer(deal.code, deal.item, seller.display_name ?? 'Seller', this.money(deal.price_minor), this.money(deal.buyer_pays_minor - deal.price_minor), this.money(deal.buyer_pays_minor)),
+        message: msg.dealForBuyer(deal.code, deal.item, firstName(seller.display_name) ?? 'Seller', this.money(deal.price_minor), this.money(deal.buyer_pays_minor - deal.price_minor), this.money(deal.buyer_pays_minor)),
       });
     });
   }
@@ -416,8 +524,9 @@ export class DealService {
       if (paid.rowCount) throw new DealError('NOT_ALLOWED');
       await this.move(tx, deal, 'CANCELLED', 'buyer');
       out.push({ phone: buyer.phone, message: msg.cancelled(deal.code) });
-      if (deal.seller_id && deal.seller_id !== buyer.id) {
-        const seller = await this.sellerOf(tx, deal);
+      const sellerId = deal.seller_id ?? deal.counter_seller_id;
+      if (sellerId && sellerId !== buyer.id) {
+        const seller = await this.userById(tx, sellerId);
         out.push({ phone: seller.phone, message: msg.sellerBuyerCancelled(deal.code) });
       }
     });
@@ -488,6 +597,27 @@ export class DealService {
       out.push({ phone: seller.phone, message: msg.sellerShippedOk(deal.code) });
       out.push({ phone: buyer.phone, message: msg.buyerShipped(deal.code) });
     });
+  }
+
+  /** Optional, after "I've sent it": a photo of the package/receipt or a tracking note. Shown to the buyer, kept for disputes. */
+  async addShippingProof(code: string, seller: User, proof: { note?: string | null; photo?: { mediaId: string; mimeType?: string | null } | null }): Promise<void> {
+    const deal = await this.findByCode(code);
+    if (!deal || deal.seller_id !== seller.id) throw new DealError('NOT_ALLOWED');
+    const photos = proof.photo ? await this.fetchPhotos([proof.photo]) : [];
+    const note = proof.note?.trim().slice(0, 300) || null;
+    await this.run(async (tx) => {
+      await this.savePhotos(tx, deal.id, seller.id, photos, 'SHIPPING');
+      if (note) await tx.query(`UPDATE deals SET shipping_note = CASE WHEN shipping_note IS NULL THEN $2 ELSE shipping_note || ' / ' || $2 END WHERE id=$1`, [deal.id, note]);
+    });
+    if (!deal.buyer_id) return;
+    const buyer = await this.userById(this.o.db, deal.buyer_id);
+    if (photos.length) {
+      const ids = await this.photoIdsForSending(deal.id, 'SHIPPING');
+      const last = ids[ids.length - 1];
+      if (last) await this.o.messenger.send(buyer.phone, { kind: 'image', mediaId: last, caption: `📦 Proof of shipping for deal ${deal.code}` });
+    }
+    if (note) await this.o.messenger.send(buyer.phone, msg.buyerShippingNote(deal.code, note));
+    await this.o.messenger.send(seller.phone, msg.shippingProofSaved(deal.code));
   }
 
   // ---------- 5a. buyer is happy → pay the seller ----------

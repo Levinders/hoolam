@@ -141,9 +141,9 @@ export const msg = {
     text: '📷 Got a photo of the item? Send up to 3.\n\nA screenshot of the seller\'s post works. It\'s your proof of what was promised.',
     buttons: [{ id: 'buy:nophotos', title: 'No photos' }],
   }),
-  photoAdded: (n: number, max: number): Outbound => n >= max
+  photoAdded: (n: number, max: number, flow: 'buy' | 'sell' = 'buy'): Outbound => n >= max
     ? { kind: 'text', text: `📷 ${n} photos saved.` }
-    : { kind: 'buttons', text: `📷 ${n === 1 ? 'Photo' : n + ' photos'} saved. Send another, or tap Done.`, buttons: [{ id: 'buy:photosdone', title: 'Done' }] },
+    : { kind: 'buttons', text: `📷 ${n === 1 ? 'Photo' : n + ' photos'} saved. Send another, or tap Done.`, buttons: [{ id: `${flow}:photosdone`, title: 'Done' }] },
   askSellerPhone: (): Outbound => ({
     kind: 'buttons',
     text: '📨 What\'s the seller\'s WhatsApp number?\n\nWe\'ll alert them for you. Or skip, and we\'ll give you a link to send them.',
@@ -213,14 +213,32 @@ export const msg = {
       `⏳ Accept within ${d.hoursLeft} hour${d.hoursLeft === 1 ? '' : 's'}. (Deal ${d.code})`,
     buttons: [
       { id: `saccept:${d.code}`, title: '✅ Accept' },
+      { id: `scounter:${d.code}`, title: '✏️ Change price' },
       { id: `sdecline:${d.code}`, title: '✕ Decline' },
-      ...(d.invited ? [{ id: `snotme:${d.code}`, title: '🚫 Not me' }] : []),
     ],
   }),
   askSellerBank: (): Outbound => ({ kind: 'text', text: '🏦 Last step: where should we pay you when the buyer is happy?\n\nSend your account number and bank.\nFor example: _0123456789 GTBank_' }),
   sellerAcceptedOk: (code: string, buyerName: string, bankName: string, last4: string): Outbound => withMenu(
     `✅ Deal ${code} accepted.\n\n⏳ We've asked ${buyerName} to pay. We'll tell you the moment the money is held. Don't ship before then.\n\n🏦 You'll be paid into ${bankName} ••••${last4}.`,
   ),
+
+  // ----- Change price -----
+  askCounterPrice: (current: Money): Outbound => ({ kind: 'text', text: `✏️ What price works for you? (in naira)\n\nThe buyer offered ${m(current)}.` }),
+  counterSent: (code: string, buyerName: string, price: Money): Outbound => withMenu(`✏️ Sent. We've asked ${buyerName} if ${m(price)} works.\n\nWe'll tell you when they answer. (Deal ${code})`),
+  counterWaiting: (code: string): Outbound => withMenu(`⏳ Deal ${code}: we're waiting for the buyer to answer your price.`),
+  buyerCounterOffer: (code: string, sellerName: string, item: string, oldPrice: Money, newPrice: Money, newTotal: Money): Outbound => ({
+    kind: 'buttons',
+    text: `✏️ ${sellerName} suggests a different price\n\n*${item}*\n~${m(oldPrice)}~ → *${m(newPrice)}*\nYou'd pay *${m(newTotal)}*\n\n💡 You only pay if you accept. (Deal ${code})`,
+    buttons: [{ id: `cyes:${code}`, title: '✅ Accept new price' }, { id: `cancel:${code}`, title: '✕ Cancel deal' }],
+  }),
+  sellerCounterAccepted: (code: string, buyerName: string, youGet: Money): Outbound => withMenu(
+    `🎉 ${buyerName} accepted your price for deal ${code}. You'll receive ${m(youGet)}.\n\n⏳ We've asked them to pay. Don't ship before we confirm the money is held.`,
+  ),
+  askDeclineReason: (code: string): Outbound => ({
+    kind: 'buttons',
+    text: 'No problem. Which is it?',
+    buttons: [{ id: `sno:${code}`, title: 'Not interested' }, { id: `snotme:${code}`, title: '🚫 Wrong number' }],
+  }),
   sellerDeclinedOk: (code: string): Outbound => withMenu(`Done. Deal ${code} is declined. No money moved.`),
   sellerNotMeOk: (): Outbound => ({ kind: 'text', text: '🙏 Sorry about that. We won\'t send you deal alerts again.' }),
   dealHasSeller: (code: string): Outbound => withMenu(`🔒 Deal ${code} already has a seller. If you're selling to this buyer, ask them for a new deal.`),
@@ -240,17 +258,52 @@ export const msg = {
     text: `Is this your account?\n\n${accountName}\n${bankName} ••••${last4}`,
     buttons: [{ id: 'bank:yes', title: 'Yes, that\'s me' }, { id: 'bank:no', title: 'No, change it' }],
   }),
-  confirmDeal: (item: string, price: Money, fee: Money, buyerPays: Money, sellerGets: Money): Outbound => ({
+  confirmDeal: (d: { item: string; photos: number; buyerPhone: string | null; price: Money; fee: Money; buyerPays: Money; sellerGets: Money }): Outbound => ({
     kind: 'buttons',
     text:
-      `Check your deal:\n\n${item}\nPrice: ${m(price)}\n` +
-      `Hoolam fee: ${m(fee)}\n\n` +
-      `The buyer pays ${m(buyerPays)}.\nYou receive ${m(sellerGets)}.`,
-    buttons: [{ id: 'sell:confirm', title: 'Create deal' }, { id: 'sell:restart', title: 'Start again' }],
+      `🏷️ *Check your deal*\n\n*${d.item}*\n` +
+      (d.photos ? `📷 ${d.photos} photo${d.photos > 1 ? 's' : ''}\n` : '') +
+      `📨 ${d.buyerPhone ? `We'll send it to ${maskPhone(d.buyerPhone)}` : 'You\'ll get a link for the buyer'}\n\n` +
+      `Price         ${m(d.price)}\nHoolam fee   −${m(d.fee)}\n*You receive  ${m(d.sellerGets)}*\n\n` +
+      `💳 The buyer pays ${m(d.buyerPays)}. You started the deal, so you pay the fee.`,
+    buttons: [{ id: 'sell:confirm', title: '✅ Create deal' }, { id: 'sell:restart', title: '✏️ Start again' }],
   }),
-  dealCreated: (code: string, link: string): Outbound => withMenu(
-    `Your deal ${code} is ready.\n\nSend this link to your buyer:\n${link}\n\n` +
-    'When they pay, we\'ll tell you right away. Don\'t ship before then.',
+  askSellPhotos: (): Outbound => ({
+    kind: 'buttons',
+    text: '📷 Add photos of the item? Send up to 3.\n\nBuyers trust real photos, and they\'re your proof of what you sold.',
+    buttons: [{ id: 'sell:nophotos', title: 'No photos' }],
+  }),
+  askBuyerPhone: (): Outbound => ({
+    kind: 'buttons',
+    text: '📨 What\'s the buyer\'s WhatsApp number?\n\nWe\'ll send them the deal. Or skip, and we\'ll give you a link to send them.',
+    buttons: [{ id: 'sell:nophone', title: 'Skip' }],
+  }),
+  badBuyerPhone: (): Outbound => ({
+    kind: 'buttons',
+    text: '🤔 I couldn\'t read that number. Try it like _08012345678_ or _+229 90 00 00 00_.',
+    buttons: [{ id: 'sell:nophone', title: 'Skip' }],
+  }),
+  sellerBuyerNotMe: (code: string): Outbound => ({
+    kind: 'buttons',
+    text: `📵 The number you gave says it isn't your buyer, so deal ${code} is closed. No money moved.\n\nCheck the number and start again, or send the buyer the link yourself.`,
+    buttons: [{ id: 'menu:sell', title: '🏷️ Start again' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  sellForm: (flowId: string, mode: 'draft' | 'published'): Outbound => ({
+    kind: 'form',
+    header: '🏷️ Sell safely',
+    text: 'Tell us what you\'re selling. It takes a minute.\n\n💡 The buyer pays Hoolam, and we pay you when they\'re happy.',
+    footer: 'Prefer typing? Just send the item name.',
+    cta: 'Start my deal',
+    flowId, flowToken: 'sell:v1', screen: 'ITEM', mode,
+  }),
+  dealCreated: (code: string, link: string, alert: 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed' = 'none'): Outbound => withMenu(
+    `✅ Deal *${code}* is ready.\n\n` +
+    (alert === 'sent' ? '📨 We\'ve sent the buyer the deal.\n\nSend them this link too, just in case:\n'
+      : alert === 'own-number' ? '📨 That\'s your own number, so we didn\'t alert it. Send this link to your buyer:\n'
+      : alert === 'opted-out' ? '📨 That number asked us not to message it. Send this link to your buyer yourself:\n'
+      : alert === 'failed' ? '📵 We couldn\'t reach that WhatsApp number. Send this link to your buyer:\n'
+      : 'Send this link to your buyer:\n') +
+    `${link}\n\n⏳ We'll tell you the moment they pay. Don't ship before then.`,
   ),
 
   // ----- buyer -----
@@ -262,7 +315,7 @@ export const msg = {
     kind: 'buttons',
     text:
       `Deal ${code}\n${item}\nSeller: ${sellerName}\n\n` +
-      `Price: ${m(price)}\nHoolam fee: ${m(fee)}\nYou pay: ${m(total)}\n\n` +
+      (fee.minor > 0 ? `Price: ${m(price)}\nHoolam fee: ${m(fee)}\n*You pay: ${m(total)}*\n\n` : `*You pay: ${m(total)}*\nNo fee for you: the seller pays it.\n\n`) +
       'Your money stays with Hoolam, not the seller. They only get paid after you receive your item and say you\'re happy. If it never comes, you get your money back.',
     buttons: [{ id: `pay:${code}`, title: 'Pay now' }, { id: `cancel:${code}`, title: 'Not now' }],
   }),
@@ -290,7 +343,13 @@ export const msg = {
     text: `Good news: the buyer has paid for deal ${code}. Your ${m(yours)} is held safely by Hoolam.\n\nShip the item now, then tap below.`,
     buttons: [{ id: `shipped:${code}`, title: 'I\'ve sent it' }],
   }),
-  sellerShippedOk: (code: string): Outbound => ({ kind: 'text', text: `Thanks. We've told the buyer that deal ${code} is on the way.` }),
+  sellerShippedOk: (code: string): Outbound => ({
+    kind: 'buttons',
+    text: `📦 Thanks. We've told the buyer that deal ${code} is on the way.\n\nWant to add proof? Send a photo of the package or receipt, or type a tracking number. It protects you if there's a problem.`,
+    buttons: [{ id: `noproof:${code}`, title: 'No thanks' }],
+  }),
+  shippingProofSaved: (code: string): Outbound => withMenu(`✅ Proof saved for deal ${code} and shown to the buyer.`),
+  buyerShippingNote: (code: string, note: string): Outbound => ({ kind: 'text', text: `📦 From the seller, about deal ${code}:\n\n${note}` }),
   buyerShipped: (code: string): Outbound => ({
     kind: 'buttons',
     text: `Your item for deal ${code} is on the way.\n\nWhen it arrives, open it and check it. Then tell us:`,

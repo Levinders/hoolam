@@ -1,4 +1,4 @@
-import { buyFlowJson, buyFlowName } from './buy-flow.js';
+import { buyFlowJson, buyFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
 
 /**
  * The things WhatsApp shows before anyone types:
@@ -96,6 +96,20 @@ export const SELLER_ALERT = {
   buttons: ['View deal', 'Not me'],
 };
 
+/** The buyer alert (a seller started the deal and typed the buyer's number). */
+export const BUYER_ALERT = {
+  name: 'hoolam_payment_request',
+  body:
+    '💳 Payment request on Hoolam\n\n{{1}} is selling you {{2}} for {{3}}.\n\n' +
+    'You pay Hoolam, not the seller. We hold the money until you receive the item and are happy.\n\n' +
+    'Deal {{4}}. Tap below to see the photos and pay.',
+  example: ['Bayo', 'Black sneakers, size 42', '₦15,000', 'HL-7K2QF'],
+  footer: 'Not expecting this? Tap Not me.',
+  buttons: ['View deal', 'Not me'],
+};
+
+export type TemplateDef = typeof SELLER_ALERT;
+
 async function graph(o: AutomationOptions, method: 'GET' | 'POST', path: string, body?: unknown) {
   const f = o.fetchImpl ?? fetch;
   const res = await f(`https://graph.facebook.com/${o.graphVersion}/${path}`, {
@@ -111,11 +125,15 @@ async function graph(o: AutomationOptions, method: 'GET' | 'POST', path: string,
 
 /** Makes sure the seller-alert template exists. Returns its status (APPROVED, PENDING, REJECTED) or null. */
 export async function ensureSellerAlertTemplate(o: MetaSetupOptions): Promise<string | null> {
-  const t = SELLER_ALERT;
+  return ensureTemplate(o, SELLER_ALERT, 'seller alert');
+}
+
+/** Makes sure an alert template exists on Meta. Returns its status (APPROVED, PENDING, REJECTED) or null. */
+export async function ensureTemplate(o: MetaSetupOptions, t: TemplateDef, label: string): Promise<string | null> {
   const found = await graph(o, 'GET', `${o.wabaId}/message_templates?name=${t.name}&fields=name,status,category,language`);
   const existing = found.ok ? (found.json?.data ?? []).find((x: { name: string }) => x.name === t.name) : null;
   if (existing) {
-    o.log?.(`seller alert template: ${existing.status}${existing.status === 'APPROVED' ? '' : ' (alerts start once Meta approves it)'}`);
+    o.log?.(`${label} template: ${existing.status}${existing.status === 'APPROVED' ? '' : ' (alerts start once Meta approves it)'}`);
     return existing.status;
   }
   const created = await graph(o, 'POST', `${o.wabaId}/message_templates`, {
@@ -127,41 +145,49 @@ export async function ensureSellerAlertTemplate(o: MetaSetupOptions): Promise<st
     ],
   });
   if (!created.ok) {
-    o.log?.(`seller alert template FAILED to create (HTTP ${created.status}): ${created.text}`);
+    o.log?.(`${label} template FAILED to create (HTTP ${created.status}): ${created.text}`);
     return null;
   }
-  o.log?.(`seller alert template submitted to Meta: ${created.json?.status ?? 'PENDING'} (category ${created.json?.category ?? '?'})`);
+  o.log?.(`${label} template submitted to Meta: ${created.json?.status ?? 'PENDING'} (category ${created.json?.category ?? '?'})`);
   return created.json?.status ?? 'PENDING';
 }
 
 /** Makes sure the buyer's form exists on Meta. Returns its id, or null (then the chat questions are used). */
 export async function ensureBuyFlow(o: MetaSetupOptions, json = buyFlowJson()): Promise<string | null> {
-  const name = buyFlowName(json);
+  return ensureFlow(o, json, buyFlowName(json), 'buyer form');
+}
+
+/** Makes sure the seller's form exists on Meta. */
+export async function ensureSellFlow(o: MetaSetupOptions, json = sellFlowJson()): Promise<string | null> {
+  return ensureFlow(o, json, sellFlowName(json), 'seller form');
+}
+
+async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label: string): Promise<string | null> {
   const list = await graph(o, 'GET', `${o.wabaId}/flows?fields=id,name,status,validation_errors&limit=100`);
-  if (!list.ok) { o.log?.(`buyer form: can't list forms (HTTP ${list.status}): ${list.text}`); return null; }
+  if (!list.ok) { o.log?.(`${label}: can't list forms (HTTP ${list.status}): ${list.text}`); return null; }
   const existing = (list.json?.data ?? []).find((x: { name: string }) => x.name === name);
   if (existing) {
     const errs: { message?: string }[] = existing.validation_errors ?? [];
     if (errs.length) {
-      o.log?.(`buyer form FAILED: ${name} has ${errs.length} problem(s): ${errs.map((e) => e.message).join(' | ').slice(0, 600)}`);
+      o.log?.(`${label} FAILED: ${name} has ${errs.length} problem(s): ${errs.map((e) => e.message).join(' | ').slice(0, 600)}`);
       return null;
     }
-    o.log?.(`buyer form ready: ${name} (${existing.status}, sending as ${o.formMode})`);
+    o.log?.(`${label} ready: ${name} (${existing.status}, sending as ${o.formMode})`);
     return existing.id;
   }
   const created = await graph(o, 'POST', `${o.wabaId}/flows`, {
     name, categories: ['OTHER'], flow_json: JSON.stringify(json), publish: o.formMode === 'published',
   });
   if (!created.ok || !created.json?.id) {
-    o.log?.(`buyer form FAILED to create (HTTP ${created.status}): ${created.text}`);
+    o.log?.(`${label} FAILED to create (HTTP ${created.status}): ${created.text}`);
     return null;
   }
   const errors: { message?: string }[] = created.json.validation_errors ?? [];
   if (errors.length) {
     // Never send a broken form: buyers answer in the chat until it's fixed.
-    o.log?.(`buyer form FAILED: Meta found ${errors.length} problem(s): ${errors.map((e) => e.message).join(' | ').slice(0, 600)}`);
+    o.log?.(`${label} FAILED: Meta found ${errors.length} problem(s): ${errors.map((e) => e.message).join(' | ').slice(0, 600)}`);
     return null;
   }
-  o.log?.(`buyer form created: ${name} (${o.formMode})`);
+  o.log?.(`${label} created: ${name} (${o.formMode})`);
   return created.json.id;
 }
