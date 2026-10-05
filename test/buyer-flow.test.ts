@@ -268,6 +268,22 @@ describe('buyer side, edges', () => {
   });
 });
 
+describe('when WhatsApp refuses the form', () => {
+  it('falls back to the chat questions and stops offering the form', async () => {
+    const buyer = phone();
+    await h.say(buyer, 'hi');
+    h.app.setBuyForm({ flowId: 'flow-1', mode: 'draft' });
+    const realSend = h.app.messenger.send.bind(h.app.messenger);
+    let formTries = 0;
+    h.app.messenger.send = async (p, m) => { if (m.kind === 'form') { formTries++; return 'FAILED'; } return realSend(p, m); };
+    await h.tap(buyer, 'menu:buy');
+    expect(h.last(buyer)).toMatch(/What are you buying/);
+    await h.tap(buyer, 'menu:buy');
+    expect(formTries).toBe(1);
+    h.app.messenger.send = realSend;
+  });
+});
+
 describe('Meta setup', () => {
   const fakeMeta = (state: { flows: any[]; templates: any[] }) => {
     const calls: { method: string; url: string; body: any }[] = [];

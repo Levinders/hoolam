@@ -34,6 +34,8 @@ export interface FlowOptions {
   testMode?: boolean;
   /** The buyer's WhatsApp form, once it exists on Meta. Null = ask in the chat instead. */
   buyForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
+  /** Called when WhatsApp refuses to send the form, so we stop trying until the next restart. */
+  onFormRefused?: () => void;
   log?: (line: string) => void;
 }
 
@@ -363,7 +365,8 @@ export class Conversation {
       await this.save(phone, 'BUY_FORM');
       const status = await this.send(phone, msg.buyForm(form.flowId, form.mode));
       if (status !== 'FAILED') return;
-      this.o.log?.('buyer form could not be sent; asking in the chat instead');
+      this.o.onFormRefused?.();
+      this.o.log?.('buyer form could not be sent; asking in the chat instead (form switched off until the next restart)');
     }
     await this.save(phone, 'BUY_ITEM');
     return this.send(phone, msg.askBuyItem());

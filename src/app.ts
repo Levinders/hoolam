@@ -29,7 +29,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
   let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
-  const chat = new Conversation({ db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, buyForm: () => buyForm });
+  const chat = new Conversation({ db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, buyForm: () => buyForm, onFormRefused: () => { buyForm = null; } });
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
