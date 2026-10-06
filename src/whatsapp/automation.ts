@@ -13,7 +13,7 @@ import { buyFlowJson, buyFlowName, sellFlowJson, sellFlowName } from './buy-flow
  *
  * Every ice breaker and command here must also be understood in flow.ts (PHRASES and SLASH).
  */
-export type MenuItem = 'open' | 'sell' | 'buy' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human';
+export type MenuItem = 'open' | 'sell' | 'buy' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human' | 'card' | 'check';
 
 /**
  * Shown in a brand-new chat. Each one is a first line a real person would say, and where it leads.
@@ -36,6 +36,8 @@ export const COMMANDS: { name: string; hint: string; goTo: MenuItem }[] = [
   { name: 'deals', hint: 'Where your deals and money are', goTo: 'deals' },
   { name: 'problem', hint: 'Freeze the money on a bad delivery', goTo: 'problem' },
   { name: 'account', hint: 'Where we send your money', goTo: 'account' },
+  { name: 'check', hint: 'See a seller\'s record before you buy', goTo: 'check' },
+  { name: 'card', hint: 'Your trust card and share link', goTo: 'card' },
   { name: 'fees', hint: 'What it costs and who pays', goTo: 'fees' },
   { name: 'help', hint: 'How Hoolam keeps you safe', goTo: 'how' },
   { name: 'human', hint: 'Talk to a real person', goTo: 'human' },

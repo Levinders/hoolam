@@ -99,6 +99,21 @@ the price minus the fee. A buyer's deal: the buyer pays price + fee, the seller 
 4. After **I've sent it**, the seller can send a photo or a tracking note as proof of shipping. The buyer sees it; it's
    kept with the deal (`deal_photos.kind = 'SHIPPING'`, `deals.shipping_note`) for disputes.
 
+## Trust card
+
+A seller's record, counted from real deals paid through Hoolam (`src/trust.ts`), so it can't be faked:
+deals completed, different buyers, typical shipping time, problems reported and how they ended, 👍/👎 from buyers,
+and the bank-verified payout name. Test deals (pretend money) and self-deals never count; new sellers show
+"🌱 New on Hoolam". Set `TRUST_COUNT_TEST_DEALS=true` only while testing.
+
+- **Before paying:** one line above **Pay now** (`🛡️ Bayo · ✅ 48 deals · 👍 96%`) and a **🛡️ Seller's record** button.
+- **🔍 Check a seller:** by WhatsApp number or deal code, then **🛒 Buy from them**.
+- **🛡️ My trust card:** sellers see their card, set a shop name and city, and **share** a public page
+  `/s/<name>` (or hide it). The page's **Buy safely** button opens WhatsApp with `Buy from @<name>`, which starts a
+  buyer's deal already pointed at that seller.
+- **After "I'm happy":** 👍 Great / 👎 Not great. A 👎 can add a private note (team only, in `/admin/attention`).
+- Sellers see a short buyer record on deals too: `👤 Ada · 🛍️ 12 purchases · no problems reported`.
+
 ## The WhatsApp menu
 
 People never face an empty chat:

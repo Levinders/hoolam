@@ -177,7 +177,7 @@ describe('the menu in the chat', () => {
     expect(h.last(buyer)).toMatch(/doesn't look like a deal code/);
     await h.say(buyer, code.toLowerCase().replace('-', ''));
     expect(h.last(buyer)).toMatch(new RegExp(`Deal ${code}`));
-    expect(h.last(buyer)).toMatch(/\[Pay now\]/);
+    expect(h.last(buyer)).toMatch(/Pay now\]/);
   });
 
   it('"Report a problem" with no paid deals offers a person instead', async () => {

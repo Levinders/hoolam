@@ -1,5 +1,6 @@
 import { formatMoney, type Currency } from '../money.js';
 import type { ListSection, Outbound } from './client.js';
+import { shipText, shortBankName, type BuyerStats, type SellerStats } from '../trust.js';
 
 // Every message Hoolam sends, in one place. Plain words, short lines, and always answer
 // the quiet question underneath: "where is my money right now?"
@@ -17,6 +18,7 @@ export const MENU: ListSection[] = [
     rows: [
       { id: 'menu:sell', title: '🏷️ Sell something', description: 'Get a safe-pay link for your buyer' },
       { id: 'menu:deals', title: '📋 My deals', description: 'Where every deal and every naira is' },
+      { id: 'menu:card', title: '🛡️ My trust card', description: 'Your record, your name, your share link' },
       { id: 'menu:account', title: '🏦 My payout account', description: 'Where we send your money' },
     ],
   },
@@ -25,14 +27,14 @@ export const MENU: ListSection[] = [
     rows: [
       { id: 'menu:buy', title: '🛒 Buy something', description: 'Start a safe deal. You pay after the seller accepts' },
       { id: 'menu:pay', title: '🔑 I have a deal code', description: 'A seller sent you a code? Start here' },
+      { id: 'menu:check', title: '🔍 Check a seller', description: 'See their record before you buy' },
       { id: 'menu:problem', title: '🚩 Report a problem', description: 'We freeze the money until it’s fixed' },
     ],
   },
   {
     title: 'Help',
     rows: [
-      { id: 'menu:how', title: '🛡️ How it works', description: 'One payment, start to finish' },
-      { id: 'menu:fees', title: '🧾 Fees', description: 'What it costs and who pays' },
+      { id: 'menu:how', title: '🛡️ How it works', description: 'The steps, and what it costs' },
       { id: 'menu:human', title: '🙋 Talk to a person', description: 'A real human, within 24 hours' },
     ],
   },
@@ -82,7 +84,7 @@ export const msg = {
       '✅  Buyer checks it, taps "I\'m happy"\n' +
       '💸  Seller gets paid\n\n' +
       '🚩 Problem? The money stays frozen until it\'s sorted.',
-    buttons: [{ id: 'menu:buy', title: '🛒 Buy something' }, { id: 'menu:sell', title: '🏷️ Sell something' }, { id: 'menu:open', title: 'Main menu' }],
+    buttons: [{ id: 'menu:buy', title: '🛒 Buy something' }, { id: 'menu:sell', title: '🏷️ Sell something' }, { id: 'menu:fees', title: '🧾 Fees' }],
   }),
 
   fees: (rules: string, examples: string[], maxDeal: Money): Outbound => withMenu(
@@ -122,6 +124,89 @@ export const msg = {
   testNothingToPay: (): Outbound => ({ kind: 'text', text: 'TEST MODE: there is no payment waiting. Open a deal link and tap "Pay now" first.' }),
   voiceSoon: (): Outbound => ({ kind: 'text', text: 'Voice notes are coming soon. For now, please type your answer.' }),
 
+
+
+  // ===== TRUST CARD =====
+  /** One line, shown right above "Pay now". */
+  trustLine: (t: SellerStats): string => {
+    const parts = [`🛡️ ${t.name}`];
+    if (t.isNew) parts.push('🌱 New on Hoolam');
+    if (t.completed) parts.push(`✅ ${t.completed} deal${t.completed === 1 ? '' : 's'}`);
+    if (t.rated >= 5) parts.push(`👍 ${Math.round((100 * t.happy) / t.rated)}%`);
+    if (t.refunded) parts.push(`⚖️ ${t.refunded} refunded`);
+    return parts.join(' · ');
+  },
+
+  /** The full card, as text. */
+  trustCardText: (t: SellerStats): string => {
+    const lines = [`🛡️ *${t.name}*${t.city ? ' · ' + t.city : ''}`, `On Hoolam since ${t.since.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`, ''];
+    if (t.isNew) lines.push(`🌱 New on Hoolam: ${t.completed ? `${t.completed} deal${t.completed === 1 ? '' : 's'} so far` : 'no completed deals yet'}`);
+    else lines.push(`✅ ${t.completed} deals completed`);
+    if (t.buyers > 1) lines.push(`👥 ${t.buyers} different buyers`);
+    if (t.shipHours != null) lines.push(`📦 Ships ${shipText(t.shipHours)}`);
+    if (t.problems) {
+      const open = t.problems - t.refunded - t.released;
+      const how = [t.refunded ? `${t.refunded} refunded after review` : '', t.released ? `${t.released} settled in the seller's favour` : '', open > 0 ? `${open} being reviewed` : ''].filter(Boolean);
+      lines.push(`⚖️ ${t.problems} problem${t.problems === 1 ? '' : 's'} reported${how.length ? ' · ' + how.join(' · ') : ''}`);
+    } else if (t.completed) lines.push('⚖️ No problems reported');
+    if (t.rated >= 5) lines.push(`👍 ${Math.round((100 * t.happy) / t.rated)}% of buyers happy (${t.rated} ratings)`);
+    else if (t.rated) lines.push(`👍 ${t.happy} of ${t.rated} buyer${t.rated === 1 ? '' : 's'} happy`);
+    if (t.bankName) lines.push(`🏦 Paid out to ${shortBankName(t.bankName)}, bank-verified${t.bankMatches ? ' ✓ matches their name' : ''}`);
+    lines.push('', '_Counted from real deals paid through Hoolam._');
+    return lines.join('\n');
+  },
+
+  /** A buyer's record, for sellers. */
+  buyerLine: (b: BuyerStats): string => {
+    if (!b.purchases && !b.problems) return `👤 ${b.name} · 🌱 new buyer on Hoolam`;
+    const bits = [`👤 ${b.name}`, `🛍️ ${b.purchases} purchase${b.purchases === 1 ? '' : 's'}`];
+    bits.push(b.problems ? `⚖️ ${b.problems} problem${b.problems === 1 ? '' : 's'} reported${b.refunded ? ` (${b.refunded} refunded)` : ''}` : 'no problems reported');
+    return bits.join(' · ');
+  },
+
+  /** A buyer looks at a seller's record (from a deal, or "Check a seller"). */
+  sellerRecord: (card: string, payCode: string | null, buyFromId: string | null): Outbound => ({
+    kind: 'buttons',
+    text: card,
+    buttons: payCode
+      ? [{ id: `pay:${payCode}`, title: '💳 Pay now' }, { id: 'menu:open', title: 'Main menu' }]
+      : [...(buyFromId ? [{ id: `buyfrom:${buyFromId}`, title: '🛒 Buy from them' }] : []), { id: 'menu:check', title: '🔍 Check another' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  askCheckSeller: (): Outbound => ({ kind: 'text', text: '🔍 Send the seller\'s WhatsApp number, or a deal code they gave you.\n\nFor example: _08012345678_ or _HL-7K2QF_' }),
+  noSellerRecord: (): Outbound => ({
+    kind: 'buttons',
+    text: '🌱 No Hoolam record for that number yet. That doesn\'t mean they\'re bad, just new here.\n\nStay safe either way: with a Hoolam deal, your money is held until you\'re happy.',
+    buttons: [{ id: 'menu:buy', title: '🛒 Buy something' }, { id: 'menu:check', title: '🔍 Check another' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  buyingFrom: (name: string, trust: string): Outbound => ({ kind: 'text', text: `🛒 You're buying from *${name}*\n${trust}\n\nWhat are you buying?\nFor example: _Black sneakers, size 42_\n\n💡 You only pay after ${name} accepts.` }),
+
+  /** A seller looks at their own card. */
+  myTrustCard: (card: string, url: string | null): Outbound => ({
+    kind: 'buttons',
+    text: `${card}\n\n👀 This is what buyers see before they pay.` + (url ? `\n\n🔗 Your page: ${url}` : ''),
+    buttons: url
+      ? [{ id: 'card:share', title: '🔗 Share my link' }, { id: 'card:edit', title: '✏️ Name & city' }, { id: 'card:hide', title: '🙈 Hide my page' }]
+      : [{ id: 'card:share', title: '🔗 Share my card' }, { id: 'card:edit', title: '✏️ Name & city' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  askBusinessName: (current: string): Outbound => ({
+    kind: 'buttons',
+    text: `🏷️ What name should buyers see? Your shop or brand name.\n\nNow: *${current}*`,
+    buttons: [{ id: 'card:wname', title: 'Keep this name' }],
+  }),
+  askCity: (): Outbound => ({ kind: 'buttons', text: '📍 Which city are you in?', buttons: [{ id: 'card:nocity', title: 'Skip' }] }),
+  cardShared: (url: string): Outbound => withMenu(`🔗 Your page is live:\n${url}\n\nPost it on Instagram, your WhatsApp status, or send it to buyers. Anyone who taps *Buy safely* starts a protected deal with you.\n\nTip: forward the next message as it is.`),
+  cardForwardText: (name: string, url: string): Outbound => ({ kind: 'text', text: `🛡️ Buy from ${name} safely with Hoolam. Your money is held until you're happy with your order.\n\n${url}` }),
+  cardHidden: (): Outbound => withMenu('🙈 Your page is hidden. Buyers still see your record on your deals, to keep them safe.'),
+
+  // ===== RATINGS =====
+  ratedUp: (sellerName: string): Outbound => withMenu(`🙏 Thanks! It's on ${sellerName}'s record now, and it helps the next buyer.`),
+  askRatingComment: (code: string): Outbound => ({
+    kind: 'buttons',
+    text: '😕 Sorry it wasn\'t great. What went wrong? (Optional. Only our team sees this.)',
+    buttons: [{ id: `ratenote:${code}`, title: 'Skip' }],
+  }),
+  ratingCommentThanks: (): Outbound => withMenu('🙏 Thanks. A real person on our team reads every one.'),
+  alreadyRated: (): Outbound => withMenu('🙏 You\'ve already rated this deal. Thanks!'),
 
   // ===== BUYER STARTS A DEAL =====
   /** The button that opens the WhatsApp form. */
@@ -182,10 +267,10 @@ export const msg = {
   buyerAlertFailed: (): Outbound => ({ kind: 'text', text: '📵 We couldn\'t reach that WhatsApp number. Please send the seller the link above.' }),
   ownBuyDeal: (code: string, link: string): Outbound => withMenu(`🛒 This is your deal ${code}. It's waiting for the seller.\n\nSend them this link:\n${link}`),
 
-  buyerSellerAccepted: (code: string, sellerName: string, item: string, total: Money): Outbound => ({
+  buyerSellerAccepted: (code: string, sellerName: string, item: string, total: Money, trust?: string): Outbound => ({
     kind: 'buttons',
-    text: `🎉 ${sellerName} accepted your deal!\n\n*${item}*\nYou pay *${m(total)}*\n\n🛡️ Your money stays with Hoolam until you have your item and you're happy. (Deal ${code})`,
-    buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `cancel:${code}`, title: 'Not now' }],
+    text: `🎉 ${sellerName} accepted your deal!\n` + (trust ? `${trust}\n` : '') + `\n*${item}*\nYou pay *${m(total)}*\n\n🛡️ Your money stays with Hoolam until you have your item and you're happy. (Deal ${code})`,
+    buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: 'Not now' }],
   }),
   buyerSellerDeclined: (code: string): Outbound => ({
     kind: 'buttons',
@@ -204,10 +289,10 @@ export const msg = {
   }),
 
   // ===== WHAT THE SELLER SEES (seller flow comes later; this is the small part buyers need) =====
-  sellerDealCard: (d: { code: string; buyerName: string; item: string; price: Money; sellerGets: Money; arriveBy: string | null; hoursLeft: number; invited: boolean }): Outbound => ({
+  sellerDealCard: (d: { code: string; buyerName: string; item: string; price: Money; sellerGets: Money; arriveBy: string | null; hoursLeft: number; invited: boolean; buyerLine?: string }): Outbound => ({
     kind: 'buttons',
     text:
-      `🛒 *${d.buyerName} wants to buy from you*\n\n*${d.item}*\n💰 ${m(d.price)} → you receive ${m(d.sellerGets)}\n` +
+      `🛒 *${d.buyerName} wants to buy from you*\n` + (d.buyerLine ? `${d.buyerLine}\n` : '') + `\n*${d.item}*\n💰 ${m(d.price)} → you receive ${m(d.sellerGets)}\n` +
       (d.arriveBy ? `📅 Wanted by ${d.arriveBy}\n` : '') +
       `\n💳 ${d.buyerName} pays Hoolam first\n📦 You ship once the money is held\n💸 You get paid when they're happy\n\n` +
       `⏳ Accept within ${d.hoursLeft} hour${d.hoursLeft === 1 ? '' : 's'}. (Deal ${d.code})`,
@@ -311,13 +396,13 @@ export const msg = {
   ownDeal: (): Outbound => ({ kind: 'text', text: 'This is your own deal. Send the link to your buyer.' }),
   dealTaken: (): Outbound => ({ kind: 'text', text: 'Someone else is already paying for this deal. Ask the seller for a new link.' }),
   dealClosed: (code: string): Outbound => ({ kind: 'text', text: `Deal ${code} is already closed.` }),
-  dealForBuyer: (code: string, item: string, sellerName: string, price: Money, fee: Money, total: Money): Outbound => ({
+  dealForBuyer: (code: string, item: string, sellerName: string, price: Money, fee: Money, total: Money, trust?: string): Outbound => ({
     kind: 'buttons',
     text:
-      `Deal ${code}\n${item}\nSeller: ${sellerName}\n\n` +
+      `Deal ${code}\n${item}\nSeller: ${sellerName}\n` + (trust ? `${trust}\n` : '') + '\n' +
       (fee.minor > 0 ? `Price: ${m(price)}\nHoolam fee: ${m(fee)}\n*You pay: ${m(total)}*\n\n` : `*You pay: ${m(total)}*\nNo fee for you: the seller pays it.\n\n`) +
       'Your money stays with Hoolam, not the seller. They only get paid after you receive your item and say you\'re happy. If it never comes, you get your money back.',
-    buttons: [{ id: `pay:${code}`, title: 'Pay now' }, { id: `cancel:${code}`, title: 'Not now' }],
+    buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: 'Not now' }],
   }),
   payInstructions: (total: Money, accountNumber: string, bankName: string, accountName: string, minutes: number | null, code: string, testMode = false): Outbound => ({
     kind: 'buttons',
@@ -362,7 +447,11 @@ export const msg = {
   }),
 
   // ----- release -----
-  buyerReleased: (code: string): Outbound => withMenu(`Done. We're paying the seller now. Thanks for trading safely. (Deal ${code})`),
+  buyerReleased: (code: string, sellerName = 'the seller'): Outbound => ({
+    kind: 'buttons',
+    text: `✅ Done. We're paying ${sellerName} now. Thanks for trading safely. (Deal ${code})\n\nHow was ${sellerName}? One tap helps the next buyer.`,
+    buttons: [{ id: `rateup:${code}`, title: '👍 Great' }, { id: `ratedown:${code}`, title: '👎 Not great' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
   sellerPaid: (code: string, amount: Money, bankName: string): Outbound => withMenu(`You've been paid. ${m(amount)} has been sent to your ${bankName} account for deal ${code}.`),
   sellerPayoutDelayed: (code: string): Outbound => ({
     kind: 'text', text: `The buyer is happy with deal ${code}. Your payout is being processed and should arrive shortly.`,
@@ -388,7 +477,7 @@ export const msg = {
   // ----- misc -----
   cancelled: (code: string): Outbound => withMenu(`Deal ${code} is cancelled. No money moved.`),
   sellerBuyerCancelled: (code: string): Outbound => ({ kind: 'text', text: `The buyer cancelled deal ${code}. No money moved.` }),
-  sellerBuyerJoined: (code: string): Outbound => ({ kind: 'text', text: `Your buyer opened deal ${code}. We'll tell you as soon as they pay.` }),
+  sellerBuyerJoined: (code: string, buyerLine?: string): Outbound => ({ kind: 'text', text: `👀 Your buyer opened deal ${code}.` + (buyerLine ? `\n${buyerLine}` : '') + `\n\nWe'll tell you as soon as they pay.` }),
   notAllowed: (): Outbound => ({ kind: 'text', text: 'That step isn\'t available for this deal right now.' }),
   dealsList: (lines: string[]): Outbound => lines.length
     ? withMenu(`Your recent deals:\n\n${lines.join('\n')}`)

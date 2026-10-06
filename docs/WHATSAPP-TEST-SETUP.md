@@ -103,6 +103,17 @@ Also try: **✕ Decline**, **🚫 Not me** (that number is never alerted again),
 **Change price:** A starts a deal (section F). B opens it → **✏️ Change price** → types a new price. A gets the new
 total → **✅ Accept new price** or **✕ Cancel deal**.
 
+## H. Trust card
+
+Render → Environment: add `TRUST_COUNT_TEST_DEALS` = `true` (test deals use pretend money, which normally never counts).
+Deals with yourself never count, so use your two phones.
+
+1. Complete a deal or two (B sells, A buys, **I'm happy**, then **👍 Great**).
+2. A: **Open menu → 🔍 Check a seller** → B's number. You'll see B's card.
+3. B starts another deal for A. Above **Pay now**, A sees `🛡️ … · ✅ 2 deals`, and **🛡️ Seller's record** opens the card.
+4. B: **Open menu → 🛡️ My trust card → ✏️ Name & city**, then **🔗 Share my card**. Open the link in a browser,
+   tap **Buy safely**, press Send in WhatsApp: a deal with B starts.
+
 ## When something doesn't work
 
 | What you see | Likely cause | Fix |

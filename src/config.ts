@@ -6,7 +6,8 @@ const schema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().min(1),
-  PUBLIC_BASE_URL: z.string().default('http://localhost:3000'),
+  PUBLIC_BASE_URL: z.string().optional(),               // where public seller pages live; on Render this is filled in automatically
+  RENDER_EXTERNAL_URL: z.string().optional(),
   ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
 
   // WhatsApp Cloud API
@@ -39,11 +40,12 @@ const schema = z.object({
   MAX_DEAL_MINOR: z.coerce.number().default(50_000_00), // Phase 1 cap per deal, before KYC: ₦50,000
   PAYMENT_WINDOW_MINUTES: z.coerce.number().default(40),
   SELLER_ACCEPT_HOURS: z.coerce.number().default(48),   // a seller has this long to accept a buyer's deal
+  TRUST_COUNT_TEST_DEALS: bool.default(false),          // true only while testing with pretend money, so trust cards show numbers
   NUDGE_AFTER_HOURS: z.coerce.number().default(24),     // remind the buyer to confirm
   FLAG_AFTER_HOURS: z.coerce.number().default(72),      // put the deal in front of a human
 });
 
-export type Config = z.infer<typeof schema>;
+export type Config = z.infer<typeof schema> & { PUBLIC_BASE_URL: string };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = schema.safeParse(env);
@@ -51,7 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     const lines = parsed.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`);
     throw new Error(`Invalid configuration:\n${lines.join('\n')}`);
   }
-  const c = parsed.data;
+  const c = { ...parsed.data, PUBLIC_BASE_URL: parsed.data.PUBLIC_BASE_URL || parsed.data.RENDER_EXTERNAL_URL || 'http://localhost:3000' };
   if (c.PAYMENT_PROVIDER === 'monnify' && (!c.MONNIFY_API_KEY || !c.MONNIFY_SECRET_KEY || !c.MONNIFY_CONTRACT_CODE)) {
     throw new Error('PAYMENT_PROVIDER=monnify needs MONNIFY_API_KEY, MONNIFY_SECRET_KEY and MONNIFY_CONTRACT_CODE');
   }

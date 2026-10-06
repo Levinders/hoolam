@@ -8,6 +8,11 @@ import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
 import { BUYER_ALERT, ensureBuyFlow, ensureSellFlow, ensureSellerAlertTemplate, ensureTemplate, syncAutomation } from './whatsapp/automation.js';
 import { Media } from './whatsapp/media.js';
+import { Trust } from './trust.js';
+import { notFoundPage, sellerPage } from './public-page.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Messenger } from './whatsapp/client.js';
 import { Conversation } from './whatsapp/flow.js';
 import { parseInbound, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
@@ -23,15 +28,16 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   });
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider instanceof FakeProvider;
+  const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
   const deals = new DealService({
-    db, provider, messenger, media, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER,
+    db, provider, messenger, media, trust, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, log,
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
   let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   let sellForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   const chat = new Conversation({
-    db, deals, provider, messenger, currency: c.CURRENCY, testMode, log,
+    db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL,
     buyForm: () => buyForm, sellForm: () => sellForm,
     onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
   });
@@ -65,6 +71,18 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   app.get('/health', async () => {
     await db.query('SELECT 1');
     return { ok: true, provider: provider.name, whatsapp: c.WHATSAPP_DRY_RUN ? 'dry-run' : 'live', testMode };
+  });
+
+  // ---------- public seller pages ----------
+  const shareImage = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'buy-banner.png'));
+  app.get('/share.png', async (_req, reply) => reply.type('image/png').header('cache-control', 'public, max-age=86400').send(shareImage));
+  app.get('/s/:slug', async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    const id = await trust.findSeller({ slug });
+    const t = id ? await trust.seller(id) : null;
+    if (!t) return reply.code(404).type('text/html').send(notFoundPage());
+    return reply.type('text/html').header('cache-control', 'public, max-age=300')
+      .send(sellerPage(t, { slug: slug.toLowerCase(), waNumber: c.WHATSAPP_PUBLIC_NUMBER, baseUrl: c.PUBLIC_BASE_URL }));
   });
 
   // ---------- WhatsApp ----------
@@ -144,7 +162,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const templates = await db.query(`SELECT phone, body, created_at FROM outbound_messages WHERE status='NEEDS_TEMPLATE' AND created_at > now() - interval '3 days' ORDER BY id DESC LIMIT 50`);
       const stuck = await db.query(`SELECT id, source, event_key, attempts, last_error FROM webhook_events WHERE processed_at IS NULL AND attempts >= 3 ORDER BY id DESC LIMIT 50`);
       const support = await db.query(`SELECT id, phone, message, created_at FROM support_requests WHERE status='OPEN' ORDER BY id LIMIT 50`);
-      return { deals: deals.rows, supportRequests: support.rows, messagesNeedingTemplates: templates.rows, stuckWebhooks: stuck.rows };
+      const unhappy = await db.query(
+        `SELECT d.code, r.comment, r.created_at FROM deal_ratings r JOIN deals d ON d.id=r.deal_id WHERE NOT r.happy AND r.created_at > now() - interval '14 days' ORDER BY r.created_at DESC LIMIT 50`);
+      return { deals: deals.rows, supportRequests: support.rows, unhappyBuyers: unhappy.rows, messagesNeedingTemplates: templates.rows, stuckWebhooks: stuck.rows };
     });
 
     admin.get('/deals/:code', async (req, reply) => {
@@ -221,6 +241,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       await setupMeta();
       return { ok: true, buyForm, sellForm };
     });
+    admin.get('/trust/:phone', async (req, reply) => {
+      const phone = '+' + (req.params as { phone: string }).phone.replace(/\D/g, '');
+      const u = await db.query('SELECT id FROM users WHERE phone=$1', [phone]);
+      if (!u.rows[0]) return reply.code(404).send({ error: 'unknown phone' });
+      return { seller: await trust.seller(u.rows[0].id), buyer: await trust.buyer(u.rows[0].id) };
+    });
     admin.get('/ledger/balances', async () => {
       const r = await db.query('SELECT account, currency, SUM(amount_minor)::bigint AS balance_minor FROM ledger_entries GROUP BY account, currency ORDER BY account');
       return r.rows;
@@ -273,7 +299,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     }
   }
 
-  return { app, deals, chat, messenger, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
+  return { app, deals, chat, messenger, trust, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
 }
 
 function header(req: FastifyRequest, name: string): string | undefined {

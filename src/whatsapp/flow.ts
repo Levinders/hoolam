@@ -11,6 +11,7 @@ import { msg, STATUS_WORDS } from './messages.js';
 import { readBuyForm } from './buy-flow.js';
 import { normalizePhone } from './inbound.js';
 import { dayText } from '../deals/service.js';
+import type { Trust } from '../trust.js';
 
 /**
  * The WhatsApp conversation. Each person has a small state (what we're waiting for from them)
@@ -23,7 +24,8 @@ type State =
   | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE'
   | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_PRICE' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
-  | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SHIP_PROOF';
+  | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SHIP_PROOF'
+  | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY';
 interface Session { state: State; data: Record<string, any>; isNew: boolean }
 
 export interface FlowOptions {
@@ -39,12 +41,17 @@ export interface FlowOptions {
   sellForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** Called when WhatsApp refuses to send a form, so we stop trying until the next restart. */
   onFormRefused?: () => void;
+  /** Seller and buyer records. */
+  trust?: Trust;
+  /** Where public seller pages live, e.g. https://hoolam.onrender.com */
+  publicBaseUrl?: string;
   log?: (line: string) => void;
 }
 
 /** What a buyer has told us so far, kept in the chat session until they tap "Send to seller". */
 interface BuyDraft { item?: string; priceMinor?: number; sellerPhone?: string | null; arriveBy?: string | null; photos?: { mediaId: string; mimeType?: string | null }[] }
 const MAX_PHOTOS = 3;
+const BUY_FROM_RE = /^buy from @([a-z0-9-]{1,40})\b/i;
 
 const CODE_RE = /\bHL-?([A-Z2-9]{5})\b/i;
 
@@ -64,6 +71,7 @@ const PHRASES: Record<string, MenuItem> = {
   'how does hoolam work': 'how', 'how it works': 'how', 'how hoolam works': 'how',
   'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'agent': 'human', 'support': 'human',
   'my deals': 'deals', 'deals': 'deals', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
+  'check a seller': 'check', 'check seller': 'check', 'my trust card': 'card', 'trust card': 'card',
   'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'account': 'account',
 };
 
@@ -148,6 +156,15 @@ export class Conversation {
         case 'sno': await this.save(m.phone, 'IDLE'); return this.o.deals.declineAsSeller(code!, user);
         case 'scounter': return this.startCounter(m.phone, user, code!);
         case 'cyes': await this.save(m.phone, 'IDLE'); return this.o.deals.acceptCounter(code!, user);
+        // ----- trust card -----
+        case 'record': return this.o.deals.showSellerRecord(code!, user);
+        case 'rateup': await this.save(m.phone, 'IDLE'); return this.o.deals.rateDeal(code!, user, true);
+        case 'ratedown':
+          if ((await this.o.deals.rateDeal(code!, user, false)) === 'ok') return this.save(m.phone, 'RATE_COMMENT', { code });
+          return this.save(m.phone, 'IDLE');
+        case 'ratenote': await this.save(m.phone, 'IDLE'); return this.send(m.phone, msg.ratingCommentThanks());
+        case 'buyfrom': return this.buyFrom(m.phone, user, code!);
+        case 'card': return this.cardAction(m.phone, user, code!);
         // ----- the buyer's side of a seller's deal -----
         case 'bview': await this.save(m.phone, 'IDLE'); return this.o.deals.joinAsBuyer(code!, user);
         case 'bnotme': await this.save(m.phone, 'IDLE'); return this.o.deals.buyerNotMe(code!, user);
@@ -186,9 +203,16 @@ export class Conversation {
 
     // ----- the very first message from someone new: tell the story once, unless they already know what they want -----
     const firstWords = clean(text);
-    if (s.isNew && !m.buttonId && !text.match(CODE_RE) && !PHRASES[firstWords] && !firstWords.startsWith('/')) {
+    if (s.isNew && !m.buttonId && !text.match(CODE_RE) && !BUY_FROM_RE.test(text) && !PHRASES[firstWords] && !firstWords.startsWith('/')) {
       await this.save(m.phone, 'IDLE');
       return this.send(m.phone, msg.welcome(user.display_name));
+    }
+
+    // ----- "Buy from @bayo-shoes" (from a seller's public page) -----
+    const buyFromMatch = text.match(BUY_FROM_RE);
+    if (buyFromMatch && this.o.trust) {
+      const sellerId = await this.o.trust.findSeller({ slug: buyFromMatch[1]! });
+      if (sellerId) return this.buyFrom(m.phone, user, sellerId);
     }
 
     // ----- anywhere: a slash command, "menu"/"hi", or a deal code -----
@@ -197,7 +221,7 @@ export class Conversation {
     if (slash) return this.openMenuItem(m.phone, user, SLASH[slash[1]!] ?? 'open');
     if (GREETINGS.includes(words)) return this.openMenuItem(m.phone, user, 'open');
     const codeMatch = text.match(CODE_RE);
-    if (codeMatch && (['IDLE', 'BUY_CODE'].includes(s.state) || /^(pay|view)\b/i.test(text))) {
+    if (codeMatch && s.state !== 'CHECK_SELLER' && (['IDLE', 'BUY_CODE'].includes(s.state) || /^(pay|view)\b/i.test(text))) {
       await this.save(m.phone, 'IDLE');
       const code = 'HL-' + codeMatch[1]!.toUpperCase();
       const deal = await this.o.deals.findByCode(code);
@@ -271,7 +295,7 @@ export class Conversation {
       case 'BUY_FORM': // they typed instead of opening the form: that's fine, carry on in the chat
       case 'BUY_ITEM': {
         if (text.length < 2) return this.send(m.phone, msg.askBuyItem());
-        await this.save(m.phone, 'BUY_PRICE', { item: text.slice(0, 200) });
+        await this.save(m.phone, 'BUY_PRICE', { ...s.data, item: text.slice(0, 200) });
         return this.send(m.phone, msg.askBuyPrice());
       }
       case 'BUY_PRICE': {
@@ -299,6 +323,23 @@ export class Conversation {
         const phone = normalizePhone(text);
         if (!phone) return this.send(m.phone, msg.badSellerPhone());
         return this.showBuySummary(m.phone, { ...s.data, sellerPhone: phone });
+      }
+      case 'CHECK_SELLER': return this.checkSeller(m.phone, user, text);
+      case 'RATE_COMMENT': {
+        await this.save(m.phone, 'IDLE');
+        if (!text) return this.send(m.phone, msg.ratingCommentThanks());
+        return this.o.deals.rateComment(s.data.code, user, text);
+      }
+      case 'PROFILE_NAME': {
+        if (text.length < 2) return this.send(m.phone, msg.askBusinessName(user.display_name ?? ''));
+        await this.o.trust?.setProfile(user.id, { businessName: text });
+        await this.save(m.phone, 'PROFILE_CITY');
+        return this.send(m.phone, msg.askCity());
+      }
+      case 'PROFILE_CITY': {
+        await this.o.trust?.setProfile(user.id, { city: text });
+        await this.save(m.phone, 'IDLE');
+        return this.showMyCard(m.phone, user);
       }
       case 'HUMAN_MESSAGE': {
         const body = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
@@ -350,6 +391,12 @@ export class Conversation {
       case 'human':
         await this.save(phone, 'HUMAN_MESSAGE');
         return this.send(phone, msg.askHumanMessage());
+      case 'check':
+        await this.save(phone, 'CHECK_SELLER');
+        return this.send(phone, msg.askCheckSeller());
+      case 'card':
+        await this.save(phone, 'IDLE');
+        return this.showMyCard(phone, user);
     }
     await this.save(phone, 'IDLE');
     if (item === 'deals') return this.listDeals(phone, user);
@@ -476,6 +523,74 @@ export class Conversation {
   }
 
 
+
+  // ===== TRUST CARD =====
+  /** "Check a seller": a phone number or a deal code → their card. */
+  private async checkSeller(phone: string, user: User, text: string) {
+    const code = text.match(CODE_RE);
+    let sellerId: string | null = null;
+    if (code) {
+      const deal = await this.o.deals.findByCode('HL-' + code[1]!.toUpperCase());
+      sellerId = deal?.seller_id ?? null;
+    } else {
+      const p = normalizePhone(text);
+      if (!p) return this.send(phone, msg.badSellerPhone());
+      sellerId = (await this.o.trust?.findSeller({ phone: p })) ?? null;
+    }
+    await this.save(phone, 'IDLE');
+    const t = sellerId && this.o.trust ? await this.o.trust.seller(sellerId) : null;
+    if (!t || !sellerId) return this.send(phone, msg.noSellerRecord());
+    return this.send(phone, msg.sellerRecord(msg.trustCardText(t), null, sellerId === user.id ? null : sellerId));
+  }
+
+  /** Start a buyer's deal already pointed at a seller (from their page, or "Buy from them"). */
+  private async buyFrom(phone: string, user: User, sellerId: string) {
+    const t = this.o.trust ? await this.o.trust.seller(sellerId) : null;
+    const seller = await this.o.db.query('SELECT phone FROM users WHERE id=$1', [sellerId]);
+    if (!t || !seller.rows[0]) return this.startBuying(phone);
+    if (sellerId === user.id && !this.o.testMode) return this.showMyCard(phone, user);
+    await this.save(phone, 'BUY_ITEM', { sellerPhone: seller.rows[0].phone });
+    return this.send(phone, msg.buyingFrom(t.name, msg.trustLine(t)));
+  }
+
+  private pageUrl(slug: string): string {
+    return `${(this.o.publicBaseUrl ?? '').replace(/\/$/, '')}/s/${slug}`;
+  }
+
+  private async showMyCard(phone: string, user: User) {
+    const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
+    if (!t) return this.send(phone, msg.didntUnderstand());
+    return this.send(phone, msg.myTrustCard(msg.trustCardText(t), t.isPublic && t.slug ? this.pageUrl(t.slug) : null));
+  }
+
+  private async cardAction(phone: string, user: User, action: string) {
+    if (!this.o.trust) return;
+    switch (action) {
+      case 'share': {
+        const slug = await this.o.trust.setPublic(user.id, true);
+        const t = await this.o.trust.seller(user.id);
+        if (!slug || !t) return;
+        const url = this.pageUrl(slug);
+        await this.send(phone, msg.cardShared(url));
+        return this.send(phone, msg.cardForwardText(t.name, url));
+      }
+      case 'hide':
+        await this.o.trust.setPublic(user.id, false);
+        return this.send(phone, msg.cardHidden());
+      case 'edit': {
+        const t = await this.o.trust.seller(user.id);
+        await this.save(phone, 'PROFILE_NAME');
+        return this.send(phone, msg.askBusinessName(t?.name ?? user.display_name ?? ''));
+      }
+      case 'wname':
+        await this.save(phone, 'PROFILE_CITY');
+        return this.send(phone, msg.askCity());
+      case 'nocity':
+        await this.save(phone, 'IDLE');
+        return this.showMyCard(phone, user);
+    }
+  }
+
   // ===== BUYER STARTS A DEAL =====
   private async startBuying(phone: string) {
     const form = this.o.buyForm?.() ?? null;
@@ -512,6 +627,7 @@ export class Conversation {
   }
 
   private async askForSeller(phone: string, data: BuyDraft) {
+    if (data.sellerPhone) return this.showBuySummary(phone, data); // came from a seller's page: we already know who
     await this.save(phone, 'BUY_SELLER', data as Record<string, any>);
     return this.send(phone, msg.askSellerPhone());
   }
