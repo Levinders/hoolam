@@ -399,7 +399,7 @@ export const msg = {
   dealForBuyer: (code: string, item: string, sellerName: string, price: Money, fee: Money, total: Money, trust?: string): Outbound => ({
     kind: 'buttons',
     text:
-      `Deal ${code}\n${item}\nSeller: ${sellerName}\n` + (trust ? `${trust}\n` : '') + '\n' +
+      `Deal ${code}\n${item}\n` + (trust ? `${trust}\n` : `Seller: ${sellerName}\n`) + '\n' +
       (fee.minor > 0 ? `Price: ${m(price)}\nHoolam fee: ${m(fee)}\n*You pay: ${m(total)}*\n\n` : `*You pay: ${m(total)}*\nNo fee for you: the seller pays it.\n\n`) +
       'Your money stays with Hoolam, not the seller. They only get paid after you receive your item and say you\'re happy. If it never comes, you get your money back.',
     buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: 'Not now' }],
