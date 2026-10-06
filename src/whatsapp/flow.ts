@@ -100,7 +100,7 @@ export class Conversation {
       if (e instanceof DealError) {
         const map: Record<DealError['reason'], Outbound> = {
           NOT_FOUND: msg.dealNotFound(), NOT_ALLOWED: msg.notAllowed(), OWN_DEAL: msg.ownDeal(),
-          TAKEN: msg.dealTaken(), CLOSED: msg.notAllowed(), TOO_BIG: msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }),
+          TAKEN: msg.dealTaken(), CLOSED: msg.notAllowed(), TOO_BIG: msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }),
         };
         await this.send(m.phone, map[e.reason]);
         return;
@@ -111,6 +111,8 @@ export class Conversation {
   }
 
   private async route(m: Inbound, s: Session, user: User): Promise<unknown> {
+    // A paused account can only talk to the team.
+    if (user.blocked && m.buttonId !== 'menu:human' && s.state !== 'HUMAN_MESSAGE') return this.send(m.phone, msg.accountPaused());
     const text = m.text.trim();
     const lower = text.toLowerCase();
 
@@ -186,7 +188,7 @@ export class Conversation {
     // ----- a submitted WhatsApp form -----
     if (m.type === 'form') {
       const token = String(m.form?.flow_token ?? '');
-      return token.startsWith('sell') ? this.sellFormSubmitted(m.phone, user, m.form ?? {}) : this.buyFormSubmitted(m.phone, m.form ?? {});
+      return token.startsWith('sell') ? this.sellFormSubmitted(m.phone, user, m.form ?? {}) : this.buyFormSubmitted(m.phone, user, m.form ?? {});
     }
 
     // ----- voice notes: Phase 2 -----
@@ -243,7 +245,7 @@ export class Conversation {
         const major = parseAmount(text);
         if (!major) return this.send(m.phone, msg.badPrice());
         const priceMinor = toMinor(major, this.o.currency);
-        if (priceMinor > this.maxDeal()) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }));
+        if (priceMinor > this.maxDeal(user)) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
         await this.save(m.phone, 'SELL_PHOTOS', { ...s.data, priceMinor, photos: [] });
         return this.send(m.phone, msg.askSellPhotos());
       }
@@ -269,7 +271,7 @@ export class Conversation {
         const major = parseAmount(text);
         if (!major) return this.send(m.phone, msg.badPrice());
         const counterMinor = toMinor(major, this.o.currency);
-        if (counterMinor > this.maxDeal()) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }));
+        if (counterMinor > this.maxDeal(user)) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (acct) {
           await this.save(m.phone, 'IDLE');
@@ -302,7 +304,7 @@ export class Conversation {
         const major = parseAmount(text);
         if (!major) return this.send(m.phone, msg.badPrice());
         const priceMinor = toMinor(major, this.o.currency);
-        if (priceMinor > this.maxDeal()) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }));
+        if (priceMinor > this.maxDeal(user)) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
         await this.save(m.phone, 'BUY_PHOTOS', { ...s.data, priceMinor, photos: [] });
         return this.send(m.phone, msg.askBuyPhotos());
       }
@@ -366,7 +368,7 @@ export class Conversation {
     }
   }
 
-  private maxDeal(): number { return this.o.deals.maxDealMinor; }
+  private maxDeal(user?: User): number { return user ? this.o.deals.capFor(user) : this.o.deals.maxDealMinor; }
 
   /** Everything the main menu (and the slash commands) can do. */
   private async openMenuItem(phone: string, user: User, item: MenuItem) {
@@ -407,7 +409,7 @@ export class Conversation {
 
   private feesMessage(): Outbound {
     const c = this.o.currency;
-    const r = PRICING[c];
+    const r = this.o.deals.pricingRules() ?? PRICING[c];
     const unit = c === 'NGN' ? 100 : 1;
     const f = (major: number) => formatMoney(major * unit, c);
     const who = '🤝 *Whoever starts the deal pays the fee.*\n🏷️ Seller starts it → buyer pays just the price\n🛒 Buyer starts it → seller gets the full price';
@@ -416,7 +418,7 @@ export class Conversation {
       .map((major) => major * unit)
       .filter((minor) => minor <= this.maxDeal())
       .map((minor) => {
-        const q = quote(minor, c);
+        const q = quote(minor, c, r);
         return `${formatMoney(minor, c)} item → fee ${formatMoney(q.feeMinor, c)}`;
       });
     return msg.fees(rules, examples, { minor: this.maxDeal(), currency: c });
@@ -471,9 +473,9 @@ export class Conversation {
     data.item = f.item.slice(0, 200);
     const major = f.price ? parseAmount(f.price) : null;
     const priceMinor = major ? toMinor(major, this.o.currency) : 0;
-    if (!priceMinor || priceMinor > this.maxDeal()) {
+    if (!priceMinor || priceMinor > this.maxDeal(user)) {
       await this.save(phone, 'SELL_PRICE', data);
-      return this.send(phone, priceMinor ? msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }) : msg.askPrice());
+      return this.send(phone, priceMinor ? msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }) : msg.askPrice());
     }
     data.priceMinor = priceMinor;
     if (f.otherPhone) {
@@ -606,16 +608,16 @@ export class Conversation {
   }
 
   /** The answers from the WhatsApp form. Anything missing or wrong is asked again in the chat. */
-  private async buyFormSubmitted(phone: string, form: Record<string, unknown>) {
+  private async buyFormSubmitted(phone: string, user: User, form: Record<string, unknown>) {
     const f = readBuyForm(form);
     const draft: BuyDraft = { photos: f.photos, arriveBy: f.arriveBy };
     if (!f.item) { await this.save(phone, 'BUY_ITEM', draft); return this.send(phone, msg.askBuyItem()); }
     draft.item = f.item.slice(0, 200);
     const major = f.price ? parseAmount(f.price) : null;
     const priceMinor = major ? toMinor(major, this.o.currency) : 0;
-    if (!priceMinor || priceMinor > this.maxDeal()) {
+    if (!priceMinor || priceMinor > this.maxDeal(user)) {
       await this.save(phone, 'BUY_PRICE', draft);
-      return this.send(phone, priceMinor ? msg.priceTooHigh({ minor: this.maxDeal(), currency: this.o.currency }) : msg.askBuyPrice());
+      return this.send(phone, priceMinor ? msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }) : msg.askBuyPrice());
     }
     draft.priceMinor = priceMinor;
     if (f.otherPhone) {

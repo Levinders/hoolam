@@ -1,5 +1,6 @@
 # One-click setup on Render (render.com): New → Blueprint → pick this repo.
 # Free plan: the server sleeps after 15 minutes without traffic and takes about a minute to wake up.
+# Use the Starter plan once real money moves: the WhatsApp bot and the console then answer instantly.
 services:
   - type: web
     name: hoolam

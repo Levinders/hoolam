@@ -9,6 +9,11 @@ import { pendingEvents, processEvent, storeEvent, type Handler } from './webhook
 import { BUYER_ALERT, ensureBuyFlow, ensureSellFlow, ensureSellerAlertTemplate, ensureTemplate, syncAutomation } from './whatsapp/automation.js';
 import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
+import { Settings } from './settings.js';
+import { registerConsoleApi } from './console/api.js';
+import { registerConsoleStatic } from './console/static.js';
+import { StaffAuth } from './console/staff.js';
+import { audit, type Actor } from './console/audit.js';
 import { notFoundPage, sellerPage } from './public-page.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -22,15 +27,16 @@ declare module 'fastify' { interface FastifyRequest { rawBody?: string } }
 export interface AppDeps { config: Config; db: Db; provider: PaymentProvider; log?: (line: string) => void }
 
 export function buildApp({ config: c, db, provider, log = console.log }: AppDeps) {
-  const app: FastifyInstance = Fastify({ logger: false, bodyLimit: 1_000_000 });
+  const app: FastifyInstance = Fastify({ logger: false, bodyLimit: 1_000_000, trustProxy: true });
   const messenger = new Messenger(db, {
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider instanceof FakeProvider;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
+  const settings = new Settings(db, c);
   const deals = new DealService({
-    db, provider, messenger, media, trust, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER,
+    db, provider, messenger, media, trust, settings, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, log,
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
@@ -38,7 +44,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   let sellForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   const chat = new Conversation({
     db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL,
-    buyForm: () => buyForm, sellForm: () => sellForm,
+    buyForm: () => (settings.formsEnabled() ? buyForm : null), sellForm: () => (settings.formsEnabled() ? sellForm : null),
     onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
   });
 
@@ -158,7 +164,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
          WHERE d.status IN ('DISPUTED','PAYOUT_PENDING')
             OR (d.status='SHIPPED' AND d.shipped_at < now() - make_interval(hours => $1))
             OR e.id IS NOT NULL
-         ORDER BY d.id, e.id DESC`, [c.FLAG_AFTER_HOURS]);
+         ORDER BY d.id, e.id DESC`, [settings.flagHours()]);
       const templates = await db.query(`SELECT phone, body, created_at FROM outbound_messages WHERE status='NEEDS_TEMPLATE' AND created_at > now() - interval '3 days' ORDER BY id DESC LIMIT 50`);
       const stuck = await db.query(`SELECT id, source, event_key, attempts, last_error FROM webhook_events WHERE processed_at IS NULL AND attempts >= 3 ORDER BY id DESC LIMIT 50`);
       const support = await db.query(`SELECT id, phone, message, created_at FROM support_requests WHERE status='OPEN' ORDER BY id LIMIT 50`);
@@ -191,12 +197,19 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return reply.type(r.rows[0].mime_type).send(r.rows[0].bytes);
     });
 
+    const tokenActor: Actor = { staffId: null, name: 'Admin token (API)', role: 'SYSTEM' };
     admin.post('/deals/:code/release', async (req) => {
-      await deals.adminRelease((req.params as { code: string }).code, (req.body as { note?: string })?.note ?? 'Released after review');
+      const code = (req.params as { code: string }).code.toUpperCase();
+      const note = (req.body as { note?: string })?.note ?? 'Released after review';
+      await deals.adminRelease(code, note);
+      await audit(db, { ...tokenActor, ip: req.ip }, { action: 'deal.release', targetType: 'deal', targetId: code, reason: note });
       return { ok: true };
     });
     admin.post('/deals/:code/refund', async (req) => {
-      await deals.adminRefund((req.params as { code: string }).code, (req.body as { note?: string })?.note ?? 'Refunded after review');
+      const code = (req.params as { code: string }).code.toUpperCase();
+      const note = (req.body as { note?: string })?.note ?? 'Refunded after review';
+      await deals.adminRefund(code, note);
+      await audit(db, { ...tokenActor, ip: req.ip }, { action: 'deal.refund', targetType: 'deal', targetId: code, reason: note });
       return { ok: true };
     });
     admin.post('/payouts/:reference/authorize', async (req, reply) => {
@@ -286,6 +299,11 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     }
   }
 
+  // ---------- the staff console (/console) ----------
+  const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
+  registerConsoleApi(app, { config: c, db, deals, trust, settings, messenger, provider, auth: staffAuth, log });
+  registerConsoleStatic(app, log);
+
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
   async function tick(kind: 'fast' | 'slow') {
     if (kind === 'fast') {
@@ -294,12 +312,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       }
       await deals.pollPayouts();
     } else {
-      const r = await deals.sweep({ nudgeAfterHours: c.NUDGE_AFTER_HOURS });
+      const r = await deals.sweep({ nudgeAfterHours: settings.nudgeHours() });
       if (r.nudged || r.expired) log(`sweep: nudged ${r.nudged}, expired ${r.expired}`);
     }
   }
 
-  return { app, deals, chat, messenger, trust, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
+  return { app, deals, chat, messenger, trust, settings, staffAuth, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
 }
 
 function header(req: FastifyRequest, name: string): string | undefined {

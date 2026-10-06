@@ -127,7 +127,51 @@ People never face an empty chat:
   `WHATSAPP_SYNC_MENU=false`. If Meta refuses, set them by hand in WhatsApp Manager > Automations.
 - **Welcome**: when someone opens the chat for the first time, WhatsApp tells us and we send the menu.
 
-## Admin (Phase 1 runs with a human in the loop)
+## Hoolam Console (the team's control room)
+
+A web app for staff at **`/console`** on the same server (`https://hoolam.onrender.com/console`). It uses the same
+database, so there's nothing extra to host.
+
+**What's in it**
+- **Needs action**: problems, payouts waiting for an OTP, failed payouts, short payments, "Talk to a person" messages,
+  deals shipped but not confirmed, 👎 ratings, deals about to close. Most urgent first.
+- **Deals**: search and filter every deal; open one to see its timeline, WhatsApp messages, money and photos.
+  Release, refund, cancel, give the seller more time, message the buyer or seller, add internal notes.
+- **Disputes**, **Money** (payouts and refunds, approve with OTP, retry, books check, CSV export for the accountant),
+  **Buyers & sellers** (trust card, pause an account, set a deal limit per person), **Support** (reply on WhatsApp),
+  **Insights** (money traded, fees, where deals stall, top sellers), **Settings** (fees, limits, timings, switches),
+  **Team** (invite, roles, reset login), **Audit trail**.
+- Search everything with **⌘K** / **Ctrl K**. Works on a phone too.
+
+**Audit trail.** Every action (who, when, what, on which deal or person, and why) is saved. Money actions and
+settings changes need a reason. The database refuses edits or deletes to the trail, even from the console.
+Sign-ins are recorded too. Actions through the `ADMIN_TOKEN` API show up as "Admin token (API)".
+
+**Sign-in.** Email + password + a 6-digit code from an authenticator app (Google Authenticator, Microsoft
+Authenticator, 1Password…). 5 wrong tries locks the account for 15 minutes. Sessions end after 12 hours idle.
+
+**First time**
+1. Deploy, then open `/console`. It asks for a **setup key**: paste your `ADMIN_TOKEN` from Render's Environment tab.
+2. Enter your name, email and a password (10+ characters, letters and a number).
+3. Scan the QR code with your authenticator app and type the code. You're the **Owner**.
+4. **Team → Invite someone**: pick a role, send them the link (works once, for 72 hours).
+
+| Role | Can do |
+|---|---|
+| Owner | Everything, including settings and the team |
+| Admin | Deals and disputes: release, refund, cancel, extend; pause accounts and set limits |
+| Finance | Approve and retry payouts, export for the accountant |
+| Support | Reply to people, message buyers and sellers, add notes. Can't move money |
+
+**Try it on your computer with pretend data:** `npm run build:console && npm run console:demo`, then open
+`http://localhost:4000/console`. It prints the login and the current 6-digit code (or add the printed secret to your
+authenticator app). Work on the look with `npm run console:dev` (hot reload; it talks to the server on port 3000).
+
+Code: `src/console/` (API, sign-in, audit), `src/settings.ts` (live settings), `console/` (the React app).
+
+## Admin API (scripts and emergencies)
+
+The console does all of this with a screen and an audit trail. These routes remain for scripts.
 
 All need `Authorization: Bearer <ADMIN_TOKEN>`.
 
@@ -156,7 +200,7 @@ All need `Authorization: Bearer <ADMIN_TOKEN>`.
 - **Webhooks are stored first, deduplicated, then processed**, with retries for anything that fails.
 - **Payments are swappable**: `src/payments/provider.ts` is the contract. Kuda, Safe Haven, or FedaPay/KKiaPay for Benin is one new file.
 - **Pricing** (`src/pricing.ts`) uses the same rule as the landing page: % with a minimum, a cap, rounded to the nearest ₦100. Numbers are placeholders.
-- **Limits:** deals are capped at ₦50,000 before identity checks (`MAX_DEAL_MINOR`).
+- **Limits:** deals are capped at ₦50,000 before identity checks. Change it, fees and timings live in Console → Settings (env values are the starting defaults).
 
 | Path | |
 |---|---|

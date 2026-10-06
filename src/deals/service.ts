@@ -7,6 +7,8 @@ import type { PaymentProvider, PayoutResult } from '../payments/provider.js';
 import type { Messenger, Outbound } from '../whatsapp/client.js';
 import type { Media } from '../whatsapp/media.js';
 import type { Trust } from '../trust.js';
+import type { Settings } from '../settings.js';
+import type { PricingRules } from '../pricing.js';
 import { BUYER_ALERT, SELLER_ALERT } from '../whatsapp/automation.js';
 import { msg } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
@@ -44,7 +46,7 @@ export type SellerAlert = 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed
 
 export const SELLER_ALERT_TEMPLATE = SELLER_ALERT.name;
 export type Alert = SellerAlert;
-export interface User { id: string; phone: string; display_name: string | null }
+export interface User { id: string; phone: string; display_name: string | null; blocked?: boolean; deal_cap_minor?: number | null }
 export interface BankAccount { id: string; user_id: string; bank_code: string; bank_name: string; account_number: string; account_name: string }
 
 type Outbox = { phone: string; message: Outbound }[];
@@ -74,6 +76,7 @@ export interface DealServiceOptions {
   testMode?: boolean;         // fake money: allow self-deals and show a test hint
   media?: Media;              // photos in and out of WhatsApp
   trust?: Trust;              // seller and buyer records shown on deals
+  settings?: Settings;        // fees, limits and timings the console can change
   acceptHours?: number;       // how long a seller has to accept a buyer's deal (default 48)
   log?: (line: string) => void;
 }
@@ -83,7 +86,13 @@ export class DealService {
 
   private log(line: string) { this.o.log?.(line); }
 
-  get maxDealMinor(): number { return this.o.maxDealMinor; }
+  get maxDealMinor(): number { return this.o.settings?.maxDealMinor() ?? this.o.maxDealMinor; }
+
+  /** Fee rules for new deals (the console can change them). */
+  pricingRules(): PricingRules | undefined { return this.o.settings?.pricing(); }
+
+  /** The most this person can put in one deal: their own cap if staff set one, else the normal cap. */
+  capFor(user: Pick<User, 'deal_cap_minor'>): number { return user.deal_cap_minor ?? this.maxDealMinor; }
 
   /** Run fn in a transaction; send the queued WhatsApp messages only after it commits. */
   private async run<T>(fn: (tx: Tx, out: Outbox) => Promise<T>): Promise<T> {
@@ -153,14 +162,14 @@ export class DealService {
     const r = await this.o.db.query(
       `INSERT INTO users (phone, display_name) VALUES ($1,$2)
        ON CONFLICT (phone) DO UPDATE SET display_name = COALESCE(users.display_name, EXCLUDED.display_name)
-       RETURNING id, phone, display_name`,
+       RETURNING id, phone, display_name, blocked, deal_cap_minor`,
       [phone, name],
     );
     return r.rows[0];
   }
 
   async userById(q: Queryable, id: string): Promise<User> {
-    const r = await q.query('SELECT id, phone, display_name FROM users WHERE id=$1', [id]);
+    const r = await q.query('SELECT id, phone, display_name, blocked, deal_cap_minor FROM users WHERE id=$1', [id]);
     return r.rows[0];
   }
 
@@ -218,13 +227,13 @@ export class DealService {
 
   // ---------- 1. seller creates ----------
   /** Price, fee and totals. Hoolam's rule: whoever starts the deal pays the fee. */
-  previewDeal(priceMinor: number, payer: FeePayer = 'seller') {
-    if (priceMinor > this.o.maxDealMinor) throw new DealError('TOO_BIG');
-    return quote(priceMinor, this.o.currency, undefined, payer);
+  previewDeal(priceMinor: number, payer: FeePayer = 'seller', capMinor = this.maxDealMinor) {
+    if (priceMinor > capMinor) throw new DealError('TOO_BIG');
+    return quote(priceMinor, this.o.currency, this.pricingRules(), payer);
   }
 
   async createDeal(args: SellerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
-    const q = this.previewDeal(args.priceMinor, 'seller');
+    const q = this.previewDeal(args.priceMinor, 'seller', this.capFor(await this.userById(this.o.db, args.sellerId)));
     const photos = await this.fetchPhotos(args.photos ?? []);
     const deal = await this.run(async (tx) => {
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -269,7 +278,7 @@ export class DealService {
   /** One alert, once, to the buyer's number the seller typed. Never to someone who tapped "Not me". */
   private async alertBuyer(deal: Deal, seller: User): Promise<SellerAlert> {
     const phone = deal.invited_phone;
-    if (!phone) return 'none';
+    if (!phone || !this.alertsOn()) return 'none';
     if (phone === seller.phone && !this.o.testMode) return 'own-number';
     const out = await this.o.db.query('SELECT 1 FROM contact_optouts WHERE phone=$1', [phone]);
     if (out.rowCount) return 'opted-out';
@@ -309,14 +318,15 @@ export class DealService {
     return `https://wa.me/${this.o.waNumber}?text=${encodeURIComponent('View ' + code)}`;
   }
 
-  private acceptHours(): number { return this.o.acceptHours ?? 48; }
+  private acceptHours(): number { return this.o.settings?.acceptHours() ?? this.o.acceptHours ?? 48; }
+  private alertsOn(): boolean { return this.o.settings?.alertsEnabled() ?? true; }
 
   /**
    * The buyer describes what they're buying. We save it (with photos, as proof of what was promised),
    * give the buyer a link for the seller, and alert the seller directly if the buyer gave their number.
    */
   async createBuyerDeal(buyer: User, input: BuyerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
-    const q = this.previewDeal(input.priceMinor, 'buyer');
+    const q = this.previewDeal(input.priceMinor, 'buyer', this.capFor(buyer));
     const photos = await this.fetchPhotos(input.photos);
     const deal = await this.run(async (tx) => {
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -348,7 +358,7 @@ export class DealService {
   /** One alert, once, to the number the buyer typed. Never to someone who tapped "Not me". */
   private async alertSeller(deal: Deal, buyer: User): Promise<SellerAlert> {
     const phone = deal.invited_phone;
-    if (!phone) return 'none';
+    if (!phone || !this.alertsOn()) return 'none';
     if (phone === buyer.phone && !this.o.testMode) return 'own-number';
     const out = await this.o.db.query('SELECT 1 FROM contact_optouts WHERE phone=$1', [phone]);
     if (out.rowCount) return 'opted-out';
@@ -437,7 +447,7 @@ export class DealService {
 
   // ---------- Change price: the seller suggests a different price on a buyer's deal ----------
   async counterAsSeller(code: string, seller: User, accountId: string, newPriceMinor: number): Promise<void> {
-    if (newPriceMinor > this.o.maxDealMinor) throw new DealError('TOO_BIG');
+    if (newPriceMinor > this.maxDealMinor) throw new DealError('TOO_BIG');
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.status !== 'AWAITING_SELLER') { out.push({ phone: seller.phone, message: deal.seller_id ? msg.dealHasSeller(deal.code) : msg.dealClosed(deal.code) }); return; }
@@ -448,7 +458,7 @@ export class DealService {
       await tx.query('UPDATE deals SET counter_price_minor=$2, counter_seller_id=$3, counter_account_id=$4, updated_at=now() WHERE id=$1', [deal.id, newPriceMinor, seller.id, accountId]);
       await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', `Suggested a new price: ${newPriceMinor}`]);
       const buyer = await this.userById(tx, deal.buyer_id!);
-      const q = quote(newPriceMinor, this.o.currency, undefined, 'buyer');
+      const q = quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer');
       out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor)) });
       out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor)) });
     });
@@ -460,7 +470,7 @@ export class DealService {
       const deal = await this.lockByCode(tx, code);
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
       if (deal.status !== 'AWAITING_SELLER' || !deal.counter_price_minor || !deal.counter_seller_id) { out.push({ phone: buyer.phone, message: msg.dealClosed(deal.code) }); return; }
-      const q = quote(deal.counter_price_minor, this.o.currency, undefined, 'buyer');
+      const q = quote(deal.counter_price_minor, this.o.currency, this.pricingRules(), 'buyer');
       await tx.query(
         `UPDATE deals SET price_minor=$2, fee_minor=$3, buyer_pays_minor=$4, seller_gets_minor=$5, seller_id=$6, seller_account_id=$7,
                           counter_price_minor=NULL, counter_seller_id=NULL, counter_account_id=NULL WHERE id=$1`,
@@ -729,6 +739,42 @@ export class DealService {
   }
 
   // ---------- admin decisions ----------
+
+  // ---------- staff actions (console) ----------
+  /** Close a deal before any money moved. Both sides are told, kindly. */
+  async adminCancel(code: string, note: string): Promise<void> {
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (!['AWAITING_SELLER', 'AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(deal.status)) throw new DealError('NOT_ALLOWED', 'Only deals that haven\'t been paid can be cancelled. Use Refund for paid deals.');
+      const paid = await tx.query(`SELECT 1 FROM payment_intents WHERE deal_id=$1 AND status IN ('PAID','PARTIAL')`, [deal.id]);
+      if (paid.rowCount) throw new DealError('NOT_ALLOWED', 'Money has arrived on this deal. Use Refund instead.');
+      await this.move(tx, deal, 'CANCELLED', 'admin', note);
+      for (const id of new Set([deal.buyer_id, deal.seller_id ?? deal.counter_seller_id].filter(Boolean) as string[])) {
+        const u = await this.userById(tx, id);
+        out.push({ phone: u.phone, message: msg.cancelledByHoolam(deal.code) });
+      }
+    });
+  }
+
+  /** Give a seller more time to accept a buyer's deal. */
+  async extendAcceptTime(code: string, hours: number): Promise<Date> {
+    const r = await this.o.db.query(
+      `UPDATE deals SET accept_by = GREATEST(COALESCE(accept_by, now()), now()) + make_interval(hours => $2), updated_at=now()
+       WHERE code=$1 AND status='AWAITING_SELLER' RETURNING accept_by`, [code.toUpperCase(), hours]);
+    if (!r.rows[0]) throw new DealError('NOT_ALLOWED', 'Only deals waiting for a seller can be extended.');
+    return r.rows[0].accept_by;
+  }
+
+  /** A message from the Hoolam team to one side of a deal. Only works within WhatsApp's 24-hour window. */
+  async messageParty(code: string, who: 'buyer' | 'seller', text: string): Promise<string> {
+    const deal = await this.findByCode(code);
+    if (!deal) throw new DealError('NOT_FOUND');
+    const id = who === 'buyer' ? deal.buyer_id : deal.seller_id ?? deal.counter_seller_id;
+    if (!id) throw new DealError('NOT_ALLOWED', `This deal has no ${who} yet.`);
+    const u = await this.userById(this.o.db, id);
+    return this.o.messenger.send(u.phone, msg.fromTeam(text));
+  }
+
   async adminRelease(code: string, note: string): Promise<void> {
     const payoutId = await this.run(async (tx) => {
       const deal = await this.lockByCode(tx, code);

@@ -324,6 +324,13 @@ export const msg = {
     text: 'No problem. Which is it?',
     buttons: [{ id: `sno:${code}`, title: 'Not interested' }, { id: `snotme:${code}`, title: '🚫 Wrong number' }],
   }),
+  cancelledByHoolam: (code: string): Outbound => withMenu(`Deal ${code} has been closed by the Hoolam team. No money moved.\n\nQuestions? Tap Main menu → Talk to a person.`),
+  fromTeam: (text: string): Outbound => withMenu(`🙋 From the Hoolam team:\n\n${text}`),
+  accountPaused: (): Outbound => ({
+    kind: 'buttons',
+    text: '⏸️ Your Hoolam account is paused while our team looks into something. You can still talk to us.',
+    buttons: [{ id: 'menu:human', title: '🙋 Talk to a person' }],
+  }),
   sellerDeclinedOk: (code: string): Outbound => withMenu(`Done. Deal ${code} is declined. No money moved.`),
   sellerNotMeOk: (): Outbound => ({ kind: 'text', text: '🙏 Sorry about that. We won\'t send you deal alerts again.' }),
   dealHasSeller: (code: string): Outbound => withMenu(`🔒 Deal ${code} already has a seller. If you're selling to this buyer, ask them for a new deal.`),
