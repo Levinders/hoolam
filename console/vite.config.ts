@@ -7,5 +7,5 @@ export default defineConfig({
   base: '/console/',
   plugins: [react()],
   build: { outDir: '../dist-console', emptyOutDir: true, sourcemap: false, chunkSizeWarningLimit: 900 },
-  server: { port: 5173, proxy: { '/console/api': 'http://localhost:3000' } },
+  server: { port: 5173, proxy: { '/console/api': 'http://localhost:3000', '/media': 'http://localhost:3000' } },
 });

@@ -4,6 +4,8 @@ import type { Db } from '../db.js';
 import { DealError, type DealService } from '../deals/service.js';
 import type { PaymentProvider } from '../payments/provider.js';
 import { SETTING_DEFS, type Settings } from '../settings.js';
+import { MAX_UPLOAD_BYTES, MediaError, SLOTS, type SiteMedia } from '../site-media.js';
+import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
 import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
@@ -17,7 +19,7 @@ import { AuthError, can, permissionsFor, ROLES, type Role, type StaffAuth, type 
  */
 export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; settings: Settings; messenger: Messenger;
-  provider: PaymentProvider; auth: StaffAuth; log: (l: string) => void;
+  provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
 }
 
 declare module 'fastify' { interface FastifyRequest { staff?: StaffMember & { sessionId: string } } }
@@ -86,6 +88,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // =====================================================================================
     // Sign-in
     // =====================================================================================
+    // the logo for every screen, including the sign-in page
+    api.get('/auth/brand', async () => ({ logo: d.siteMedia.url('', 'logo'), mark: d.siteMedia.url('', 'mark') }));
     api.get('/auth/state', async (req) => ({
       setupNeeded: !(await d.auth.hasOwner()),
       me: req.staff ? meOf(req.staff) : null,
@@ -553,12 +557,13 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     });
     api.put('/settings', async (req) => {
       need(req, 'settings.update');
-      const b = req.body as { changes?: Record<string, number | boolean> };
+      const b = req.body as { changes?: Record<string, number | boolean | string> };
       const reason = reasonOf(req.body);
       const current = d.settings.all();
-      const changes: Record<string, number | boolean> = {};
+      const changes: Record<string, number | boolean | string> = {};
       const diff: Record<string, { from: unknown; to: unknown }> = {};
-      for (const [k, v] of Object.entries(b.changes ?? {})) {
+      for (let [k, v] of Object.entries(b.changes ?? {})) {
+        if (SETTING_DEFS.find((x) => x.key === k)?.type === 'phone' && typeof v === 'string') v = v.replace(/\D/g, '');
         const err = d.settings.validate(k, v);
         if (err) throw new HttpError(400, err);
         if (current[k] !== v) { changes[k] = v; diff[k] = { from: current[k], to: v }; }
@@ -566,7 +571,53 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       if (!Object.keys(changes).length) throw new HttpError(400, 'Nothing changed.');
       await act(req, { action: 'settings.update', targetType: 'settings', targetId: Object.keys(changes).join(','), reason, details: { changes: diff } },
         async () => { try { await d.settings.save(db, changes, req.staff!.id); } catch (e) { throw new HttpError(400, (e as Error).message); } });
+      // the website shows fees, the deal limit and the number: refresh it
+      if (Object.keys(changes).some((k) => k.startsWith('fee_') || k === 'max_deal' || k === 'whatsapp_number')) d.siteSync.changed();
       return { ok: true, values: d.settings.all() };
+    });
+
+    // ---- logo and website pictures ----
+    const siteState = () => ({ autoRefresh: d.siteSync.enabled, pending: d.siteSync.pending, lastRequestedAt: d.siteSync.lastRequestedAt, lastError: d.siteSync.lastError });
+    api.get('/media', async () => {
+      const [items, history] = await Promise.all([
+        d.siteMedia.list(),
+        db.query(`SELECT at, actor, action, target_id, details FROM audit_log WHERE action IN ('media.upload','media.remove') ORDER BY id DESC LIMIT 30`),
+      ]);
+      return {
+        slots: SLOTS,
+        items: Object.fromEntries(items.map((m) => [m.slot, { ...m, url: d.siteMedia.url('', m.slot) }])),
+        site: siteState(), siteUrl: d.config.SITE_URL ?? null, history: history.rows,
+      };
+    });
+    api.addContentTypeParser(/^image\/.+$/, { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_BYTES + 1024 }, (_req, body, done) => done(null, body));
+    api.put('/media/:slot', { bodyLimit: MAX_UPLOAD_BYTES + 1024 }, async (req) => {
+      need(req, 'settings.update');
+      const { slot } = req.params as { slot: string };
+      const def = SLOTS.find((x) => x.key === slot);
+      if (!def) throw new HttpError(404, 'That image spot doesn\'t exist.');
+      if (!Buffer.isBuffer(req.body)) throw new HttpError(400, 'Send the image file itself.');
+      const name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')).slice(0, 200) || null;
+      const where = def.group === 'brand' ? def.label : `Section ${def.section} · ${def.label}`;
+      const info = await act(req, { action: 'media.upload', targetType: 'media', targetId: slot, details: { where, file: name, inBytes: req.body.length } },
+        async () => { try { return await d.siteMedia.put(slot, req.body as Buffer, req.staff!.id, name); } catch (e) { throw e instanceof MediaError ? new HttpError(400, e.message) : e; } });
+      d.siteSync.changed();
+      return { ok: true, item: { ...info, updatedBy: req.staff!.name, url: d.siteMedia.url('', slot) }, site: siteState() };
+    });
+    api.delete('/media/:slot', async (req) => {
+      need(req, 'settings.update');
+      const { slot } = req.params as { slot: string };
+      const def = SLOTS.find((x) => x.key === slot);
+      if (!def) throw new HttpError(404, 'That image spot doesn\'t exist.');
+      const where = def.group === 'brand' ? def.label : `Section ${def.section} · ${def.label}`;
+      await act(req, { action: 'media.remove', targetType: 'media', targetId: slot, details: { where } }, () => d.siteMedia.remove(slot));
+      d.siteSync.changed();
+      return { ok: true, site: siteState() };
+    });
+    api.post('/media/refresh-site', async (req) => {
+      need(req, 'settings.update');
+      if (!d.siteSync.enabled) throw new HttpError(400, 'Automatic website refresh isn\'t set up yet.');
+      await act(req, { action: 'site.refresh', targetType: 'site', targetId: 'website' }, () => d.siteSync.rebuild());
+      return { ok: true, site: siteState() };
     });
 
     // =====================================================================================

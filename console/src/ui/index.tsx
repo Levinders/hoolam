@@ -1,16 +1,12 @@
+import { Mark } from '../brand';
 import { Check, ChevronLeft, ChevronRight, LoaderCircle, ScrollText, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { initials, PAYOUT, STATUS, type Tone } from '../format';
 
 // ---------------------------------------------------------------------------------------------
+/** The Hoolam symbol (or the logo icon uploaded in Settings → Brand). */
 export function Logo({ size = 30 }: { size?: number }) {
-  return (
-    <svg className="brand-mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="#0E5C63" />
-      <path d="M32 12l17 6.5V32c0 11-7.4 17.8-17 21-9.6-3.2-17-10-17-21V18.5z" fill="#C9992E" />
-      <path d="M24 33l6 6 11-12" stroke="#FAFAF7" strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  return <Mark size={size} />;
 }
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'danger' | 'danger solid' | 'ghost'; size?: 'sm' | 'lg'; icon?: LucideIcon; busy?: boolean };

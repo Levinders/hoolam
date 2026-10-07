@@ -10,6 +10,8 @@ import { BUYER_ALERT, ensureBuyFlow, ensureSellFlow, ensureSellerAlertTemplate, 
 import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
 import { Settings } from './settings.js';
+import { MediaError, SiteMedia } from './site-media.js';
+import { SiteSync } from './site-sync.js';
 import { registerConsoleApi } from './console/api.js';
 import { registerConsoleStatic } from './console/static.js';
 import { StaffAuth } from './console/staff.js';
@@ -35,8 +37,10 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const testMode = c.ALLOW_SELF_DEAL && provider instanceof FakeProvider;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
   const settings = new Settings(db, c);
+  const siteMedia = new SiteMedia(db);
+  const siteSync = new SiteSync(c.SITE_DEPLOY_HOOK, log);
   const deals = new DealService({
-    db, provider, messenger, media, trust, settings, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: c.WHATSAPP_PUBLIC_NUMBER,
+    db, provider, messenger, media, trust, settings, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(),
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, log,
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
@@ -85,15 +89,28 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const p = settings.pricing();
     const unit = c.CURRENCY === 'NGN' ? 100 : 1;
     return reply.header('access-control-allow-origin', '*').header('cache-control', 'public, max-age=120').send({
-      currency: c.CURRENCY, whatsapp: c.WHATSAPP_PUBLIC_NUMBER,
+      currency: c.CURRENCY, whatsapp: settings.waNumber(),
       fees: { rate: p.ratePercent, min: p.min, max: p.max, roundTo: p.roundTo },
       maxDeal: settings.maxDealMinor() / unit,
+      // logo and pictures set in Console → Settings: slot → { url, v }. Missing slots keep the website's drawings.
+      images: Object.fromEntries(Object.entries(siteMedia.current()).map(([k, v]) => [k, { url: siteMedia.url(c.PUBLIC_BASE_URL, k), v }])),
     });
+  });
+  // Logo and website pictures uploaded in the console. Versioned URLs (?v=) are cached for a year.
+  app.get('/media/:slot', async (req, reply) => {
+    const { slot } = req.params as { slot: string };
+    const m = await siteMedia.get(slot).catch((e) => { if (e instanceof MediaError) return null; throw e; });
+    if (!m) return reply.code(404).type('text/plain').send('No image');
+    const versioned = (req.query as { v?: string }).v === siteMedia.current()[slot];
+    reply.header('access-control-allow-origin', '*').header('x-content-type-options', 'nosniff')
+      .header('cache-control', versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300');
+    if (m.mime === 'image/svg+xml') reply.header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox");
+    return reply.type(m.mime).send(m.bytes);
   });
   // "Chat on WhatsApp" for links that don't know the number
   app.get('/chat', async (req, reply) => {
     const text = String((req.query as { text?: string }).text ?? 'Hi Hoolam').slice(0, 200);
-    return reply.redirect(`https://wa.me/${c.WHATSAPP_PUBLIC_NUMBER}?text=${encodeURIComponent(text)}`);
+    return reply.redirect(`https://wa.me/${settings.waNumber()}?text=${encodeURIComponent(text)}`);
   });
   // The server's own address sends visitors to the landing page, once it has one
   app.get('/', async (_req, reply) => (c.SITE_URL ? reply.redirect(c.SITE_URL) : reply.type('text/plain').send('Hoolam is running.')));
@@ -107,7 +124,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const t = id ? await trust.seller(id) : null;
     if (!t) return reply.code(404).type('text/html').send(notFoundPage());
     return reply.type('text/html').header('cache-control', 'public, max-age=300')
-      .send(sellerPage(t, { slug: slug.toLowerCase(), waNumber: c.WHATSAPP_PUBLIC_NUMBER, baseUrl: c.PUBLIC_BASE_URL }));
+      .send(sellerPage(t, { slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: c.PUBLIC_BASE_URL }));
   });
 
   // ---------- WhatsApp ----------
@@ -320,7 +337,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   // ---------- the staff console (/console) ----------
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
-  registerConsoleApi(app, { config: c, db, deals, trust, settings, messenger, provider, auth: staffAuth, log });
+  registerConsoleApi(app, { config: c, db, deals, trust, settings, messenger, provider, auth: staffAuth, siteMedia, siteSync, log });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -336,7 +353,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     }
   }
 
-  return { app, deals, chat, messenger, trust, settings, staffAuth, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
+  const load = async () => { await settings.load(); await siteMedia.load(); };
+  app.addHook('onClose', async () => siteSync.stop());
+  return { app, load, deals, chat, messenger, trust, settings, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
 }
 
 function header(req: FastifyRequest, name: string): string | undefined {

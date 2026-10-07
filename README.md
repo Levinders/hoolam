@@ -132,10 +132,12 @@ People never face an empty chat:
 The public website. One HTML file (`site/index.html`) plus `site/assets/`, served by Render as a **Static Site**:
 free, on a CDN, and it never sleeps, so the first impression is instant even while the server is on the free plan.
 
-- **Live numbers.** The fee calculator, the limits and the "Start a deal" buttons read `GET /site.json` from the
-  Hoolam server, so a fee change in Console → Settings shows on the site within a couple of minutes. Until the server
-  answers, the page uses the numbers in `HOOLAM_SITE` at the bottom of the file.
-- **Your images.** Swap the drawings for photos in `HOOLAM_IMAGES` (bottom of the file). Put files in `site/assets/`.
+- **Run from the console.** Fees, the deal limit, the WhatsApp number, the logo and every picture are set in
+  Console → Settings. Each site build copies them in from the server (`GET /site.json`), so the page loads complete
+  and instantly from Render's CDN, and the page also checks the server for anything newer once it's awake.
+- **Images by position, not by name.** Spots are numbered top to bottom (Section 1 · Image 1 …, Section 3 · Step 4,
+  Section 5 · Person 2), so the words on the page can change without renaming anything. Step 2 always shows the logo
+  icon. A spot with no upload keeps its drawing.
 - **Still placeholders** (marked on the page): bank partner, registration and licence numbers, guarantee terms,
   data protection registration, Terms, Privacy, company details, and the three quotes. Fill these in before you share
   the link widely. The quotes must come from real people.
@@ -145,9 +147,11 @@ free, on a CDN, and it never sleeps, so the first impression is instant even whi
 **Put it on Render** (once):
 1. Render → **New → Static Site** → pick this repo.
 2. Build command `node site/build.mjs`, publish directory `dist-site`.
-3. Environment: `WHATSAPP_PUBLIC_NUMBER` = the same number as the server (digits only).
-   `HOOLAM_APP_URL` only if the server isn't at `https://hoolam.onrender.com`.
-4. Every push to `site/` publishes the change by itself.
+3. Environment: `HOOLAM_APP_URL` only if the server isn't at `https://hoolam.onrender.com`.
+4. **So console changes reach the site in about a minute:** static site → Settings → **Deploy Hook** → copy the URL.
+   On the **server** (not the site), add it as `SITE_DEPLOY_HOOK`. After you upload an image or change a fee or the
+   number, the server asks Render to rebuild the site (changes made close together count as one rebuild).
+5. Every push to `site/` publishes the change by itself too.
 
 **When you connect your domain**
 1. Static site → Settings → Custom domains → add `yourdomain.com` (and `www`). Copy the records Render shows into
@@ -171,6 +175,9 @@ database, so there's nothing extra to host.
   **Buyers & sellers** (trust card, pause an account, set a deal limit per person), **Support** (reply on WhatsApp),
   **Insights** (money traded, fees, where deals stall, top sellers), **Settings** (fees, limits, timings, switches),
   **Team** (invite, roles, reset login), **Audit trail**.
+- **Settings** has its own pages: Fees (with a live calculator), Limits, Timing (with the deal timeline), WhatsApp
+  (Hoolam's number, alerts, forms), Brand (logo and logo icon, used by the website and the console), Website images
+  (every picture on the landing page, drag and drop, resized for phones automatically), and Change history.
 - Search everything with **⌘K** / **Ctrl K**. Works on a phone too.
 
 **Audit trail.** Every action (who, when, what, on which deal or person, and why) is saved. Money actions and

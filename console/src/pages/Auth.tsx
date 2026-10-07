@@ -3,9 +3,11 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, post } from '../api';
 import { useAuth } from '../auth';
+import { useBrand } from '../brand';
 import { Button, ErrorBanner, Logo, useCopy } from '../ui';
 
 function AuthLayout({ children }: { children: ReactNode }) {
+  const { brand } = useBrand();
   return (
     <div className="auth">
       <div className="auth-side">
@@ -13,7 +15,7 @@ function AuthLayout({ children }: { children: ReactNode }) {
         <h1>Every naira, accounted for.</h1>
         <p>Money waits in the middle until buyers are happy. This is where the team keeps it that way, with a trail of who did what and when.</p>
       </div>
-      <div className="auth-form"><div className="auth-card">{children}</div></div>
+      <div className="auth-form"><div className="auth-card">{brand.logo && <img className="auth-logo" src={brand.logo} alt="Hoolam" />}{children}</div></div>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { useData, useDebounced } from '../hooks';
 import { Empty, ErrorBanner, Pager, SkeletonRows, Switch } from '../ui';
 
 const GROUPS = [
-  { value: '', label: 'Every action' }, { value: 'deal.', label: 'Deals' }, { value: 'payout.', label: 'Payouts' }, { value: 'settings.', label: 'Settings' },
+  { value: '', label: 'Every action' }, { value: 'deal.', label: 'Deals' }, { value: 'payout.', label: 'Payouts' }, { value: 'settings.', label: 'Settings' }, { value: 'media.', label: 'Images' },
   { value: 'user.', label: 'People' }, { value: 'support.', label: 'Support' }, { value: 'staff.', label: 'Team' }, { value: 'money.', label: 'Exports' }, { value: 'auth.', label: 'Sign-ins' },
 ];
 
@@ -28,7 +28,9 @@ export function Audit() {
     : r.target_type === 'user' ? <Link to={`/people/${r.target_id}`}>Person</Link>
     : r.target_type === 'support' ? <Link to={`/support?open=${r.target_id}`}>Support #{r.target_id}</Link>
     : r.target_type === 'payout' ? <span className="mono">{r.target_id}</span>
-    : r.target_type === 'settings' ? 'Settings' : r.target_type === 'staff' ? 'Team' : r.target_type ?? '—';
+    : r.target_type === 'settings' ? <Link to="/settings/history">Settings</Link> : r.target_type === 'staff' ? 'Team'
+    : r.target_type === 'media' ? <Link to={r.target_id === 'logo' || r.target_id === 'mark' ? '/settings/brand' : '/settings/images'}>{r.details?.where ?? 'Image'}</Link>
+    : r.target_type === 'site' ? 'Website' : r.target_type ?? '—';
   return (
     <div className="page">
       <div className="page-head"><div><h1>Audit trail</h1><p className="lede">Every action anyone took in the console, with who, when and why. Entries can't be edited or deleted, by anyone.</p></div></div>

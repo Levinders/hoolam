@@ -49,7 +49,7 @@ export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: 
   } as NodeJS.ProcessEnv);
   const provider = new FakeProvider();
   const app = buildApp({ config, db, provider, log });
-  await app.settings.load();
+  await app.load();
 
   const deliver = (m: Inbound) => app.chat.handle(m);
   return {

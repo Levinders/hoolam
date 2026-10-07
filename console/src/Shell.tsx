@@ -1,3 +1,4 @@
+import { useBrand } from './brand';
 import { ChartColumn, Handshake, Inbox, Landmark, LifeBuoy, LogOut, Menu, ScrollText, Search, Settings2, ShieldCheck, Scale, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
@@ -8,6 +9,7 @@ import { Avatar, Logo } from './ui';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { me, signOut, can } = useAuth();
+  const { brand } = useBrand();
   const [palette, setPalette] = useState(false);
   const [menu, setMenu] = useState(false);
   const loc = useLocation();
@@ -32,7 +34,9 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <aside className={`sidebar${menu ? ' open' : ''}`} aria-label="Main navigation">
-        <div className="brand"><Logo /><div><b>Hoolam</b><span>Console</span></div></div>
+        {brand.logo && !brand.mark
+          ? <div className="brand"><span className="brand-plate"><img src={brand.logo} alt="Hoolam" /></span><span className="brand-sub">Console</span></div>
+          : <div className="brand"><Logo /><div><b>Hoolam</b><span>Console</span></div></div>}
         <nav className="nav">
           {item('/', 'Needs action', Inbox, c?.inbox)}
           <div className="nav-group">Deals</div>

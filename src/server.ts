@@ -8,8 +8,8 @@ const config = loadConfig();
 const db = createPool(config.DATABASE_URL);
 await migrate(db, console.log);
 const provider = createProvider(config);
-const { app, tick, setupMeta, settings } = buildApp({ config, db, provider });
-await settings.load();
+const { app, tick, setupMeta, load } = buildApp({ config, db, provider });
+await load();
 
 const guard = (kind: 'fast' | 'slow') => async () => {
   try { await tick(kind); } catch (e) { console.error(`${kind} tick failed:`, (e as Error).message); }

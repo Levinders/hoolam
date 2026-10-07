@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
+import { BrandProvider } from './brand';
 import { Shell } from './Shell';
 import { Logo, ToastProvider } from './ui';
 import { Login, Setup, AcceptInvite } from './pages/Auth';
@@ -34,7 +35,8 @@ function Gate() {
               <Route path="/people/:id" element={<Person />} />
               <Route path="/support" element={<Support />} />
               <Route path="/insights" element={<Insights />} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/settings" element={<Navigate to="/settings/fees" replace />} />
+              <Route path="/settings/:page" element={<Settings />} />
               <Route path="/team" element={<Team />} />
               <Route path="/audit" element={<Audit />} />
               <Route path="*" element={<Navigate to="/" replace />} />
@@ -49,11 +51,13 @@ function Gate() {
 export function App() {
   return (
     <BrowserRouter basename="/console">
-      <AuthProvider>
-        <ToastProvider>
-          <Gate />
-        </ToastProvider>
-      </AuthProvider>
+      <BrandProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <Gate />
+          </ToastProvider>
+        </AuthProvider>
+      </BrandProvider>
     </BrowserRouter>
   );
 }

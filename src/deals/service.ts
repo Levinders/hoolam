@@ -72,7 +72,7 @@ export interface DealServiceOptions {
   messenger: Messenger;
   currency: Currency;
   maxDealMinor: number;
-  waNumber: string;           // digits, for wa.me links
+  waNumber: () => string;     // digits, for wa.me links (Console → Settings → WhatsApp)
   testMode?: boolean;         // fake money: allow self-deals and show a test hint
   media?: Media;              // photos in and out of WhatsApp
   trust?: Trust;              // seller and buyer records shown on deals
@@ -309,13 +309,13 @@ export class DealService {
   }
 
   payLink(code: string): string {
-    return `https://wa.me/${this.o.waNumber}?text=${encodeURIComponent('Pay ' + code)}`;
+    return `https://wa.me/${this.o.waNumber()}?text=${encodeURIComponent('Pay ' + code)}`;
   }
 
 
   // ---------- 1b. a BUYER starts the deal ----------
   sellerLink(code: string): string {
-    return `https://wa.me/${this.o.waNumber}?text=${encodeURIComponent('View ' + code)}`;
+    return `https://wa.me/${this.o.waNumber()}?text=${encodeURIComponent('View ' + code)}`;
   }
 
   private acceptHours(): number { return this.o.settings?.acceptHours() ?? this.o.acceptHours ?? 48; }

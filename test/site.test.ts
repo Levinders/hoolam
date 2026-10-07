@@ -12,7 +12,7 @@ describe('landing page ↔ server', () => {
     const r = await h.app.app.inject({ method: 'GET', url: '/site.json' });
     expect(r.statusCode).toBe(200);
     expect(r.headers['access-control-allow-origin']).toBe('*');
-    expect(r.json()).toEqual({ currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000 });
+    expect(r.json()).toEqual({ currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, images: {} });
   });
 
   it('follows fee changes made in the console', async () => {
@@ -31,7 +31,7 @@ describe('landing page ↔ server', () => {
   });
 
   it('the site builds with the server address and number filled in', () => {
-    execFileSync('node', ['site/build.mjs'], { env: { ...process.env, HOOLAM_APP_URL: 'https://app.example/', WHATSAPP_PUBLIC_NUMBER: '+234 801 234 5678', SITE_URL: 'https://hoolam.example' } });
+    execFileSync('node', ['site/build.mjs'], { env: { ...process.env, SITE_OFFLINE: '1', HOOLAM_APP_URL: 'https://app.example/', WHATSAPP_PUBLIC_NUMBER: '+234 801 234 5678', SITE_URL: 'https://hoolam.example' } });
     const html = readFileSync('dist-site/index.html', 'utf8');
     expect(html).toContain('app: "https://app.example"');
     expect(html).toContain('whatsapp: "2348012345678"');
