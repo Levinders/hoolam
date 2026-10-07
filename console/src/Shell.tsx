@@ -48,7 +48,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {item('/support', 'Support', LifeBuoy, c?.support, true)}
           <div className="nav-group">Business</div>
           {item('/insights', 'Insights', ChartColumn)}
-          {item('/settings', 'Settings', Settings2)}
+          {can('settings.view') && item('/settings', 'Settings', Settings2)}
           {item('/team', 'Team', ShieldCheck)}
           {can('audit.view') && item('/audit', 'Audit trail', ScrollText)}
         </nav>

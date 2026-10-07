@@ -89,7 +89,7 @@ for (const [p, text] of [[buyers[3]!, 'Hello, I paid yesterday but the seller sa
 // the owner account (two-step code from the fixed demo secret)
 await h.db.query(`INSERT INTO staff (email, name, role, password_hash, totp_secret, totp_enabled) VALUES ($1,$2,'OWNER',$3,$4,true)`,
   [OWNER.email, OWNER.name, await hashPassword(OWNER.password), OWNER.secret]);
-for (const [email, name, role] of [['ada@hoolam.demo', 'Ada Support', 'SUPPORT'], ['tunde@hoolam.demo', 'Tunde Finance', 'FINANCE']] as const) {
+for (const [email, name, role] of [['ada@hoolam.demo', 'Ada Support', 'SUPPORT'], ['tunde@hoolam.demo', 'Tunde Finance', 'FINANCE'], ['bola@hoolam.demo', 'Bola Admin', 'ADMIN']] as const) {
   await h.db.query(`INSERT INTO staff (email, name, role, password_hash, totp_secret, totp_enabled) VALUES ($1,$2,$3,$4,$5,true)`, [email, name, role, await hashPassword(OWNER.password), OWNER.secret]);
 }
 await h.db.query(`INSERT INTO audit_log (staff_id, actor, action, target_type, target_id, reason, details, at)

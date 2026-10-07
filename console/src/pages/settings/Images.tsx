@@ -153,10 +153,10 @@ function SiteStatus({ site, siteUrl, editable, onDone }: { site: Site; siteUrl: 
 function Shell({ children }: { children: (d: MediaData, editable: boolean, reload: () => void) => React.ReactNode }) {
   const { can } = useAuth();
   const { data, error, loading, reload } = useMedia();
-  const editable = can('settings.update');
+  const editable = can('brand.update');
   if (error) return <ErrorBanner error={error} onRetry={reload} />;
   if (loading || !data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={72} /><div className="slot-grid">{[1, 2, 3].map((i) => <Skeleton key={i} h={280} />)}</div></div>;
-  return <>{!editable && <div className="banner gold" style={{ marginBottom: 16 }}><Lock /><div>Only an owner can change images. You can see them here.</div></div>}{children(data, editable, reload)}</>;
+  return <>{!editable && <div className="banner gold" style={{ marginBottom: 16 }}><Lock /><div>Only owners and admins can change images. You can see them here.</div></div>}{children(data, editable, reload)}</>;
 }
 
 export function BrandPage() {

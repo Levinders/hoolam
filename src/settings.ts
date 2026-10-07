@@ -17,18 +17,19 @@ export interface SettingDef {
   type: SettingType;
   min?: number;
   max?: number;
+  core?: boolean;   // owner only: money and the number people message
 }
 
 export const SETTING_DEFS: SettingDef[] = [
-  { key: 'fee_rate_percent', group: 'Fees', label: 'Fee rate', help: 'Percentage of the item price.', type: 'percent', min: 0, max: 20 },
-  { key: 'fee_min', group: 'Fees', label: 'Minimum fee', help: 'The smallest fee on any deal.', type: 'money', min: 0, max: 100_000 },
-  { key: 'fee_max', group: 'Fees', label: 'Maximum fee', help: 'The fee never goes above this.', type: 'money', min: 0, max: 1_000_000 },
-  { key: 'fee_round_to', group: 'Fees', label: 'Round fees to', help: 'Fees are rounded to the nearest multiple of this.', type: 'money', min: 1, max: 10_000 },
-  { key: 'max_deal', group: 'Limits', label: 'Largest deal', help: 'Most a single deal can be (before KYC). You can raise it for one person on their page.', type: 'money', min: 1_000, max: 100_000_000 },
+  { key: 'fee_rate_percent', group: 'Fees', label: 'Fee rate', help: 'Percentage of the item price.', type: 'percent', min: 0, max: 20, core: true },
+  { key: 'fee_min', group: 'Fees', label: 'Minimum fee', help: 'The smallest fee on any deal.', type: 'money', min: 0, max: 100_000, core: true },
+  { key: 'fee_max', group: 'Fees', label: 'Maximum fee', help: 'The fee never goes above this.', type: 'money', min: 0, max: 1_000_000, core: true },
+  { key: 'fee_round_to', group: 'Fees', label: 'Round fees to', help: 'Fees are rounded to the nearest multiple of this.', type: 'money', min: 1, max: 10_000, core: true },
+  { key: 'max_deal', group: 'Limits', label: 'Largest deal', help: 'Most a single deal can be (before KYC). You can raise it for one person on their page.', type: 'money', min: 1_000, max: 100_000_000, core: true },
   { key: 'seller_accept_hours', group: 'Timing', label: 'Seller has to accept within', help: 'For deals a buyer starts. After this, the deal closes.', type: 'hours', min: 1, max: 336 },
   { key: 'nudge_after_hours', group: 'Timing', label: 'Remind the buyer after', help: 'Hours after shipping before we ask the buyer if the item arrived.', type: 'hours', min: 1, max: 336 },
   { key: 'flag_after_hours', group: 'Timing', label: 'Flag for the team after', help: 'Hours after shipping before an unconfirmed deal appears in Needs action.', type: 'hours', min: 1, max: 720 },
-  { key: 'whatsapp_number', group: 'WhatsApp', label: 'Hoolam\'s WhatsApp number', help: 'The number people message. Used in every "chat with Hoolam" link: the website, seller pages and payment links. Digits only, with the country code.', type: 'phone' },
+  { key: 'whatsapp_number', group: 'WhatsApp', label: 'Hoolam\'s WhatsApp number', help: 'The number people message. Used in every "chat with Hoolam" link: the website, seller pages and payment links. Digits only, with the country code.', type: 'phone', core: true },
   { key: 'alerts_enabled', group: 'WhatsApp', label: 'Alert the other side by number', help: 'Send "New order request" / "Payment request" when someone types the other side\'s number.', type: 'boolean' },
   { key: 'forms_enabled', group: 'WhatsApp', label: 'WhatsApp forms', help: 'Offer the buy and sell forms (needs Meta business verification).', type: 'boolean' },
 ];

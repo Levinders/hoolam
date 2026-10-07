@@ -2,11 +2,12 @@ import { ChartColumn, CornerDownLeft, Handshake, Inbox, Landmark, LifeBuoy, Scal
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from './api';
+import { useAuth } from './auth';
 import { money } from './format';
 import { useDebounced } from './hooks';
 import { Modal, StatusPill } from './ui';
 
-type Item = { key: string; group: string; title: string; sub?: string; icon: typeof Inbox; to: string; status?: string };
+type Item = { key: string; group: string; title: string; sub?: string; icon: typeof Inbox; to: string; status?: string; need?: string };
 
 const PAGES: Item[] = [
   { key: 'p-home', group: 'Go to', title: 'Needs action', icon: Inbox, to: '/' },
@@ -16,9 +17,11 @@ const PAGES: Item[] = [
   { key: 'p-people', group: 'Go to', title: 'Buyers & sellers', icon: Users, to: '/people' },
   { key: 'p-support', group: 'Go to', title: 'Support', icon: LifeBuoy, to: '/support' },
   { key: 'p-insights', group: 'Go to', title: 'Insights', icon: ChartColumn, to: '/insights' },
-  { key: 'p-settings', group: 'Go to', title: 'Settings', icon: Settings2, to: '/settings' },
+  { key: 'p-settings', group: 'Go to', title: 'Settings', icon: Settings2, to: '/settings', need: 'settings.view' },
+  ...[['fees', 'Fees'], ['limits', 'Limits'], ['timing', 'Timing'], ['whatsapp', 'WhatsApp number'], ['brand', 'Brand and logo'], ['images', 'Website images'], ['history', 'Settings history']]
+    .map(([k, t]) => ({ key: `p-s-${k}`, group: 'Settings', title: t!, icon: Settings2, to: `/settings/${k}`, need: 'settings.view' })),
   { key: 'p-team', group: 'Go to', title: 'Team', icon: ShieldCheck, to: '/team' },
-  { key: 'p-audit', group: 'Go to', title: 'Audit trail', icon: ScrollText, to: '/audit' },
+  { key: 'p-audit', group: 'Go to', title: 'Audit trail', icon: ScrollText, to: '/audit', need: 'audit.view' },
 ];
 
 /** ⌘K: jump to a deal by code, a person by name or phone, or any page. */
@@ -27,6 +30,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [found, setFound] = useState<Item[]>([]);
   const [sel, setSel] = useState(0);
   const nav = useNavigate();
+  const { can } = useAuth();
   const dq = useDebounced(q, 160);
   useEffect(() => {
     if (dq.trim().length < 2) { setFound([]); return; }
@@ -42,9 +46,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   }, [dq]);
   const items = useMemo(() => {
     const t = q.trim().toLowerCase();
-    const pages = PAGES.filter((p) => !t || p.title.toLowerCase().includes(t));
+    const pages = PAGES.filter((p) => (!p.need || can(p.need)) && (t ? p.title.toLowerCase().includes(t) : p.group === 'Go to'));
     return [...found, ...pages];
-  }, [found, q]);
+  }, [found, q, can]);
   useEffect(() => setSel(0), [items.length]);
   const go = (i: Item | undefined) => { if (i) { nav(i.to); onClose(); } };
   let lastGroup = '';

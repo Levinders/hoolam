@@ -24,7 +24,10 @@ export const CAN: Record<string, Role[]> = {
   'support.close': ['OWNER', 'ADMIN', 'SUPPORT'],
   'user.block': ['OWNER', 'ADMIN'],
   'user.cap': ['OWNER', 'ADMIN'],
-  'settings.update': ['OWNER'],
+  'settings.view': ['OWNER', 'ADMIN'],          // see Settings at all
+  'settings.update': ['OWNER', 'ADMIN'],        // timing, alerts and forms switches
+  'settings.core': ['OWNER'],                   // fees, limits, Hoolam's WhatsApp number
+  'brand.update': ['OWNER', 'ADMIN'],           // logo and website images
   'staff.manage': ['OWNER'],
   'audit.view': ['OWNER', 'ADMIN', 'FINANCE'],
 };

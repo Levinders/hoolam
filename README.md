@@ -175,7 +175,7 @@ database, so there's nothing extra to host.
   **Buyers & sellers** (trust card, pause an account, set a deal limit per person), **Support** (reply on WhatsApp),
   **Insights** (money traded, fees, where deals stall, top sellers), **Settings** (fees, limits, timings, switches),
   **Team** (invite, roles, reset login), **Audit trail**.
-- **Settings** has its own pages: Fees (with a live calculator), Limits, Timing (with the deal timeline), WhatsApp
+- **Settings** (owners and admins only) has tabs: Fees (with a live calculator), Limits, Timing (with the deal timeline), WhatsApp
   (Hoolam's number, alerts, forms), Brand (logo and logo icon, used by the website and the console), Website images
   (every picture on the landing page, drag and drop, resized for phones automatically), and Change history.
 - Search everything with **⌘K** / **Ctrl K**. Works on a phone too.
@@ -195,8 +195,8 @@ Authenticator, 1Password…). 5 wrong tries locks the account for 15 minutes. Se
 
 | Role | Can do |
 |---|---|
-| Owner | Everything, including settings and the team |
-| Admin | Deals and disputes: release, refund, cancel, extend; pause accounts and set limits |
+| Owner | Everything: the team, fees, limits and Hoolam's WhatsApp number |
+| Admin | Deals and disputes: release, refund, cancel, extend; pause accounts and set limits. Settings: timing, alerts and forms, logo and website images (sees fees, limits and the number, can't change them) |
 | Finance | Approve and retry payouts, export for the accountant |
 | Support | Reply to people, message buyers and sellers, add notes. Can't move money |
 

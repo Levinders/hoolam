@@ -545,7 +545,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // =====================================================================================
     // Settings
     // =====================================================================================
-    api.get('/settings', async () => {
+    api.get('/settings', async (req) => {
+      need(req, 'settings.view');
       const [rows, history] = await Promise.all([
         db.query(`SELECT x.key, x.updated_at, s.name AS updated_by FROM settings x LEFT JOIN staff s ON s.id=x.updated_by`),
         db.query(`SELECT at, actor, reason, details FROM audit_log WHERE action='settings.update' ORDER BY id DESC LIMIT 30`),
@@ -569,6 +570,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         if (current[k] !== v) { changes[k] = v; diff[k] = { from: current[k], to: v }; }
       }
       if (!Object.keys(changes).length) throw new HttpError(400, 'Nothing changed.');
+      const core = Object.keys(changes).filter((k) => SETTING_DEFS.find((x) => x.key === k)?.core);
+      if (core.length && !can(req.staff!.role, 'settings.core')) throw new HttpError(403, 'Only an owner can change fees, limits and Hoolam\'s WhatsApp number.');
       await act(req, { action: 'settings.update', targetType: 'settings', targetId: Object.keys(changes).join(','), reason, details: { changes: diff } },
         async () => { try { await d.settings.save(db, changes, req.staff!.id); } catch (e) { throw new HttpError(400, (e as Error).message); } });
       // the website shows fees, the deal limit and the number: refresh it
@@ -578,7 +581,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
     // ---- logo and website pictures ----
     const siteState = () => ({ autoRefresh: d.siteSync.enabled, pending: d.siteSync.pending, lastRequestedAt: d.siteSync.lastRequestedAt, lastError: d.siteSync.lastError });
-    api.get('/media', async () => {
+    api.get('/media', async (req) => {
+      need(req, 'settings.view');
       const [items, history] = await Promise.all([
         d.siteMedia.list(),
         db.query(`SELECT at, actor, action, target_id, details FROM audit_log WHERE action IN ('media.upload','media.remove') ORDER BY id DESC LIMIT 30`),
@@ -591,7 +595,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     });
     api.addContentTypeParser(/^image\/.+$/, { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_BYTES + 1024 }, (_req, body, done) => done(null, body));
     api.put('/media/:slot', { bodyLimit: MAX_UPLOAD_BYTES + 1024 }, async (req) => {
-      need(req, 'settings.update');
+      need(req, 'brand.update');
       const { slot } = req.params as { slot: string };
       const def = SLOTS.find((x) => x.key === slot);
       if (!def) throw new HttpError(404, 'That image spot doesn\'t exist.');
@@ -604,7 +608,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       return { ok: true, item: { ...info, updatedBy: req.staff!.name, url: d.siteMedia.url('', slot) }, site: siteState() };
     });
     api.delete('/media/:slot', async (req) => {
-      need(req, 'settings.update');
+      need(req, 'brand.update');
       const { slot } = req.params as { slot: string };
       const def = SLOTS.find((x) => x.key === slot);
       if (!def) throw new HttpError(404, 'That image spot doesn\'t exist.');
@@ -614,7 +618,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       return { ok: true, site: siteState() };
     });
     api.post('/media/refresh-site', async (req) => {
-      need(req, 'settings.update');
+      need(req, 'brand.update');
       if (!d.siteSync.enabled) throw new HttpError(400, 'Automatic website refresh isn\'t set up yet.');
       await act(req, { action: 'site.refresh', targetType: 'site', targetId: 'website' }, () => d.siteSync.rebuild());
       return { ok: true, site: siteState() };

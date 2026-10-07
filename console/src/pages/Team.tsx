@@ -7,8 +7,8 @@ import { useData } from '../hooks';
 import { Avatar, Button, ConfirmAction, ErrorBanner, Modal, SkeletonRows, useCopy, useToast } from '../ui';
 
 const ROLE_TEXT: Record<string, { name: string; does: string }> = {
-  OWNER: { name: 'Owner', does: 'Everything, including settings and the team.' },
-  ADMIN: { name: 'Admin', does: 'Handles deals and disputes: release, refund, cancel. Pauses accounts.' },
+  OWNER: { name: 'Owner', does: 'Everything: the team, fees, limits and Hoolam\'s WhatsApp number.' },
+  ADMIN: { name: 'Admin', does: 'Handles deals and disputes: release, refund, cancel. Pauses accounts. Settings: timing, alerts, logo and website images.' },
   FINANCE: { name: 'Finance', does: 'Approves and retries payouts, exports for the accountant.' },
   SUPPORT: { name: 'Support', does: 'Replies to people, messages buyers and sellers, adds notes. Can\'t move money.' },
 };

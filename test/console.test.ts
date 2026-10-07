@@ -127,6 +127,7 @@ describe('roles and the audit trail', () => {
   it('support can\'t see the audit trail or change settings; only the owner manages the team', async () => {
     expect((await call('GET', '/audit', undefined, support)).status).toBe(403);
     expect((await call('PUT', '/settings', { changes: { fee_rate_percent: 3 }, reason: 'try' }, support)).status).toBe(403);
+    expect((await call('GET', '/settings', undefined, support)).status).toBe(403);
     expect((await call('POST', '/team/invite', { email: 'z@z.co', name: 'Z', role: 'ADMIN' }, support)).status).toBe(403);
   });
 

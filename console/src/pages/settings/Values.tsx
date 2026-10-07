@@ -9,7 +9,7 @@ import { Button, ConfirmAction, ErrorBanner, Skeleton, Switch, useToast } from '
 import { SectionHead, useUnsaved } from '../Settings';
 
 type Val = number | boolean | string;
-export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone'; min?: number; max?: number };
+export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone'; min?: number; max?: number; core?: boolean };
 interface SettingsData { currency: string; defs: Def[]; values: Record<string, Val>; defaults: Record<string, Val>; updated: Record<string, { at: string; by: string | null }>; history: any[] }
 
 /** +234 801 234 5678, +1 555 138 0045, +229 01 90 00 00 05 */
@@ -52,16 +52,20 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
   const toast = useToast();
   const s = useDraft(keys);
   const [confirm, setConfirm] = useState(false);
-  const editable = can('settings.update');
+  const canEdit = (d?: Def) => can(d?.core ? 'settings.core' : 'settings.update');
   if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
   if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><div className="settings-grid"><Skeleton h={320} /><Skeleton h={220} /></div></div>;
   const data = s.data;
+  const lockedKeys = keys.filter((k) => !canEdit(s.def(k)));
+  const lockedCore = lockedKeys.some((k) => s.def(k)?.core);
   const invalid = s.changed.find((k) => { const d = s.def(k); const v = s.draft[k]; return d && d.type !== 'boolean' && d.type !== 'phone' && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max)); });
 
   return (
     <>
       <SectionHead title={title} lede={lede} />
-      {!editable && <div className="banner gold" style={{ marginBottom: 16 }}><Lock /><div>Only an owner can change settings. You can see them here.</div></div>}
+      {lockedKeys.length > 0 && <div className="banner gold lock-banner"><Lock /><div>{lockedCore
+        ? <><b>Owner only.</b> {lockedKeys.length === keys.length ? 'You can view these, but only an owner can change fees, limits and Hoolam\'s WhatsApp number.' : 'Items marked Owner are view only for you. Only an owner can change fees, limits and Hoolam\'s WhatsApp number.'}</>
+        : 'You can see these settings, but your role can\'t change them.'}</div></div>}
       <div className={`settings-grid${aside ? '' : ' single'}`}>
         <section className="panel setting-list">
           {keys.map((k) => {
@@ -70,10 +74,11 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
             const upd = data.updated[k];
             const isChanged = s.changed.includes(k);
             const custom = render?.[k];
+            const editable = canEdit(d);
             return (
               <div key={k} className={`setting-row${isChanged ? ' changed' : ''}${d.type === 'boolean' ? ' toggle' : ''}${stacked.includes(k) ? ' stacked' : ''}`}>
                 <div className="sr-text">
-                  <label htmlFor={`f-${k}`}>{d.label}</label>
+                  <label htmlFor={`f-${k}`}>{d.label}{!editable && <span className="owner-tag"><Lock />Owner</span>}</label>
                   <p>{d.help}</p>
                   <span className="sr-meta">{isChanged ? <>Was {showValue(d, data.values[k]!, data.currency)}</> : upd ? `Changed by ${upd.by ?? 'someone'} ${ago(upd.at)}` : `Default: ${showValue(d, data.defaults[k]!, data.currency)}`}</span>
                 </div>
