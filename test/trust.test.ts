@@ -166,8 +166,10 @@ describe('the seller\'s own card and public page', () => {
     await completeDeal(seller, phone(), { rate: 'up' });
     await h.tap(seller, 'menu:card');
     expect(h.last(seller)).toMatch(/This is what buyers see before they pay/);
-    expect(h.last(seller)).toMatch(/\[🔗 Share my card\] \[✏️ Name & city\]/);
+    expect(h.last(seller)).toMatch(/\[🔗 Share my card\] \[✏️ Edit my page\]/);
     await h.tap(seller, 'card:edit');
+    expect(h.last(seller)).toMatch(/Edit my page/);
+    await h.tap(seller, 'card:name');
     expect(h.last(seller)).toMatch(/What name should buyers see/);
     await h.say(seller, 'Bayo Kicks Lagos');
     await h.say(seller, 'Lagos');
@@ -183,7 +185,7 @@ describe('the seller\'s own card and public page', () => {
     expect(page.body).toMatch(/Bayo Kicks Lagos/);
     expect(page.body).toMatch(/deal completed/);
     expect(page.body).toMatch(/text=Buy%20from%20%40bayo-kicks-lagos/);
-    expect(page.body).toMatch(/og:image" content="https:\/\/hoolam\.test\/share\.png/);
+    expect(page.body).toMatch(/og:image" content="https:\/\/hoolam\.test\/s\/bayo-kicks-lagos\/share\.jpg/);
     expect((await h.app.app.inject({ method: 'GET', url: '/share.png' })).headers['content-type']).toBe('image/png');
 
     const buyer = phone();

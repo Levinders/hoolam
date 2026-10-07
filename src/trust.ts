@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import sharp from 'sharp';
+import { parseSocial, SOCIAL_KINDS, socialLink, type SocialKind, type SocialLink } from './socials.js';
 import type { Db } from './db.js';
 
 /**
@@ -27,6 +30,8 @@ export interface SellerStats {
   isNew: boolean;
   slug: string | null;
   isPublic: boolean;
+  socials: SocialLink[];     // Instagram, TikTok, Facebook, website (in that order, only the ones set)
+  photoVersion: string | null; // short hash of their photo, for /s/:slug/photo.webp?v=
 }
 
 export interface BuyerStats { name: string; purchases: number; problems: number; refunded: number; isNew: boolean }
@@ -38,7 +43,9 @@ export class Trust {
   constructor(private readonly db: Db, private readonly includeTest = false) {}
 
   async seller(userId: string): Promise<SellerStats | null> {
-    const u = (await this.db.query('SELECT id, display_name, business_name, city, created_at, profile_slug, profile_public FROM users WHERE id=$1', [userId])).rows[0];
+    const u = (await this.db.query(`SELECT u.id, u.display_name, u.business_name, u.city, u.created_at, u.profile_slug, u.profile_public,
+        u.social_instagram, u.social_tiktok, u.social_facebook, u.social_website, p.sha256 AS photo_sha
+      FROM users u LEFT JOIN user_photos p ON p.user_id=u.id WHERE u.id=$1`, [userId])).rows[0];
     if (!u) return null;
     const scope = `seller_id=$1 AND buyer_id IS NOT NULL AND buyer_id<>seller_id AND ($2 OR NOT is_test)`;
     const [d, disputes, ratings, bank] = await Promise.all([
@@ -80,6 +87,8 @@ export class Trust {
       isNew: row.completed < 3,
       slug: u.profile_slug,
       isPublic: u.profile_public,
+      socials: SOCIAL_KINDS.map((k) => socialLink(k, u[`social_${k}`])).filter((x): x is SocialLink => !!x),
+      photoVersion: u.photo_sha ? String(u.photo_sha).slice(0, 12) : null,
     };
   }
 
@@ -119,6 +128,39 @@ export class Trust {
     }
     await this.db.query('UPDATE users SET profile_public=$2, profile_slug=COALESCE($3, profile_slug) WHERE id=$1', [userId, on, slug]);
     return slug;
+  }
+
+  /** Sets or clears one link. Returns an error message in plain words if the input isn't usable. */
+  async setSocial(userId: string, kind: SocialKind, input: string | null): Promise<string | null> {
+    if (!SOCIAL_KINDS.includes(kind)) return 'Unknown link';
+    let value: string | null = null;
+    if (input !== null) {
+      const r = parseSocial(kind, input);
+      if ('error' in r) return r.error;
+      value = r.value;
+    }
+    await this.db.query(`UPDATE users SET social_${kind}=$2 WHERE id=$1`, [userId, value]);
+    return null;
+  }
+
+  /** A seller's photo: turned upright, cropped square around the middle, sized for phones. */
+  async setPhoto(userId: string, input: Buffer): Promise<string> {
+    let out: Buffer;
+    try {
+      out = await sharp(input, { animated: false }).rotate().resize(640, 640, { fit: 'cover', position: 'attention', withoutEnlargement: false })
+        .webp({ quality: 82 }).toBuffer();
+    } catch { throw new Error('not an image'); }
+    const sha = createHash('sha256').update(out).digest('hex');
+    await this.db.query(`INSERT INTO user_photos (user_id, mime, bytes, sha256, updated_at) VALUES ($1,'image/webp',$2,$3,now())
+      ON CONFLICT (user_id) DO UPDATE SET mime=EXCLUDED.mime, bytes=EXCLUDED.bytes, sha256=EXCLUDED.sha256, updated_at=now()`, [userId, out, sha]);
+    return sha.slice(0, 12);
+  }
+  async removePhoto(userId: string): Promise<boolean> {
+    return ((await this.db.query('DELETE FROM user_photos WHERE user_id=$1', [userId])).rowCount ?? 0) > 0;
+  }
+  async photo(userId: string): Promise<{ mime: string; bytes: Buffer; version: string } | null> {
+    const r = (await this.db.query('SELECT mime, bytes, sha256 FROM user_photos WHERE user_id=$1', [userId])).rows[0];
+    return r ? { mime: r.mime, bytes: r.bytes, version: String(r.sha256).slice(0, 12) } : null;
   }
 
   async setProfile(userId: string, p: { businessName?: string | null; city?: string | null }) {

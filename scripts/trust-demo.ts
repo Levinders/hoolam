@@ -29,6 +29,10 @@ for (let i = 0; i < 14; i++) {
 }
 const id = (await h.db.query('SELECT id FROM users WHERE phone=$1', [seller])).rows[0].id;
 const slug = await h.app.trust.setPublic(id, true);
+// a photo (the website's drawn seller portrait) and links, as a seller would add from "Edit my page"
+const { readFileSync } = await import('node:fs');
+await h.app.trust.setPhoto(id, readFileSync(new URL('../console/public/slots/s4-1.webp', import.meta.url)));
+for (const [k, v] of [['instagram', '@bayokicks'], ['tiktok', '@bayokicks'], ['facebook', 'facebook.com/BayoKicksNG'], ['website', 'bayokicks.com']] as const) await h.app.trust.setSocial(id, k, v);
 
 // what a buyer sees in WhatsApp when they check this seller, and what a seller sees about a buyer
 await h.tap(buyers[0]!, 'menu:check'); await h.say(buyers[0]!, '08031110001');

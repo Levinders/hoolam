@@ -1,3 +1,4 @@
+import { SOCIAL_NAMES, type SocialKind } from '../socials.js';
 import type { Db } from '../db.js';
 import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { PRICING, quote } from '../pricing.js';
@@ -25,7 +26,7 @@ type State =
   | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_PRICE' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SHIP_PROOF'
-  | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY';
+  | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL';
 interface Session { state: State; data: Record<string, any>; isNew: boolean }
 
 export interface FlowOptions {
@@ -45,6 +46,8 @@ export interface FlowOptions {
   trust?: Trust;
   /** Where public seller pages live, e.g. https://hoolam.onrender.com */
   publicBaseUrl?: string;
+  /** Fetches photos people send (for a seller's page photo). */
+  media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
   log?: (line: string) => void;
 }
 
@@ -338,6 +341,31 @@ export class Conversation {
         await this.save(m.phone, 'PROFILE_CITY');
         return this.send(m.phone, msg.askCity());
       }
+      case 'PROFILE_PHOTO': {
+        if (m.type !== 'image' || !m.mediaId) {
+          if (/^(cancel|stop|no)$/i.test(text)) { await this.save(m.phone, 'IDLE'); return this.showMyCard(m.phone, user); }
+          return this.send(m.phone, msg.photoNeeded());
+        }
+        try {
+          const file = this.o.media ? await this.o.media.download(m.mediaId) : null;
+          if (!file || !this.o.trust) return this.send(m.phone, msg.photoFailed());
+          await this.o.trust.setPhoto(user.id, file.bytes);
+        } catch (e) {
+          this.o.log?.(`profile photo for ${m.phone}: ${(e as Error).message}`);
+          return this.send(m.phone, msg.photoFailed());
+        }
+        await this.save(m.phone, 'IDLE');
+        return this.pageUpdated(m.phone, user, 'Photo saved. It\'s on your page now.');
+      }
+      case 'PROFILE_SOCIAL': {
+        const kind = s.data.kind as SocialKind;
+        if (!this.o.trust || !SOCIAL_NAMES[kind]) { await this.save(m.phone, 'IDLE'); return this.showMyCard(m.phone, user); }
+        if (/^(cancel|stop)$/i.test(text)) { await this.save(m.phone, 'IDLE'); return this.showMyCard(m.phone, user); }
+        const error = await this.o.trust.setSocial(user.id, kind, /^(remove|delete|none)$/i.test(text) ? null : text);
+        if (error) return this.send(m.phone, msg.socialRefused(error, kind));
+        await this.save(m.phone, 'IDLE');
+        return this.pageUpdated(m.phone, user, /^(remove|delete|none)$/i.test(text) ? `${SOCIAL_NAMES[kind]} removed.` : `${SOCIAL_NAMES[kind]} added to your page.`);
+      }
       case 'PROFILE_CITY': {
         await this.o.trust?.setProfile(user.id, { city: text });
         await this.save(m.phone, 'IDLE');
@@ -559,6 +587,11 @@ export class Conversation {
     return `${(this.o.publicBaseUrl ?? '').replace(/\/$/, '')}/s/${slug}`;
   }
 
+  private async pageUpdated(phone: string, user: User, what: string) {
+    const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
+    return this.send(phone, msg.pageUpdated(what, t?.isPublic && t.slug ? this.pageUrl(t.slug) : null));
+  }
+
   private async showMyCard(phone: string, user: User) {
     const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
     if (!t) return this.send(phone, msg.didntUnderstand());
@@ -581,8 +614,39 @@ export class Conversation {
         return this.send(phone, msg.cardHidden());
       case 'edit': {
         const t = await this.o.trust.seller(user.id);
+        if (!t) return;
+        await this.save(phone, 'IDLE');
+        return this.send(phone, msg.editMyPage(t, !!t.photoVersion));
+      }
+      case 'name': {
+        const t = await this.o.trust.seller(user.id);
         await this.save(phone, 'PROFILE_NAME');
         return this.send(phone, msg.askBusinessName(t?.name ?? user.display_name ?? ''));
+      }
+      case 'photo': {
+        const t = await this.o.trust.seller(user.id);
+        await this.save(phone, 'PROFILE_PHOTO');
+        return this.send(phone, msg.askProfilePhoto(!!t?.photoVersion));
+      }
+      case 'rmphoto':
+        await this.save(phone, 'IDLE');
+        await this.o.trust.removePhoto(user.id);
+        return this.pageUpdated(phone, user, 'Photo removed.');
+      case 'cancel':
+        await this.save(phone, 'IDLE');
+        return this.showMyCard(phone, user);
+      default: {
+        const social = action.match(/^(s|rm)-(instagram|tiktok|facebook|website)$/);
+        if (!social) return;
+        const kind = social[2] as SocialKind;
+        if (social[1] === 'rm') {
+          await this.save(phone, 'IDLE');
+          await this.o.trust.setSocial(user.id, kind, null);
+          return this.pageUpdated(phone, user, `${SOCIAL_NAMES[kind]} removed.`);
+        }
+        const t = await this.o.trust.seller(user.id);
+        await this.save(phone, 'PROFILE_SOCIAL', { kind });
+        return this.send(phone, msg.askSocial(kind, t?.socials.find((x) => x.kind === kind)?.label ?? null));
       }
       case 'wname':
         await this.save(phone, 'PROFILE_CITY');

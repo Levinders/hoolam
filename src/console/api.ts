@@ -4,6 +4,7 @@ import type { Db } from '../db.js';
 import { DealError, type DealService } from '../deals/service.js';
 import type { PaymentProvider } from '../payments/provider.js';
 import { SETTING_DEFS, type Settings } from '../settings.js';
+import { parseSocial, SOCIAL_KINDS, type SocialKind } from '../socials.js';
 import { MAX_UPLOAD_BYTES, MediaError, SLOTS, type SiteMedia } from '../site-media.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
@@ -453,6 +454,31 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       };
     });
 
+    // a seller's page photo and links: staff can see them anywhere and take down anything unsuitable
+    api.get('/people/:id/photo', async (req, reply) => {
+      const p = await d.trust.photo((req.params as { id: string }).id);
+      if (!p) throw new HttpError(404, 'No photo');
+      return reply.type(p.mime).header('cache-control', 'private, max-age=300').send(p.bytes);
+    });
+    api.delete('/people/:id/photo', async (req) => {
+      need(req, 'user.block');
+      const id = (req.params as { id: string }).id;
+      const reason = reasonOf(req.body);
+      await act(req, { action: 'user.photo.remove', targetType: 'user', targetId: id, reason }, () => d.trust.removePhoto(id));
+      return { ok: true };
+    });
+    api.put('/people/:id/social', async (req) => {
+      need(req, 'user.block');
+      const id = (req.params as { id: string }).id;
+      const b = req.body as { kind: SocialKind; value?: string | null };
+      if (!SOCIAL_KINDS.includes(b.kind)) throw new HttpError(400, 'Unknown link');
+      if (b.value) { const r = parseSocial(b.kind, b.value); if ('error' in r) throw new HttpError(400, r.error); }
+      const reason = reasonOf(req.body);
+      const before = (await d.trust.seller(id))?.socials.find((x) => x.kind === b.kind)?.label ?? null;
+      await act(req, { action: 'user.social', targetType: 'user', targetId: id, reason, details: { link: b.kind, from: before, to: b.value ?? null } },
+        () => d.trust.setSocial(id, b.kind, b.value ?? null));
+      return { ok: true };
+    });
     api.post('/people/:id/pause', async (req) => {
       need(req, 'user.block');
       const id = (req.params as { id: string }).id;

@@ -1,6 +1,7 @@
 import { formatMoney, type Currency } from '../money.js';
 import type { ListSection, Outbound } from './client.js';
 import { shipText, shortBankName, type BuyerStats, type SellerStats } from '../trust.js';
+import { SOCIAL_NAMES, type SocialKind } from '../socials.js';
 
 // Every message Hoolam sends, in one place. Plain words, short lines, and always answer
 // the quiet question underneath: "where is my money right now?"
@@ -152,6 +153,7 @@ export const msg = {
     if (t.rated >= 5) lines.push(`👍 ${Math.round((100 * t.happy) / t.rated)}% of buyers happy (${t.rated} ratings)`);
     else if (t.rated) lines.push(`👍 ${t.happy} of ${t.rated} buyer${t.rated === 1 ? '' : 's'} happy`);
     if (t.bankName) lines.push(`🏦 Paid out to ${shortBankName(t.bankName)}, bank-verified${t.bankMatches ? ' ✓ matches their name' : ''}`);
+    if (t.socials.length) lines.push(`🔗 ${t.socials.map((s) => `${s.kind === 'website' ? '' : SOCIAL_NAMES[s.kind] + ' '}${s.label}`).join(' · ')}`);
     lines.push('', '_Counted from real deals paid through Hoolam._');
     return lines.join('\n');
   },
@@ -185,13 +187,51 @@ export const msg = {
     kind: 'buttons',
     text: `${card}\n\n👀 This is what buyers see before they pay.` + (url ? `\n\n🔗 Your page: ${url}` : ''),
     buttons: url
-      ? [{ id: 'card:share', title: '🔗 Share my link' }, { id: 'card:edit', title: '✏️ Name & city' }, { id: 'card:hide', title: '🙈 Hide my page' }]
-      : [{ id: 'card:share', title: '🔗 Share my card' }, { id: 'card:edit', title: '✏️ Name & city' }, { id: 'menu:open', title: 'Main menu' }],
+      ? [{ id: 'card:share', title: '🔗 Share my link' }, { id: 'card:edit', title: '✏️ Edit my page' }, { id: 'card:hide', title: '🙈 Hide my page' }]
+      : [{ id: 'card:share', title: '🔗 Share my card' }, { id: 'card:edit', title: '✏️ Edit my page' }, { id: 'menu:open', title: 'Main menu' }],
   }),
   askBusinessName: (current: string): Outbound => ({
     kind: 'buttons',
     text: `🏷️ What name should buyers see? Your shop or brand name.\n\nNow: *${current}*`,
     buttons: [{ id: 'card:wname', title: 'Keep this name' }],
+  }),
+  /** What a seller can change on their page. */
+  editMyPage: (t: SellerStats, hasPhoto: boolean): Outbound => {
+    const now = (k: SocialKind) => t.socials.find((s) => s.kind === k)?.label;
+    const row = (k: SocialKind, icon: string) => ({ id: `card:s-${k}`, title: `${icon} ${SOCIAL_NAMES[k]}`.slice(0, 24), description: now(k) ? `Now: ${now(k)}`.slice(0, 72) : `Add your ${k === 'website' ? 'website or online store' : SOCIAL_NAMES[k]}` });
+    return {
+      kind: 'list',
+      text: '✏️ *Edit my page*\n\nA photo and your links help buyers trust you before they pay. Pick what to change.',
+      button: 'Choose',
+      sections: [
+        { title: 'About you', rows: [
+          { id: 'card:photo', title: '📸 Photo', description: hasPhoto ? 'Change or remove your photo' : 'Add your face or your shop' },
+          { id: 'card:name', title: '🏷️ Name & city', description: `Now: ${t.name}${t.city ? ', ' + t.city : ''}`.slice(0, 72) },
+        ] },
+        { title: 'Where you sell', rows: [row('instagram', '📷'), row('tiktok', '🎵'), row('facebook', '👥'), row('website', '🌐')] },
+      ],
+    };
+  },
+  askProfilePhoto: (hasPhoto: boolean): Outbound => ({
+    kind: 'buttons',
+    text: '📸 Send a clear photo of *you* or *your shop*.\n\nIt shows in a circle on your page, so keep the face or the shop in the middle.',
+    buttons: [...(hasPhoto ? [{ id: 'card:rmphoto', title: '🗑️ Remove photo' }] : []), { id: 'card:cancel', title: 'Cancel' }],
+  }),
+  photoNeeded: (): Outbound => ({ kind: 'buttons', text: '📸 Please send a photo (not a file or a link).', buttons: [{ id: 'card:cancel', title: 'Cancel' }] }),
+  photoFailed: (): Outbound => ({ kind: 'buttons', text: '😕 We couldn\'t use that photo. Please try another one.', buttons: [{ id: 'card:cancel', title: 'Cancel' }] }),
+  askSocial: (kind: SocialKind, current: string | null): Outbound => ({
+    kind: 'buttons',
+    text: (kind === 'website'
+      ? '🌐 Send your website or online store link.\n\nFor example: _bayokicks.com_'
+      : `${kind === 'instagram' ? '📷' : kind === 'tiktok' ? '🎵' : '👥'} Send your ${SOCIAL_NAMES[kind]} ${kind === 'facebook' ? 'page link or name' : 'username or link'}.\n\nFor example: _${kind === 'facebook' ? 'facebook.com/bayokicks' : '@bayokicks'}_`)
+      + (current ? `\n\nNow: *${current}*` : ''),
+    buttons: [...(current ? [{ id: `card:rm-${kind}`, title: '🗑️ Remove it' }] : []), { id: 'card:cancel', title: 'Cancel' }],
+  }),
+  socialRefused: (error: string, kind: SocialKind): Outbound => ({ kind: 'buttons', text: `😕 ${error}`, buttons: [{ id: `card:s-${kind}`, title: 'Try again' }, { id: 'card:cancel', title: 'Cancel' }] }),
+  pageUpdated: (what: string, url: string | null): Outbound => ({
+    kind: 'buttons',
+    text: `✅ ${what}` + (url ? `\n\n👀 See it: ${url}` : '\n\nShare your page so buyers can see it.'),
+    buttons: [{ id: 'card:edit', title: '✏️ Edit more' }, { id: 'card:share', title: url ? '🔗 Share my link' : '🔗 Share my card' }, { id: 'menu:open', title: 'Main menu' }],
   }),
   askCity: (): Outbound => ({ kind: 'buttons', text: '📍 Which city are you in?', buttons: [{ id: 'card:nocity', title: 'Skip' }] }),
   cardShared: (url: string): Outbound => withMenu(`🔗 Your page is live:\n${url}\n\nPost it on Instagram, your WhatsApp status, or send it to buyers. Anyone who taps *Buy safely* starts a protected deal with you.\n\nTip: forward the next message as it is.`),

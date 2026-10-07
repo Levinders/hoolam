@@ -1,7 +1,7 @@
-import { CirclePause, ChevronRight, Gauge, Globe, Play, Search, Users } from 'lucide-react';
+import { ArrowUpRight, CirclePause, ChevronRight, Gauge, Globe, ImageOff, Link2Off, Play, Search, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { post } from '../api';
+import { api, post } from '../api';
 import { useAuth } from '../auth';
 import { ACTIONS, ago, dateOnly, dateTime, hours, money } from '../format';
 import { useData, useDebounced } from '../hooks';
@@ -61,7 +61,7 @@ export function Person() {
   const { can } = useAuth();
   const toast = useToast();
   const { data, error, loading, reload } = useData<any>(`/people/${id}`);
-  const [open, setOpen] = useState<null | 'pause' | 'cap'>(null);
+  const [open, setOpen] = useState<null | 'pause' | 'cap' | 'photo' | { social: string; label: string }>(null);
   const [cap, setCap] = useState<string>('');
   if (error) return <div className="page"><ErrorBanner error={error} onRetry={reload} /></div>;
   if (loading || !data) return <div className="page"><Skeleton h={30} w={300} /><div className="grid side" style={{ marginTop: 20 }}><Skeleton h={300} /><Skeleton h={300} /></div></div>;
@@ -75,7 +75,9 @@ export function Person() {
       <nav className="crumbs" aria-label="Breadcrumb"><Link to="/people">Buyers & sellers</Link><ChevronRight aria-hidden="true" /><span>{name}</span></nav>
       <div className="page-head">
         <div className="row" style={{ gap: 14 }}>
-          <Avatar name={name} gold={s?.completed > 0} />
+          {s?.photoVersion
+            ? <a href={`/console/api/people/${id}/photo`} target="_blank" rel="noreferrer" className="person-photo"><img src={`/console/api/people/${id}/photo?v=${s.photoVersion}`} alt={name} /></a>
+            : <Avatar name={name} gold={s?.completed > 0} />}
           <div>
             <h1>{name}</h1>
             <p className="lede">{u.phone}{u.city ? ` · ${u.city}` : ''} · on Hoolam since {dateOnly(u.created_at)}</p>
@@ -126,6 +128,28 @@ export function Person() {
           </section>
         </div>
         <div className="stack">
+          {s && (s.photoVersion || s.socials.length > 0 || u.profile_slug) && (
+            <section className="panel">
+              <div className="panel-head"><h2>Their public page</h2>{u.profile_public ? <span className="pill green plain" style={{ marginLeft: 'auto' }}>Live</span> : <span className="pill grey plain" style={{ marginLeft: 'auto' }}>Hidden</span>}</div>
+              <div className="panel-body stack" style={{ gap: 12 }}>
+                {s.photoVersion ? (
+                  <div className="row" style={{ gap: 12 }}>
+                    <img className="page-photo" src={`/console/api/people/${id}/photo?v=${s.photoVersion}`} alt="" />
+                    <div style={{ flex: 1 }}><div className="cell-main">Photo</div><div className="cell-sub">Shown on their page and when their link is shared</div></div>
+                    {can('user.block') && <Button size="sm" variant="ghost" icon={ImageOff} onClick={() => setOpen('photo')}>Remove</Button>}
+                  </div>
+                ) : <p className="small muted">No photo yet. Sellers add one from “My trust card” on WhatsApp.</p>}
+                {s.socials.length > 0 && <div className="links">{s.socials.map((l: any) => (
+                  <div key={l.kind} className="row" style={{ gap: 10 }}>
+                    <span className={`soc-dot ${l.kind}`} aria-hidden="true" />
+                    <div style={{ flex: 1, minWidth: 0 }}><div className="cell-sub">{({ instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', website: 'Website' } as Record<string, string>)[l.kind]}</div>
+                      <a className="cell-main" href={l.url} target="_blank" rel="noopener noreferrer nofollow" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>{l.label}<ArrowUpRight style={{ width: 13, height: 13 }} /></a></div>
+                    {can('user.block') && <Button size="sm" variant="ghost" icon={Link2Off} onClick={() => setOpen({ social: l.kind, label: l.label })}>Remove</Button>}
+                  </div>
+                ))}</div>}
+              </div>
+            </section>
+          )}
           <section className="panel">
             <div className="panel-head"><h2>Limits</h2></div>
             <div className="panel-body"><dl className="kv"><dt>Largest deal</dt><dd className="money">{money(capNow ?? data.normalCapMinor)} {capNow ? <span className="pill gold plain">Custom</span> : <span className="muted small">normal limit</span>}</dd></dl></div>
@@ -156,6 +180,16 @@ export function Person() {
         description={u.blocked ? 'They can start and join deals again.' : 'They can\'t start or join deals until unpaused. Deals already paid carry on. They can still talk to the team.'}
         onClose={() => setOpen(null)}
         onConfirm={async (reason) => { await post(`/people/${id}/pause`, { paused: !u.blocked, reason }); toast({ kind: 'ok', title: u.blocked ? 'Account unpaused' : 'Account paused' }); reload(); }} />}
+      {open === 'photo' && <ConfirmAction icon={ImageOff} tone="danger" title="Remove their photo?" confirmLabel="Remove photo"
+        description="It disappears from their page and from shared links. They can add another one on WhatsApp."
+        reasonPlaceholder="e.g. Not a photo of the seller or their shop"
+        onClose={() => setOpen(null)}
+        onConfirm={async (reason) => { await api(`/people/${id}/photo`, { method: 'DELETE', body: { reason } }); toast({ kind: 'ok', title: 'Photo removed' }); reload(); }} />}
+      {open && typeof open === 'object' && <ConfirmAction icon={Link2Off} tone="danger" title={`Remove ${open.label}?`} confirmLabel="Remove link"
+        description="It disappears from their page. They can add a link again on WhatsApp."
+        reasonPlaceholder="e.g. Links to someone else's shop"
+        onClose={() => setOpen(null)}
+        onConfirm={async (reason) => { await api(`/people/${id}/social`, { method: 'PUT', body: { kind: open.social, value: null, reason } }); toast({ kind: 'ok', title: 'Link removed' }); reload(); }} />}
       {open === 'cap' && <ConfirmAction icon={Gauge} tone="gold" title="Set their deal limit" confirmLabel="Save limit"
         description={<>The most one deal can be for {name}. Leave it empty to use the normal limit ({money(data.normalCapMinor)}).</>}
         extra={<div className="field"><label htmlFor="cap">Largest deal (₦)</label><input id="cap" className="input" inputMode="numeric" placeholder="e.g. 200000" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^\d]/g, ''))} /></div>}

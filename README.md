@@ -114,6 +114,17 @@ and the bank-verified payout name. Test deals (pretend money) and self-deals nev
 - **After "I'm happy":** 👍 Great / 👎 Not great. A 👎 can add a private note (team only, in `/admin/attention`).
 - Sellers see a short buyer record on deals too: `👤 Ada · 🛍️ 12 purchases · no problems reported`.
 
+
+**Public page** (`/s/<name>`, e.g. `go.hoolam.com/s/bayo-kicks`): the seller's photo (tap to see it large), their
+Instagram, TikTok, Facebook and website, the trust card numbers, how buying safely works, and one button that starts a
+protected deal on WhatsApp. It uses the logo from Console → Settings → Brand. Sharing the link shows a card with the
+seller's photo in it (`/s/<name>/share.jpg`).
+
+Sellers set their photo and links on WhatsApp: **My trust card → Edit my page**. They can type links any way
+(`@bayokicks`, `instagram.com/bayokicks`, `bayokicks.com`); Hoolam cleans them up and refuses anything odd.
+Owners and admins can remove an unsuitable photo or link from the person's page in the console (with a reason, in the
+audit trail). Try it locally: `npx tsx scripts/trust-demo.ts`, then open `http://localhost:4300/s/bayo-kicks`.
+
 ## The WhatsApp menu
 
 People never face an empty chat:

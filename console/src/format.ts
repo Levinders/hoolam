@@ -109,6 +109,8 @@ export const ACTIONS: Record<string, string> = {
   'user.cap': 'Changed a deal limit',
   'settings.update': 'Changed settings',
   'media.upload': 'Uploaded an image',
+  'user.photo.remove': 'Removed a seller\'s photo',
+  'user.social': 'Changed a seller\'s link',
   'media.remove': 'Removed an image',
   'site.refresh': 'Refreshed the website',
   'staff.invite': 'Invited a team member',

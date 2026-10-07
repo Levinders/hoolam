@@ -17,6 +17,7 @@ import { registerConsoleStatic } from './console/static.js';
 import { StaffAuth } from './console/staff.js';
 import { audit, type Actor } from './console/audit.js';
 import { notFoundPage, sellerPage } from './public-page.js';
+import { sellerShareImage } from './share-image.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,7 +48,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   let sellForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   const chat = new Conversation({
-    db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL,
+    db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL, media,
     buyForm: () => (settings.formsEnabled() ? buyForm : null), sellForm: () => (settings.formsEnabled() ? sellForm : null),
     onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
   });
@@ -143,15 +144,44 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   });
 
   // ---------- public seller pages ----------
-  const shareImage = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'buy-banner.png'));
+  const shareImage = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'share.png'));
+  const favicon = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'site', 'assets', 'favicon.svg'));
+  app.get('/favicon.svg', async (_req, reply) => reply.type('image/svg+xml').header('cache-control', 'public, max-age=86400').send(favicon));
   app.get('/share.png', async (_req, reply) => reply.type('image/png').header('cache-control', 'public, max-age=86400').send(shareImage));
+  const base = c.PUBLIC_BASE_URL.replace(/\/+$/, '');
+  const publicSeller = async (slug: string) => {
+    const id = await trust.findSeller({ slug });
+    return id ? { id, t: await trust.seller(id) } : null;
+  };
+  // a seller's photo on their page
+  app.get('/s/:slug/photo.webp', async (req, reply) => {
+    const s = await publicSeller((req.params as { slug: string }).slug);
+    const p = s ? await trust.photo(s.id) : null;
+    if (!p) return reply.code(404).type('text/plain').send('No photo');
+    const v = (req.query as { v?: string }).v;
+    return reply.type(p.mime).header('x-content-type-options', 'nosniff')
+      .header('cache-control', v === p.version ? 'public, max-age=31536000, immutable' : 'public, max-age=300').send(p.bytes);
+  });
+  // the picture shown when a seller's link is shared (their photo in the Hoolam card)
+  app.get('/s/:slug/share.jpg', async (req, reply) => {
+    const s = await publicSeller((req.params as { slug: string }).slug);
+    if (!s?.t) return reply.redirect('/share.png');
+    const markV = siteMedia.current().mark ?? '';
+    const markFile = markV ? await siteMedia.get('mark') : null;
+    const photo = s.t.photoVersion ? await trust.photo(s.id) : null;
+    const img = await sellerShareImage(`${s.id}:${s.t.photoVersion ?? '-'}:${markV}`, photo?.bytes ?? null, markFile?.bytes ?? null);
+    return reply.type('image/jpeg').header('cache-control', 'public, max-age=3600').send(img);
+  });
   app.get('/s/:slug', async (req, reply) => {
     const { slug } = req.params as { slug: string };
     const id = await trust.findSeller({ slug });
     const t = id ? await trust.seller(id) : null;
     if (!t) return reply.code(404).type('text/html').send(notFoundPage());
     return reply.type('text/html').header('cache-control', 'public, max-age=300')
-      .send(sellerPage(t, { slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: c.PUBLIC_BASE_URL }));
+      .send(sellerPage(t, {
+        slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: base, siteUrl: c.SITE_URL ?? null,
+        logoUrl: siteMedia.url(base, 'logo'), markUrl: siteMedia.url(base, 'mark'),
+      }));
   });
 
   // ---------- WhatsApp ----------
