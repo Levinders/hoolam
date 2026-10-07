@@ -4,3 +4,4 @@ dist
 .pgdata*
 *.log
 dist-console
+dist-site

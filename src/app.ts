@@ -79,6 +79,25 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return { ok: true, provider: provider.name, whatsapp: c.WHATSAPP_DRY_RUN ? 'dry-run' : 'live', testMode };
   });
 
+  // ---------- for the landing page (a separate static site) ----------
+  // Live fees, deal limit and WhatsApp number, so the site's calculator always matches the bot.
+  app.get('/site.json', async (_req, reply) => {
+    const p = settings.pricing();
+    const unit = c.CURRENCY === 'NGN' ? 100 : 1;
+    return reply.header('access-control-allow-origin', '*').header('cache-control', 'public, max-age=120').send({
+      currency: c.CURRENCY, whatsapp: c.WHATSAPP_PUBLIC_NUMBER,
+      fees: { rate: p.ratePercent, min: p.min, max: p.max, roundTo: p.roundTo },
+      maxDeal: settings.maxDealMinor() / unit,
+    });
+  });
+  // "Chat on WhatsApp" for links that don't know the number
+  app.get('/chat', async (req, reply) => {
+    const text = String((req.query as { text?: string }).text ?? 'Hi Hoolam').slice(0, 200);
+    return reply.redirect(`https://wa.me/${c.WHATSAPP_PUBLIC_NUMBER}?text=${encodeURIComponent(text)}`);
+  });
+  // The server's own address sends visitors to the landing page, once it has one
+  app.get('/', async (_req, reply) => (c.SITE_URL ? reply.redirect(c.SITE_URL) : reply.type('text/plain').send('Hoolam is running.')));
+
   // ---------- public seller pages ----------
   const shareImage = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'buy-banner.png'));
   app.get('/share.png', async (_req, reply) => reply.type('image/png').header('cache-control', 'public, max-age=86400').send(shareImage));

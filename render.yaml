@@ -1,4 +1,5 @@
 # One-click setup on Render (render.com): New → Blueprint → pick this repo.
+# Two services: the Hoolam server (bot, console, trust pages) and the landing page (a free static site that never sleeps).
 # Free plan: the server sleeps after 15 minutes without traffic and takes about a minute to wake up.
 # Use the Starter plan once real money moves: the WhatsApp bot and the console then answer instantly.
 services:
@@ -39,5 +40,34 @@ services:
         sync: false          # WhatsApp Business Account ID: creates the buyer form and the seller alert
       - key: TRUST_COUNT_TEST_DEALS
         value: "true"        # testing with pretend money: let those deals show on trust cards. Remove for real money.
+      - key: SITE_URL
+        sync: false          # the landing page address; the server's own address (/) then sends visitors there
       - key: WHATSAPP_FORM_MODE
         value: draft         # switch to "published" once Meta has verified your business
+
+  # The landing page: plain files, served from Render's CDN. Free, never sleeps.
+  # Point your domain (yourdomain.com and www) here; the server can live at app.yourdomain.com.
+  - type: web
+    name: hoolam-site
+    runtime: static
+    buildCommand: node site/build.mjs
+    staticPublishPath: ./dist-site
+    buildFilter:
+      paths: [site/**]       # only rebuild when the landing page changes
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=604800
+    envVars:
+      - key: HOOLAM_APP_URL
+        value: https://hoolam.onrender.com   # the server: live fees and the WhatsApp number come from here
+      - key: WHATSAPP_PUBLIC_NUMBER
+        fromService: { type: web, name: hoolam, envVarKey: WHATSAPP_PUBLIC_NUMBER }
+      - key: SITE_URL
+        sync: false          # this site's address once the domain is connected, e.g. https://hoolam.ng

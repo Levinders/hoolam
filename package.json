@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit && tsc -p console/tsconfig.json",
     "chat": "tsx scripts/chat.ts",
     "monnify:check": "tsx --env-file-if-exists=.env scripts/monnify-check.ts",
+    "build:site": "node site/build.mjs",
     "build:console": "vite build --config console/vite.config.ts",
     "console:dev": "vite --config console/vite.config.ts",
     "console:demo": "tsx scripts/console-demo.ts"

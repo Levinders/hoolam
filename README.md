@@ -127,6 +127,36 @@ People never face an empty chat:
   `WHATSAPP_SYNC_MENU=false`. If Meta refuses, set them by hand in WhatsApp Manager > Automations.
 - **Welcome**: when someone opens the chat for the first time, WhatsApp tells us and we send the menu.
 
+## Landing page (`site/`)
+
+The public website. One HTML file (`site/index.html`) plus `site/assets/`, served by Render as a **Static Site**:
+free, on a CDN, and it never sleeps, so the first impression is instant even while the server is on the free plan.
+
+- **Live numbers.** The fee calculator, the limits and the "Start a deal" buttons read `GET /site.json` from the
+  Hoolam server, so a fee change in Console → Settings shows on the site within a couple of minutes. Until the server
+  answers, the page uses the numbers in `HOOLAM_SITE` at the bottom of the file.
+- **Your images.** Swap the drawings for photos in `HOOLAM_IMAGES` (bottom of the file). Put files in `site/assets/`.
+- **Still placeholders** (marked on the page): bank partner, registration and licence numbers, guarantee terms,
+  data protection registration, Terms, Privacy, company details, and the three quotes. Fill these in before you share
+  the link widely. The quotes must come from real people.
+- The original Benin version is kept in `site/drafts/benin.html` (not published).
+- Try it: `npm run build:site`, then open `dist-site/index.html`.
+
+**Put it on Render** (once):
+1. Render → **New → Static Site** → pick this repo.
+2. Build command `node site/build.mjs`, publish directory `dist-site`.
+3. Environment: `WHATSAPP_PUBLIC_NUMBER` = the same number as the server (digits only).
+   `HOOLAM_APP_URL` only if the server isn't at `https://hoolam.onrender.com`.
+4. Every push to `site/` publishes the change by itself.
+
+**When you connect your domain**
+1. Static site → Settings → Custom domains → add `yourdomain.com` (and `www`). Copy the records Render shows into
+   your domain's DNS. Render adds HTTPS for free.
+2. Optional: server → Custom domains → `app.yourdomain.com`; then set `HOOLAM_APP_URL` on the site and
+   `PUBLIC_BASE_URL` on the server to that address.
+3. Set `SITE_URL` = `https://yourdomain.com` on **both** services (link previews on WhatsApp, and the server's `/`
+   forwards there).
+
 ## Hoolam Console (the team's control room)
 
 A web app for staff at **`/console`** on the same server (`https://hoolam.onrender.com/console`). It uses the same

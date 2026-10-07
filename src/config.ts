@@ -6,6 +6,7 @@ const schema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().min(1),
+  SITE_URL: z.string().optional(),                      // the landing page (e.g. https://hoolam.ng); the server's / sends visitors there
   PUBLIC_BASE_URL: z.string().optional(),               // where public seller pages live; on Render this is filled in automatically
   RENDER_EXTERNAL_URL: z.string().optional(),
   ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
