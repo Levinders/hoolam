@@ -42,6 +42,12 @@ services:
         value: "true"        # testing with pretend money: let those deals show on trust cards. Remove for real money.
       - key: SITE_URL
         sync: false          # the landing page address; the server's own address (/) then sends visitors there
+      - key: CONSOLE_URL
+        sync: false          # https://console.hoolam.com once that domain is verified: the console only opens there
+      - key: PUBLIC_BASE_URL
+        sync: false          # https://go.hoolam.com: trust pages and deal links for buyers and sellers
+      - key: PAY_URL
+        sync: false          # https://pay.hoolam.com: short payment links (optional)
       - key: SITE_DEPLOY_HOOK
         sync: false          # the landing page's Deploy Hook URL (static site → Settings → Deploy Hook): logo, picture, fee and number changes rebuild it
       - key: WHATSAPP_FORM_MODE

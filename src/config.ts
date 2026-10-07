@@ -7,6 +7,8 @@ const schema = z.object({
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().min(1),
   SITE_URL: z.string().optional(),
+  CONSOLE_URL: z.string().optional(),                   // e.g. https://console.hoolam.com: the console only opens there
+  PAY_URL: z.string().optional(),                       // e.g. https://pay.hoolam.com: short payment links (pay.hoolam.com/HL-ABCDE)
   SITE_DEPLOY_HOOK: z.string().optional(),              // Render deploy hook of the landing page: rebuilt after logo, picture, fee or number changes                      // the landing page (e.g. https://hoolam.ng); the server's / sends visitors there
   PUBLIC_BASE_URL: z.string().optional(),               // where public seller pages live; on Render this is filled in automatically
   RENDER_EXTERNAL_URL: z.string().optional(),

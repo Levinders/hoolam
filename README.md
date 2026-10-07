@@ -161,6 +161,23 @@ free, on a CDN, and it never sleeps, so the first impression is instant even whi
 3. Set `SITE_URL` = `https://yourdomain.com` on **both** services (link previews on WhatsApp, and the server's `/`
    forwards there).
 
+## Addresses (one server, one job each)
+
+All of these point at the same Render service (**hoolam**). Add each one under Render → hoolam → Settings →
+Custom Domains when you need it, add the DNS record Render shows, then set the matching variable on **hoolam**.
+
+| Address | For | Variable on hoolam |
+|---|---|---|
+| `hoolam.com` | The website (the **hoolam-landing-page** static site, not this server) | `SITE_URL=https://hoolam.com` |
+| `console.hoolam.com` | Staff. The console only opens here; other addresses send staff to it | `CONSOLE_URL=https://console.hoolam.com` |
+| `go.hoolam.com` | Buyers and sellers: trust pages `go.hoolam.com/s/bayo-kicks`, deal links | `PUBLIC_BASE_URL=https://go.hoolam.com` |
+| `pay.hoolam.com` | Short payment links `pay.hoolam.com/HL-ABCDE` (opens WhatsApp to pay) | `PAY_URL=https://pay.hoolam.com` |
+| `shop.` / `my.hoolam.com` | Kept for later. Add them as domains any time; for now they lead to the website | — |
+
+Set `CONSOLE_URL` only after `console.hoolam.com` shows the padlock in Render, or the console will move to an
+address that doesn't work yet. Meta and Monnify can keep calling `hoolam.onrender.com`.
+On the free plan, `go.` and `pay.` links can take up to a minute to open the first time after the server sleeps.
+
 ## Hoolam Console (the team's control room)
 
 A web app for staff at **`/console`** on the same server (`https://hoolam.onrender.com/console`). It uses the same

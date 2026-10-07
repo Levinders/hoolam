@@ -40,7 +40,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const siteMedia = new SiteMedia(db);
   const siteSync = new SiteSync(c.SITE_DEPLOY_HOOK, log);
   const deals = new DealService({
-    db, provider, messenger, media, trust, settings, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(),
+    db, provider, messenger, media, trust, settings, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, log,
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
@@ -113,9 +113,32 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.redirect(`https://wa.me/${settings.waNumber()}?text=${encodeURIComponent(text)}`);
   });
   // The server's own address sends visitors to the landing page, once it has one
-  // console.<domain> opens the console straight away
+  // Each address has one job. console.<domain>: staff. Everything else (go., pay., shop., my.): buyers and sellers.
+  const consoleHost = c.CONSOLE_URL ? new URL(c.CONSOLE_URL).hostname : null;
+  const isConsoleHost = (h: string) => (consoleHost ? h === consoleHost : h.startsWith('console.'));
+  if (consoleHost) {
+    // the console only opens on its own address; elsewhere it moves there (pages) or doesn't exist (API)
+    app.addHook('onRequest', async (req, reply) => {
+      if (!req.url.startsWith('/console') || isConsoleHost(String(req.hostname ?? '').split(':')[0]!)) return;
+      if (req.url.startsWith('/console/api')) return reply.code(404).send({ error: 'Not found' });
+      return reply.redirect(`${c.CONSOLE_URL!.replace(/\/+$/, '')}${req.url}`, 301);
+    });
+  }
+  // short links for buyers and sellers: /HL-ABCDE (pay) and /v/HL-ABCDE (see a deal) open the WhatsApp chat
+  const CODE = /^HL-[A-Z2-9]{5}$/i;
+  const toChat = (text: string) => `https://wa.me/${settings.waNumber()}?text=${encodeURIComponent(text)}`;
+  app.get('/:code', async (req, reply) => {
+    const { code } = req.params as { code: string };
+    if (!CODE.test(code)) return reply.code(404).type('text/html').send(notFoundPage());
+    return reply.header('cache-control', 'no-store').redirect(toChat(`Pay ${code.toUpperCase()}`));
+  });
+  app.get('/v/:code', async (req, reply) => {
+    const { code } = req.params as { code: string };
+    if (!CODE.test(code)) return reply.code(404).type('text/html').send(notFoundPage());
+    return reply.header('cache-control', 'no-store').redirect(toChat(`View ${code.toUpperCase()}`));
+  });
   app.get('/', async (req, reply) => {
-    if (String(req.hostname ?? '').startsWith('console.')) return reply.redirect('/console/');
+    if (isConsoleHost(String(req.hostname ?? '').split(':')[0]!)) return reply.redirect('/console/');
     return c.SITE_URL ? reply.redirect(c.SITE_URL) : reply.type('text/plain').send('Hoolam is running.');
   });
 

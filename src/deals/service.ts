@@ -73,6 +73,7 @@ export interface DealServiceOptions {
   currency: Currency;
   maxDealMinor: number;
   waNumber: () => string;     // digits, for wa.me links (Console → Settings → WhatsApp)
+  payBase?: string;           // short branded payment links, e.g. https://pay.hoolam.com
   testMode?: boolean;         // fake money: allow self-deals and show a test hint
   media?: Media;              // photos in and out of WhatsApp
   trust?: Trust;              // seller and buyer records shown on deals
@@ -309,6 +310,7 @@ export class DealService {
   }
 
   payLink(code: string): string {
+    if (this.o.payBase) return `${this.o.payBase.replace(/\/+$/, '')}/${code}`;
     return `https://wa.me/${this.o.waNumber()}?text=${encodeURIComponent('Pay ' + code)}`;
   }
 
