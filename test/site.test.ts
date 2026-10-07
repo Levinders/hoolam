@@ -28,6 +28,8 @@ describe('landing page ↔ server', () => {
     expect(chat.headers.location).toBe('https://wa.me/2348012345678?text=Hi%20Hoolam');
     const root = await h.app.app.inject({ method: 'GET', url: '/' });
     expect(root.headers.location).toBe('https://hoolam.example');
+    const con = await h.app.app.inject({ method: 'GET', url: '/', headers: { host: 'console.hoolam.com' } });
+    expect(con.headers.location).toBe('/console/');
   });
 
   it('the site builds with the server address and number filled in', () => {

@@ -113,7 +113,11 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.redirect(`https://wa.me/${settings.waNumber()}?text=${encodeURIComponent(text)}`);
   });
   // The server's own address sends visitors to the landing page, once it has one
-  app.get('/', async (_req, reply) => (c.SITE_URL ? reply.redirect(c.SITE_URL) : reply.type('text/plain').send('Hoolam is running.')));
+  // console.<domain> opens the console straight away
+  app.get('/', async (req, reply) => {
+    if (String(req.hostname ?? '').startsWith('console.')) return reply.redirect('/console/');
+    return c.SITE_URL ? reply.redirect(c.SITE_URL) : reply.type('text/plain').send('Hoolam is running.');
+  });
 
   // ---------- public seller pages ----------
   const shareImage = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'buy-banner.png'));
