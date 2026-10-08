@@ -115,8 +115,9 @@ const hours = (h) => `${h} hour${+h === 1 ? '' : 's'}`;
 
 // ---------- the footer ----------
 const contactItems = [
-  contact.phone && `<li><a class="sf-row" href="tel:+${esc(contact.phone)}"><svg class="ic" aria-hidden="true"><use href="#sf-phone"/></svg><span>${esc(phoneText(contact.phone))}<small>Phone</small></span></a></li>`,
-  wa && `<li><a class="sf-row" data-wa href="${esc(waLink)}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#sf-whatsapp"/></svg><span>${esc(phoneText(wa))}<small>WhatsApp, for deals and help</small></span></a></li>`,
+  // the same number for calls and WhatsApp shows once
+  contact.phone && contact.phone !== wa && `<li><a class="sf-row" href="tel:+${esc(contact.phone)}"><svg class="ic" aria-hidden="true"><use href="#sf-phone"/></svg><span>${esc(phoneText(contact.phone))}<small>Phone</small></span></a></li>`,
+  wa && `<li><a class="sf-row" data-wa href="${esc(waLink)}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#sf-whatsapp"/></svg><span>${esc(phoneText(wa))}<small>${contact.phone === wa ? 'Phone and WhatsApp' : 'WhatsApp, for deals and help'}</small></span></a></li>`,
   contact.email && `<li><a class="sf-row" href="mailto:${esc(contact.email)}"><svg class="ic" aria-hidden="true"><use href="#sf-mail"/></svg><span>${esc(contact.email)}<small>Email</small></span></a></li>`,
   (contact.socials ?? []).length && `<li class="sf-socials" aria-label="Hoolam on social media">${contact.socials.filter((s) => /^https:\/\//.test(s.url)).map((s) =>
     `<a href="${esc(s.url)}" target="_blank" rel="noopener" aria-label="Hoolam on ${esc(s.name)}: ${esc(s.label)}"><svg class="ic" aria-hidden="true"><use href="#sf-${esc(s.kind)}"/></svg>${esc(s.label)}</a>`).join('')}</li>`,
