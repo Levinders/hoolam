@@ -590,7 +590,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const changes: Record<string, number | boolean | string> = {};
       const diff: Record<string, { from: unknown; to: unknown }> = {};
       for (let [k, v] of Object.entries(b.changes ?? {})) {
-        if (SETTING_DEFS.find((x) => x.key === k)?.type === 'phone' && typeof v === 'string') v = v.replace(/\D/g, '');
+        v = d.settings.normalize(k, v) as typeof v;
         const err = d.settings.validate(k, v);
         if (err) throw new HttpError(400, err);
         if (current[k] !== v) { changes[k] = v; diff[k] = { from: current[k], to: v }; }
@@ -600,8 +600,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       if (core.length && !can(req.staff!.role, 'settings.core')) throw new HttpError(403, 'Only an owner can change fees, limits and Hoolam\'s WhatsApp number.');
       await act(req, { action: 'settings.update', targetType: 'settings', targetId: Object.keys(changes).join(','), reason, details: { changes: diff } },
         async () => { try { await d.settings.save(db, changes, req.staff!.id); } catch (e) { throw new HttpError(400, (e as Error).message); } });
-      // the website shows fees, the deal limit and the number: refresh it
-      if (Object.keys(changes).some((k) => k.startsWith('fee_') || k === 'max_deal' || k === 'whatsapp_number')) d.siteSync.changed();
+      // the website and its legal pages show fees, limits, timings, the number and the contact details: refresh it
+      if (Object.keys(changes).some((k) => k !== 'alerts_enabled' && k !== 'forms_enabled')) d.siteSync.changed();
       return { ok: true, values: d.settings.all() };
     });
 

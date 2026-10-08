@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, BellRing, Gauge, CircleCheck, Clock, Flag, Hourglass, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, AtSign, BellRing, Building2, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { put } from '../../api';
@@ -9,7 +9,7 @@ import { Button, ConfirmAction, ErrorBanner, Skeleton, Switch, useToast } from '
 import { SectionHead, useUnsaved } from '../Settings';
 
 type Val = number | boolean | string;
-export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone'; min?: number; max?: number; core?: boolean };
+export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone' | 'email' | 'social'; min?: number; max?: number; core?: boolean; optional?: boolean; social?: string };
 interface SettingsData { currency: string; defs: Def[]; values: Record<string, Val>; defaults: Record<string, Val>; updated: Record<string, { at: string; by: string | null }>; history: any[] }
 
 /** +234 801 234 5678, +1 555 138 0045, +229 01 90 00 00 05 */
@@ -23,6 +23,7 @@ export function phoneText(raw: string): string {
 }
 export function showValue(d: Def | undefined, v: Val, currency = 'NGN'): string {
   if (!d) return String(v);
+  if (v === '' || v == null) return 'Not set';
   if (d.type === 'boolean') return v ? 'On' : 'Off';
   if (d.type === 'money') return money(Number(v) * (currency === 'NGN' ? 100 : 1), currency);
   if (d.type === 'percent') return `${v}%`;
@@ -58,7 +59,7 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
   const data = s.data;
   const lockedKeys = keys.filter((k) => !canEdit(s.def(k)));
   const lockedCore = lockedKeys.some((k) => s.def(k)?.core);
-  const invalid = s.changed.find((k) => { const d = s.def(k); const v = s.draft[k]; return d && d.type !== 'boolean' && d.type !== 'phone' && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max)); });
+  const invalid = s.changed.find((k) => { const d = s.def(k); const v = s.draft[k]; return d && !['boolean', 'phone', 'email', 'social'].includes(d.type) && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max)); });
 
   return (
     <>
@@ -85,7 +86,11 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
                 <div className="sr-control">
                   {custom ? custom(s, editable) : d.type === 'boolean'
                     ? <Switch on={!!v} onChange={(x) => editable && s.setDraft({ ...s.draft, [k]: x })} label={d.label} />
-                    : (
+                    : d.type === 'email' || d.type === 'social' ? (
+                      <input id={`f-${k}`} className="input" style={{ width: "100%", maxWidth: 440 }} type={d.type === "email" ? "email" : "text"} inputMode={d.type === 'email' ? 'email' : 'url'} autoComplete="off" spellCheck={false}
+                        disabled={!editable} value={String(v ?? '')} placeholder={d.type === 'email' ? 'hello@hoolam.com' : d.social === 'linkedin' ? 'linkedin.com/company/…' : '@username or link'}
+                        onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value })} />
+                    ) : (
                       <div className={`affix${d.type === 'money' ? ' pre' : ' post'}`}>
                         {d.type === 'money' && <span>{data.currency === 'NGN' ? '₦' : 'CFA'}</span>}
                         <input id={`f-${k}`} className="input num" type="number" inputMode="decimal" disabled={!editable}
@@ -191,6 +196,48 @@ export function TimingPage() {
               <li><span className="fl-ic red"><Flag /></span><div><b>After <em>{h('flag_after_hours')}</em></b><span>Still no answer: it shows in Needs action.</span></div></li>
               <li><span className="fl-ic green"><CircleCheck /></span><div><b>Buyer is happy</b><span>The seller is paid.</span></div></li>
             </ol>
+          </div>
+        </section>
+      );
+    }} />;
+}
+
+function PhoneField({ s, k, editable, emptyHint }: { s: Draft; k: string; editable: boolean; emptyHint: string }) {
+  const v = String(s.draft[k] ?? '');
+  const ok = /^[1-9]\d{7,14}$/.test(v);
+  return (
+    <div className="phone-field">
+      <div className="affix pre big"><span>+</span>
+        <input id={`f-${k}`} className="input num" inputMode="numeric" autoComplete="off" disabled={!editable} value={v} placeholder="2348012345678"
+          onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value.replace(/\D/g, '').slice(0, 15) })} aria-describedby={`${k}-hint`} />
+      </div>
+      <div id={`${k}-hint`} className={`small ${v && !ok ? 'err-text' : 'muted'}`}>
+        {!v ? emptyHint : ok ? <>Shows as <b>{phoneText(v)}</b></> : v.startsWith('0') ? 'Start with the country code (234 for Nigeria), not 0.' : 'That doesn\'t look like a full number yet.'}
+      </div>
+    </div>
+  );
+}
+
+const SOCIAL_KEYS = ['company_instagram', 'company_tiktok', 'company_facebook', 'company_x', 'company_youtube', 'company_linkedin'];
+
+export function ContactPage() {
+  return <ValuesPage title="Contact & socials" lede="How people reach Hoolam. These show in the footer of the website and on every legal page."
+    keys={['contact_email', 'contact_phone', ...SOCIAL_KEYS]} applies="the website refreshes in about a minute" stacked={['contact_email', 'contact_phone', ...SOCIAL_KEYS]}
+    render={{ contact_phone: (s, editable) => <PhoneField s={s} k="contact_phone" editable={editable} emptyHint="Empty: the footer shows Hoolam's WhatsApp number." /> }}
+    aside={(s) => {
+      const filled = SOCIAL_KEYS.filter((k) => String(s.draft[k] ?? '').trim());
+      const phone = String(s.draft.contact_phone || s.data!.values.whatsapp_number || '');
+      return (
+        <section className="panel">
+          <div className="panel-head"><h2>In the footer</h2></div>
+          <div className="panel-body stack" style={{ gap: 10 }}>
+            <ul className="uses">
+              <li><Building2 />HOOLAM DIGITAL PLATFORM LTD · RC 9919417<br />8, Delta Bakery Road, Woji, Rivers State</li>
+              <li><Phone />{phone ? phoneText(phone) : 'No number yet'}{!s.draft.contact_phone && phone ? ' (WhatsApp)' : ''}</li>
+              <li><Mail />{String(s.draft.contact_email || '—')}</li>
+              {filled.map((k) => <li key={k}><AtSign />{s.def(k)!.label}: {String(s.draft[k])}</li>)}
+            </ul>
+            <p className="small muted">The company name, RC number and address come from the CAC registration and are fixed in the website. Socials left empty don't show.</p>
           </div>
         </section>
       );

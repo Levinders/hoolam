@@ -1,0 +1,49 @@
+/* ---------- footer: the company, its pages and how to reach it (shared by the home page and the legal pages) ---------- */
+.sf { --sf-bg: #083E43; --sf-ink: #FAFAF7; --sf-soft: rgba(250,250,247,.74); --sf-faint: rgba(250,250,247,.56); --sf-head: #DDB65A; --sf-rule: rgba(250,250,247,.13);
+  background: var(--sf-bg); color: var(--sf-soft); padding-block: clamp(48px, 7vw, 88px) 28px; margin-top: 0; font-size: .97rem; line-height: 1.6; }
+:root[data-theme="dark"] .sf { --sf-bg: #0B100F; --sf-rule: rgba(250,250,247,.09); box-shadow: inset 0 1px 0 var(--rule); }
+.sf a { color: inherit; text-decoration: none; transition: color .2s; }
+.sf a:hover { color: var(--sf-ink); }
+.sf a:focus-visible { outline: 3px solid var(--sf-head); outline-offset: 3px; border-radius: 6px; }
+.sf .ic { width: 18px; height: 18px; flex: none; }
+.sf-grid { display: grid; gap: 44px 28px; grid-template-columns: 1fr 1fr; grid-template-areas: "brand brand" "product legal" "contact contact"; }
+.sf-brand { grid-area: brand; max-width: 470px; }
+.sf-product { grid-area: product; }
+.sf-legal { grid-area: legal; }
+.sf-contact { grid-area: contact; }
+@media (min-width: 720px) { .sf-grid { grid-template-columns: 1fr 1fr 1.25fr; grid-template-areas: "brand brand brand" "product legal contact"; } }
+@media (min-width: 1040px) { .sf-grid { grid-template-columns: 1.55fr .8fr 1fr 1.2fr; grid-template-areas: "brand product legal contact"; gap: 28px 40px; } }
+
+.sf-logo { display: inline-flex; align-items: center; gap: 12px; color: var(--sf-ink) !important; }
+.sf-logo .logo-mark { width: 42px; height: 42px; border-radius: 14px; background: #0E5C63; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); display: grid; place-items: center; overflow: hidden; }
+:root[data-theme="dark"] .sf-logo .logo-mark { background: #0E5C63; }
+.sf-logo .logo-mark svg { width: 26px; height: 26px; }
+.sf-logo .logo-mark .slot-img { position: static; width: 100%; height: 100%; object-fit: contain; }
+.sf-logo b { font: 600 1.55rem var(--font-display); letter-spacing: -0.02em; }
+.sf-brand p { margin-top: 18px; color: var(--sf-soft); font-size: 1.02rem; max-width: 42ch; }
+.sf-brand .sf-held { margin-top: 12px; font-size: .9rem; color: var(--sf-faint); }
+.sf-held a { color: var(--sf-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--sf-head) 70%, transparent); text-underline-offset: 3px; white-space: nowrap; }
+
+.sf h2 { font: 600 .74rem var(--font-body); letter-spacing: .16em; text-transform: uppercase; color: var(--sf-head); margin: 0 0 14px; line-height: 1.4; }
+.sf ul { list-style: none; margin: 0; padding: 0; }
+.sf-col li a { display: inline-flex; align-items: center; min-height: 40px; padding-block: 2px; }
+.sf address { font-style: normal; }
+.sf-row { display: flex; align-items: flex-start; gap: 12px; padding-block: 9px; }
+.sf-row .ic { margin-top: 3px; color: var(--sf-head); }
+.sf-row small { display: block; font-size: .78rem; color: var(--sf-faint); letter-spacing: .02em; }
+.sf-contact li a.sf-row { min-height: 44px; }
+.sf-contact .sf-socials { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.sf-socials a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--sf-rule); font-size: .9rem; }
+.sf-socials a:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sf-head) 60%, transparent); }
+.sf-socials .ic { width: 17px; height: 17px; color: var(--sf-head); }
+
+.sf-base { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; margin-top: clamp(40px, 6vw, 64px); padding-top: 22px; border-top: 1px solid var(--sf-rule); font-size: .86rem; color: var(--sf-faint); }
+.sf-base p { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.sf-dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .7; }
+.sf-tag { font: 500 .9rem var(--font-display); letter-spacing: .01em; color: var(--sf-head) !important; }
+@media (max-width: 560px) {
+  .sf { font-size: .95rem; }
+  .sf-base { flex-direction: column; align-items: flex-start; }
+  .sf-base .sf-dot { display: none; }
+  .sf-base p:first-child { flex-direction: column; align-items: flex-start; gap: 2px; }
+}

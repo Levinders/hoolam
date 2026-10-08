@@ -46,6 +46,48 @@ export function parseSocial(kind: SocialKind, input: string): { value: string } 
   return { value: url.toString().replace(/\/$/, '') };
 }
 
+// ---------- Hoolam's own accounts (shown in the website footer, set in Console → Settings → Contact) ----------
+export type CompanySocialKind = 'instagram' | 'tiktok' | 'facebook' | 'x' | 'youtube' | 'linkedin';
+export const COMPANY_SOCIAL_KINDS: CompanySocialKind[] = ['instagram', 'tiktok', 'facebook', 'x', 'youtube', 'linkedin'];
+export const COMPANY_SOCIAL_NAMES: Record<CompanySocialKind, string> = { instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', x: 'X', youtube: 'YouTube', linkedin: 'LinkedIn' };
+
+export function parseCompanySocial(kind: CompanySocialKind, input: string): { value: string } | { error: string } {
+  const raw = input.trim();
+  if (kind === 'instagram' || kind === 'tiktok' || kind === 'facebook') return parseSocial(kind, raw);
+  if (!raw) return { error: 'That was empty.' };
+  if (raw.length > 200 || /\s|[<>"'`\\]|javascript:|data:/i.test(raw)) return { error: 'Send just the name or the link, with no spaces.' };
+  const s = stripUrl(raw);
+  if (kind === 'x') {
+    const h = s.replace(/^(x|twitter)\.com\//i, '').replace(/^@/, '').split(/[/?#]/)[0]!;
+    if (!/^[A-Za-z0-9_]{1,15}$/.test(h)) return { error: 'That isn\'t an X username. Send it like @hoolamng.' };
+    return { value: h };
+  }
+  if (kind === 'youtube') {
+    const p = s.replace(/^youtube\.com\//i, '').split(/[?#]/)[0]!.replace(/\/$/, '');
+    const ch = p.match(/^channel\/(UC[A-Za-z0-9_-]{10,40})$/);
+    if (ch) return { value: `channel/${ch[1]}` };
+    const h = p.replace(/^@/, '');
+    if (!/^[A-Za-z0-9._-]{3,30}$/.test(h)) return { error: 'That isn\'t a YouTube channel. Send it like @hoolamng.' };
+    return { value: `@${h}` };
+  }
+  const p = s.replace(/^([a-z]{2}\.)?linkedin\.com\//i, '').split(/[?#]/)[0]!.replace(/\/$/, '');
+  const m = p.match(/^(company|in|showcase)\/([A-Za-z0-9-_%]{2,100})$/);
+  if (m) return { value: `${m[1]}/${m[2]}` };
+  if (/^[A-Za-z0-9-]{2,100}$/.test(p)) return { value: `company/${p}` };
+  return { error: 'That isn\'t a LinkedIn page. Send it like linkedin.com/company/hoolam' };
+}
+
+export function companySocialLink(kind: CompanySocialKind, value: string | null | undefined): { kind: CompanySocialKind; name: string; url: string; label: string } | null {
+  if (!value) return null;
+  const name = COMPANY_SOCIAL_NAMES[kind];
+  switch (kind) {
+    case 'x': return { kind, name, url: `https://x.com/${value}`, label: `@${value}` };
+    case 'youtube': return { kind, name, url: `https://www.youtube.com/${value}`, label: value.startsWith('@') ? value : 'YouTube' };
+    case 'linkedin': return { kind, name, url: `https://www.linkedin.com/${value}`, label: value.split('/')[1] ?? value };
+    default: { const l = socialLink(kind, value)!; return { kind, name, url: l.url, label: l.label }; }
+  }
+}
+
 export function socialLink(kind: SocialKind, value: string | null | undefined): SocialLink | null {
   if (!value) return null;
   switch (kind) {

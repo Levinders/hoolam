@@ -1,11 +1,11 @@
-import { Coins, Gauge, History, Image as ImageIcon, Lock, MessageCircle, Palette, ShieldCheck, Timer, type LucideIcon } from 'lucide-react';
+import { Coins, Contact, Gauge, History, Image as ImageIcon, Lock, MessageCircle, Palette, ShieldCheck, Timer, type LucideIcon } from 'lucide-react';
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Empty } from '../ui';
 import { BrandPage, ImagesPage } from './settings/Images';
 import { HistoryPage } from './settings/History';
-import { FeesPage, LimitsPage, TimingPage, WhatsAppPage } from './settings/Values';
+import { ContactPage, FeesPage, LimitsPage, TimingPage, WhatsAppPage } from './settings/Values';
 
 /**
  * Settings, split into small pages under one row of tabs. Owners and admins only.
@@ -16,6 +16,7 @@ export const SETTINGS_PAGES: { key: string; group: string; label: string; icon: 
   { key: 'limits', group: 'Service', label: 'Limits', icon: Gauge, edit: 'settings.core', ownerOnly: true, el: () => <LimitsPage /> },
   { key: 'timing', group: 'Service', label: 'Timing', icon: Timer, edit: 'settings.update', el: () => <TimingPage /> },
   { key: 'whatsapp', group: 'Service', label: 'WhatsApp', icon: MessageCircle, edit: 'settings.update', el: () => <WhatsAppPage /> },
+  { key: 'contact', group: 'Look', label: 'Contact', icon: Contact, edit: 'settings.update', el: () => <ContactPage /> },
   { key: 'brand', group: 'Look', label: 'Brand', icon: Palette, edit: 'brand.update', el: () => <BrandPage /> },
   { key: 'images', group: 'Look', label: 'Website images', icon: ImageIcon, edit: 'brand.update', el: () => <ImagesPage /> },
   { key: 'history', group: 'Records', label: 'History', icon: History, edit: 'settings.view', el: () => <HistoryPage /> },

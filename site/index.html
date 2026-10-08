@@ -371,6 +371,9 @@ header.open #menu-btn .bars { display: none; }
 .pillar i .ic { width: 24px; height: 24px; }
 .pillar strong { font: 600 1.1rem var(--font-display); letter-spacing: -0.01em; }
 .pillar span.s { color: var(--soft); font-size: .95rem; }
+.pl-link { margin-top: auto; display: inline-flex; align-items: center; min-height: 32px; color: var(--teal); font-weight: 600; font-size: .9rem; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--teal) 35%, transparent); text-underline-offset: 4px; }
+.pl-link:hover { text-decoration-color: currentColor; }
+.pro-ex { align-self: flex-start; font-size: .8rem; color: var(--soft); padding: 4px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule); }
 .profile { border-radius: 30px; background: var(--card); box-shadow: var(--shadow); overflow: hidden; }
 .profile .scene { border-radius: 0; aspect-ratio: 5 / 3; }
 .pro-body { padding: 20px 22px 24px; display: flex; flex-direction: column; gap: 14px; }
@@ -382,7 +385,7 @@ header.open #menu-btn .bars { display: none; }
 .pro-stats b { display: block; font: 600 1.3rem var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .pro-stats span { font-size: .74rem; color: var(--soft); }
 @media (max-width: 900px) { .trust-grid { grid-template-columns: 1fr; } .profile { max-width: 460px; } }
-@media (max-width: 520px) { .pillars { grid-template-columns: 1fr; } .pillar { flex-direction: row; flex-wrap: wrap; align-items: center; } .pillar i { width: 44px; height: 44px; } .pillar span.s { flex-basis: 100%; } }
+@media (max-width: 520px) { .pillars { grid-template-columns: 1fr; } .pillar { flex-direction: row; flex-wrap: wrap; align-items: center; } .pillar i { width: 44px; height: 44px; } .pillar span.s, .pl-link { flex-basis: 100%; } }
 
 /* ---------- VOICES ---------- */
 .voices { padding-block: 0 clamp(64px, 10vw, 130px); }
@@ -435,23 +438,16 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 .zem { display: none; }
 .zem[style*="animation-duration:15s"] { display: inline; }
 
-footer { padding-block: 30px 40px; border-top: 1px solid var(--rule); }
-.foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
-.foot nav { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; font-size: .9rem; }
-.foot nav a { color: var(--soft); text-decoration: none; }
-.foot nav a:hover { color: var(--ink); }
-.legal { margin-top: 18px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 20px; font-size: .85rem; color: var(--soft); }
+/*{{FOOTER_CSS}}*/
 
 /* phones: nothing under 12px, every tap at least 44px */
 .quick-p { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .quick-p button { min-height: 44px; padding: 0 6px; white-space: nowrap; }
 .cue { min-height: 44px; }
-.foot nav a { display: inline-flex; align-items: center; min-height: 44px; }
 .sheet a { min-height: 56px; }
 @media (max-width: 640px) {
   .party, .orbit, .pro-stats span, .ph, .tracker-s small { font-size: max(12px, .78rem) !important; }
   .msg-from, .chip, .acct { font-size: max(12.5px, .8rem); }
-  .foot nav { gap: 0 18px; }
 }
 @media (max-width: 360px) { .quick-p button { font-size: .78rem; padding: 0 2px; } .quick-p { gap: 6px; } }
 
@@ -862,10 +858,10 @@ footer { padding-block: 30px 40px; border-top: 1px solid var(--rule); }
     </div>
     <div class="trust-grid">
       <div class="pillars">
-        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-landmark"/></svg></i><strong>Kept at a bank</strong><span class="s">Separate from Hoolam’s own money.</span><span class="ph">Bank partner</span></div>
-        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-file-check"/></svg></i><strong>Registered &amp; licensed</strong><span class="s">A registered company you can look up.</span><span class="ph">Registration &amp; licence no.</span></div>
-        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-shield-check"/></svg></i><strong>Every deal protected</strong><span class="s">Paid if you deliver. Refunded if it never comes.</span><span class="ph">Guarantee terms</span></div>
-        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-lock"/></svg></i><strong>Private by default</strong><span class="s">We never sell your details.</span><span class="ph">Data protection registration</span></div>
+        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-landmark"/></svg></i><strong>Kept at a bank</strong><span class="s">Held with {{BANK_PARTNER}}, licensed by the Central Bank of Nigeria. Apart from the money Hoolam runs on.</span><a class="pl-link" href="/legal/money/">Where the money sits</a></div>
+        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-file-check"/></svg></i><strong>A registered company</strong><span class="s">{{LEGAL_NAME}}, RC {{RC}}, registered with the Corporate Affairs Commission.</span><a class="pl-link" href="https://search.cac.gov.ng/" target="_blank" rel="noopener">Look us up on CAC</a></div>
+        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-shield-check"/></svg></i><strong>Every deal protected</strong><span class="s">Paid if you deliver. Refunded in full if it never comes, our fee included.</span><a class="pl-link" href="/legal/disputes/">How refunds work</a></div>
+        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-lock"/></svg></i><strong>Private by default</strong><span class="s">We never sell your details. Your data is handled under Nigeria’s Data Protection Act.</span><a class="pl-link" href="/legal/privacy/">Privacy policy</a></div>
       </div>
       <aside class="profile rv" aria-label="What buyers see about a seller">
         <figure class="scene" data-slot="s4-1" data-alt="Mama Bella, a seller on Hoolam"><svg class="scene-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Portrait of Mama Bella, a seller on Hoolam, in her shoe shop."><defs>
@@ -883,17 +879,17 @@ footer { padding-block: 30px 40px; border-top: 1px solid var(--rule); }
           <div class="pro-name">Mama Bella Shoes</div>
           <div class="pro-meta">Seller on Hoolam · Balogun, Lagos</div>
           <div class="pro-stats"><div><b>148</b><span>safe deals</span></div><div><b>98%</b><span>happy buyers</span></div><div><b>8 mo</b><span>on Hoolam</span></div></div>
-          <span class="ph">Example seller</span>
+          <span class="pro-ex">An example of a seller’s record</span>
         </div>
       </aside>
     </div>
   </div>
 </section>
 
-<!-- VOICES -->
-<section class="voices">
+<!-- VOICES: hidden until there are real quotes from pilot users (swap them in, then remove "hidden") -->
+<section class="voices" hidden>
   <div class="wrap">
-    <div class="head rv"><div><span class="label">Traders like you</span><h2>In their own words.</h2></div><p><span class="ph">Swap in real quotes from pilot users</span></p></div>
+    <div class="head rv"><div><span class="label">Traders like you</span><h2>In their own words.</h2></div><p>Real words from traders using Hoolam.</p></div>
     <div class="v-row">
       <figure class="v c-sand rv"><blockquote>“My customers stopped asking me to send first.”</blockquote><figcaption class="v-who"><span class="av" data-slot="s5-1" data-alt=""><svg class="scene-svg" viewBox="0 0 240 240" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Seller portrait"><defs>
 <filter id="a1b2" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2"/></filter>
@@ -958,15 +954,7 @@ footer { padding-block: 30px 40px; border-top: 1px solid var(--rule); }
 </section>
 </main>
 
-<footer>
-  <div class="wrap">
-    <div class="foot">
-      <a class="logo" href="#start" aria-label="Hoolam home" data-slot="logo" data-alt="Hoolam"><span class="fb"><span class="logo-mark" data-slot="mark" data-alt=""><svg class="fb"><use href="#mark"/></svg></span><b>Hoolam</b></span></a>
-      <nav aria-label="Footer"><a href="#journey">How it works</a><a href="#pricing">Pricing</a><a href="#trust">Why trust us</a><a href="#faq">Questions</a><span class="ph">Terms</span><span class="ph">Privacy</span></nav>
-    </div>
-    <div class="legal"><span>© 2026 Hoolam · <span class="ph">Company name, registration no., address</span></span><span>Made in Cotonou</span></div>
-  </div>
-</footer>
+<!--{{FOOTER}}-->
 
 <script>
 /* ================================================================

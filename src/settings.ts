@@ -1,23 +1,26 @@
 import type { Config } from './config.js';
 import type { Db, Queryable } from './db.js';
 import { PRICING, type PricingRules } from './pricing.js';
+import { COMPANY_SOCIAL_KINDS, COMPANY_SOCIAL_NAMES, companySocialLink, parseCompanySocial, type CompanySocialKind } from './socials.js';
 
 /**
  * Settings staff can change from the console. Each has a default (from Render's environment or the code),
  * a type and limits, so a typo can't break the service. Changes apply to NEW deals only: a deal keeps
  * the fee and limits it was created with.
  */
-export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone';
+export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone' | 'email' | 'social';
 
 export interface SettingDef {
   key: string;
-  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp';
+  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact';
   label: string;
   help: string;
   type: SettingType;
   min?: number;
   max?: number;
   core?: boolean;   // owner only: money and the number people message
+  optional?: boolean; // may be left empty
+  social?: CompanySocialKind;
 }
 
 export const SETTING_DEFS: SettingDef[] = [
@@ -31,6 +34,9 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'flag_after_hours', group: 'Timing', label: 'Flag for the team after', help: 'Hours after shipping before an unconfirmed deal appears in Needs action.', type: 'hours', min: 1, max: 720 },
   { key: 'whatsapp_number', group: 'WhatsApp', label: 'Hoolam\'s WhatsApp number', help: 'The number people message. Used in every "chat with Hoolam" link: the website, seller pages and payment links. Digits only, with the country code.', type: 'phone', core: true },
   { key: 'alerts_enabled', group: 'WhatsApp', label: 'Alert the other side by number', help: 'Send "New order request" / "Payment request" when someone types the other side\'s number.', type: 'boolean' },
+  { key: 'contact_email', group: 'Contact', label: 'Email', help: 'Where people can write to Hoolam. Shown in the website footer and on the legal pages.', type: 'email' },
+  { key: 'contact_phone', group: 'Contact', label: 'Phone for calls', help: 'Optional. Leave it empty to show Hoolam\'s WhatsApp number instead.', type: 'phone', optional: true },
+  ...COMPANY_SOCIAL_KINDS.map((k): SettingDef => ({ key: `company_${k}`, group: 'Contact', label: COMPANY_SOCIAL_NAMES[k], help: `Hoolam's ${COMPANY_SOCIAL_NAMES[k]} page. Paste the link or type the username. Empty hides it.`, type: 'social', social: k, optional: true })),
   { key: 'forms_enabled', group: 'WhatsApp', label: 'WhatsApp forms', help: 'Offer the buy and sell forms (needs Meta business verification).', type: 'boolean' },
 ];
 
@@ -54,6 +60,8 @@ export class Settings {
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
       whatsapp_number: this.c.WHATSAPP_PUBLIC_NUMBER.replace(/\D/g, ''),
       alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM,
+      contact_email: 'hello@hoolam.com', contact_phone: '',
+      ...Object.fromEntries(COMPANY_SOCIAL_KINDS.map((k) => [`company_${k}`, ''])),
     };
   }
 
@@ -65,11 +73,32 @@ export class Settings {
   all(): Values { return { ...this.defaults(), ...this.values }; }
   get<T extends Value>(key: string): T { return (this.all()[key] ?? this.defaults()[key]) as T; }
 
+  /** Tidies what staff typed (spaces in numbers, full links for usernames) before it's checked. */
+  normalize(key: string, value: unknown): unknown {
+    const def = SETTING_DEFS.find((d) => d.key === key);
+    if (!def || typeof value !== 'string') return value;
+    if (def.type === 'phone') return value.replace(/\D/g, '');
+    if (def.type === 'email') return value.trim().toLowerCase();
+    if (def.type === 'social') {
+      if (!value.trim()) return '';
+      const r = parseCompanySocial(def.social!, value);
+      return 'value' in r ? r.value : value;
+    }
+    return value;
+  }
+
   /** Checks a change. Returns an error message, or null when fine. */
   validate(key: string, value: unknown): string | null {
     const def = SETTING_DEFS.find((d) => d.key === key);
     if (!def) return `Unknown setting ${key}`;
     if (def.type === 'boolean') return typeof value === 'boolean' ? null : `${def.label} must be on or off`;
+    if (def.optional && value === '') return null;
+    if (def.type === 'email') return typeof value === 'string' && /^[^\s@<>"]{1,64}@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) ? null : 'Enter a full email address, like hello@hoolam.com.';
+    if (def.type === 'social') {
+      if (typeof value !== 'string') return `${def.label} must be a link or a username`;
+      const r = parseCompanySocial(def.social!, value);
+      return 'error' in r ? r.error : null;
+    }
     if (def.type === 'phone') {
       if (typeof value !== 'string' || !/^\d{8,15}$/.test(value)) return 'Enter the full number with the country code, digits only. For example 2348012345678.';
       if (value.startsWith('0')) return 'Start with the country code (234 for Nigeria), not 0.';
@@ -107,4 +136,11 @@ export class Settings {
   alertsEnabled(): boolean { return this.get('alerts_enabled'); }
   formsEnabled(): boolean { return this.get('forms_enabled'); }
   waNumber(): string { return this.get<string>('whatsapp_number'); }
+  /** How people reach Hoolam: shown in the website footer and on the legal pages. */
+  contact(): { email: string; phone: string; whatsapp: string; socials: NonNullable<ReturnType<typeof companySocialLink>>[] } {
+    return {
+      email: this.get<string>('contact_email'), phone: this.get<string>('contact_phone'), whatsapp: this.waNumber(),
+      socials: COMPANY_SOCIAL_KINDS.map((k) => companySocialLink(k, this.get<string>(`company_${k}`))).filter((x): x is NonNullable<typeof x> => !!x),
+    };
+  }
 }

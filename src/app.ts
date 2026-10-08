@@ -93,6 +93,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       currency: c.CURRENCY, whatsapp: settings.waNumber(),
       fees: { rate: p.ratePercent, min: p.min, max: p.max, roundTo: p.roundTo },
       maxDeal: settings.maxDealMinor() / unit,
+      contact: settings.contact(),
+      timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: 72 },
       // logo and pictures set in Console → Settings: slot → { url, v }. Missing slots keep the website's drawings.
       images: Object.fromEntries(Object.entries(siteMedia.current()).map(([k, v]) => [k, { url: siteMedia.url(c.PUBLIC_BASE_URL, k), v }])),
     });

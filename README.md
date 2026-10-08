@@ -140,7 +140,7 @@ People never face an empty chat:
 
 ## Landing page (`site/`)
 
-The public website. One HTML file (`site/index.html`) plus `site/assets/`, served by Render as a **Static Site**:
+The public website: the home page (`site/index.html`), the legal pages (`site/legal/`) and `site/assets/`, served by Render as a **Static Site**:
 free, on a CDN, and it never sleeps, so the first impression is instant even while the server is on the free plan.
 
 - **Run from the console.** Fees, the deal limit, the WhatsApp number, the logo and every picture are set in
@@ -149,9 +149,18 @@ free, on a CDN, and it never sleeps, so the first impression is instant even whi
 - **Images by position, not by name.** Spots are numbered top to bottom (Section 1 · Image 1 …, Section 3 · Step 4,
   Section 5 · Person 2), so the words on the page can change without renaming anything. Step 2 always shows the logo
   icon. A spot with no upload keeps its drawing.
-- **Still placeholders** (marked on the page): bank partner, registration and licence numbers, guarantee terms,
-  data protection registration, Terms, Privacy, company details, and the three quotes. Fill these in before you share
-  the link widely. The quotes must come from real people.
+- **Legal pages** at `/legal/`: Terms of service, Privacy policy (NDPA 2023), Holding agreement, If something goes
+  wrong, Acceptable use, Where the money sits, Cookies, Delete your data. Each is a fragment in `site/legal/<page>.html`
+  wrapped in `site/legal/_layout.html`; fees, limits and timings are filled in from the console at build time, so the
+  pages always match what the bot charges. Change `LEGAL_EFFECTIVE` in `site/build.mjs` whenever their wording changes.
+- **The company** (`COMPANY` in `site/build.mjs`): HOOLAM DIGITAL PLATFORM LTD, RC 9919417, and the registered address,
+  exactly as on the CAC certificate. Meta's business verification checks the website against these.
+- **Footer** (`site/partials/footer.*`), shared by every page. Email, phone and social links come from
+  Console → Settings → Contact; a social left empty doesn't show.
+- **For Meta** (WhatsApp app → App settings → Basic): Privacy policy URL `https://hoolam.com/legal/privacy/`,
+  Terms of service URL `https://hoolam.com/legal/terms/`, User data deletion → instructions URL
+  `https://hoolam.com/legal/delete-your-data/`.
+- **The quotes section is hidden** (`<section class="voices" hidden>`) until there are real quotes from pilot users.
 - The original Benin version is kept in `site/drafts/benin.html` (not published).
 - Try it: `npm run build:site`, then open `dist-site/index.html`.
 
