@@ -260,7 +260,17 @@ async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label
       o.log?.(`${label} FAILED: ${name} has ${errs.length} problem(s): ${errs.map((e) => e.message).join(' | ').slice(0, 600)}`);
       return null;
     }
-    o.log?.(`${label} ready: ${name} (${existing.status}, sending as ${o.formMode})`);
+    // switched to published after the form was first made as a draft: publish it now (published forms can't change, so this is one-way)
+    if (o.formMode === 'published' && existing.status === 'DRAFT') {
+      const pub = await graph(o, 'POST', `${existing.id}/publish`);
+      if (!pub.ok) {
+        // a draft form only opens for testers, so people answer in the chat instead until it's published
+        o.log?.(`${label}: couldn't publish ${name} (HTTP ${pub.status}): ${pub.text}. People answer in the chat until it's fixed.`);
+        return null;
+      }
+      o.log?.(`${label} published: ${name}`);
+    }
+    o.log?.(`${label} ready: ${name} (${o.formMode === 'published' ? 'PUBLISHED' : existing.status}, sending as ${o.formMode})`);
     return existing.id;
   }
   const created = await graph(o, 'POST', `${o.wabaId}/flows`, {

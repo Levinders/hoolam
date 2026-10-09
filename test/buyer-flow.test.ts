@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startHarness, type Harness } from '../scripts/harness.js';
 import { ensureBuyFlow, ensureSellerAlertTemplate, SELLER_ALERT } from '../src/whatsapp/automation.js';
-import { buyFlowJson, buyFlowName, readBuyForm } from '../src/whatsapp/buy-flow.js';
+import { buyFlowJson, buyFlowName, readBuyForm, sellFlowJson } from '../src/whatsapp/buy-flow.js';
 import { Messenger, checkLimits } from '../src/whatsapp/client.js';
 import { msg } from '../src/whatsapp/messages.js';
 
@@ -327,11 +327,19 @@ describe('Meta setup', () => {
     expect(log[0]).toMatch(/buyer form FAILED: Meta found 1 problem/);
   });
 
-  it('the price field and the next screen agree on its type (number)', () => {
-    const json = buyFlowJson('aGVsbG8=') as any;
-    const price = json.screens[0].layout.children[1].children.find((c: any) => c.name === 'price');
-    expect(price['input-type']).toBe('number');
-    expect(json.screens[1].data.price.type).toBe('number');
+  it('the price is text on both screens (a number field reaches the next screen as text and breaks the form)', () => {
+    for (const json of [buyFlowJson('aGVsbG8='), sellFlowJson('aGVsbG8=')] as any[]) {
+      const price = json.screens[0].layout.children[1].children.find((c: any) => c.name === 'price');
+      expect(price['input-type']).toBe('text');
+      expect(json.screens[1].data.price.type).toBe('string');
+    }
+    expect(readBuyForm({ item: 'Shoes', price: '15k' }).price).toBe('15k');
+  });
+
+  it('publishes a draft form when the server is set to published', async () => {
+    const { f, calls } = fakeMeta({ flows: [{ id: 'flow-9', name: buyFlowName(), status: 'DRAFT' }], templates: [] });
+    expect(await ensureBuyFlow({ ...base, formMode: 'published', fetchImpl: f })).toBe('flow-9');
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/flow-9/publish'))).toBe(true);
   });
 
   it('reuses what already exists', async () => {

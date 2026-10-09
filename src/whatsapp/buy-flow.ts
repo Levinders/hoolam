@@ -24,20 +24,22 @@ function dealFlowJson(kind: Kind, bannerBase64: string) {
     ? [
         { type: 'TextSubheading', text: 'What are you buying?' },
         { type: 'TextInput', name: 'item', label: 'Item', 'input-type': 'text', required: true, 'max-chars': 150, 'helper-text': 'e.g. Black sneakers, size 42' },
-        { type: 'TextInput', name: 'price', label: 'Agreed price (₦)', 'input-type': 'number', required: true, 'helper-text': 'What you and the seller agreed' },
+        { type: 'TextInput', name: 'price', label: 'Agreed price (₦)', 'input-type': 'text', required: true, 'max-chars': 20, 'helper-text': 'e.g. 15000 or 15k' },
         { type: 'TextInput', name: 'other_phone', label: 'Seller\'s WhatsApp', 'input-type': 'phone', required: false, 'helper-text': 'Optional. We\'ll alert them' },
         { type: 'DatePicker', name: 'arrive_by', label: 'When should it arrive? (optional)', required: false },
       ]
     : [
         { type: 'TextSubheading', text: 'What are you selling?' },
         { type: 'TextInput', name: 'item', label: 'Item', 'input-type': 'text', required: true, 'max-chars': 150, 'helper-text': 'e.g. Black sneakers, size 42' },
-        { type: 'TextInput', name: 'price', label: 'Price (₦)', 'input-type': 'number', required: true, 'helper-text': 'What the buyer will pay' },
+        { type: 'TextInput', name: 'price', label: 'Price (₦)', 'input-type': 'text', required: true, 'max-chars': 20, 'helper-text': 'e.g. 15000 or 15k' },
         { type: 'TextInput', name: 'other_phone', label: 'Buyer\'s WhatsApp', 'input-type': 'phone', required: false, 'helper-text': 'Optional. We\'ll alert them' },
       ];
   const carried: Record<string, string> = { item: '${form.item}', price: '${form.price}', other_phone: '${form.other_phone}', ...(buy ? { arrive_by: '${form.arrive_by}' } : {}) };
   const data: Record<string, unknown> = {
     item: { type: 'string', __example__: 'Black sneakers, size 42' },
-    price: { type: 'number', __example__: 15000 },
+    // text, not a number field: WhatsApp hands a number field to the next screen as text on some phones and the form
+    // then stops with "should be of type number". Text also lets people type 15k or 15,000; the server reads all of them.
+    price: { type: 'string', __example__: '15000' },
     other_phone: { type: 'string', __example__: '08012345678' },
     ...(buy ? { arrive_by: { type: 'string', __example__: '2026-10-09' } } : {}),
   };

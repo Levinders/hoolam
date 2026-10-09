@@ -195,7 +195,7 @@ describe('pieces', () => {
     const fields = json.screens[0].layout.children[1].children;
     for (const c of fields) if (c.type === 'TextInput') { expect(c.label.length).toBeLessThanOrEqual(20); expect((c['helper-text'] ?? '').length).toBeLessThanOrEqual(30); }
     expect(fields.some((c: any) => c.type === 'DatePicker')).toBe(false);
-    expect(json.screens[1].data.price.type).toBe('number');
+    expect(json.screens[1].data.price.type).toBe('string');
     expect(sellFlowName(json)).toMatch(/^hoolam_sell_/);
   });
 
