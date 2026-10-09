@@ -72,7 +72,8 @@ payouts wait in `PAYOUT_PENDING` and you approve them with `POST /admin/payouts/
    Hoolam sends a pre-approved **utility template** instead (`src/whatsapp/automation.ts`: `SELLER_ALERT`, `BUYER_ALERT`, `DEAL_TEMPLATES`).
    The server submits all 12 to Meta on start (needs `WHATSAPP_WABA_ID`), checks every 10 minutes until they're approved, and
    uses each one as soon as it is. Console → Settings → WhatsApp shows each template and its status. Until one is approved,
-   that update is kept as `NEEDS_TEMPLATE` and shows in Needs action. Templates also need a **payment method** on the
+   that update is kept as `NEEDS_TEMPLATE` and shows in Needs action. A reworded template gets a new name and lists the
+   old one in `replaces`: while Meta reviews the new wording, the old approved version keeps going out, so nothing stops. Templates also need a **payment method** on the
    WhatsApp Business account (Meta → WhatsApp Manager / Billing).
 
 ## Buyer starts the deal
@@ -81,7 +82,7 @@ A buyer describes what they're buying (item, agreed price, up to 3 photos, the s
 arrival date) in a **WhatsApp form**, or answers the same questions in the chat. Hoolam then:
 
 1. Saves the deal as `AWAITING_SELLER`, with the photos kept as proof of what was promised.
-2. Alerts the seller once with the approved template `hoolam_order_request` (**View deal** / **Not me**), and gives the
+2. Alerts the seller once with the approved template `hoolam_new_order_request` (**View order** / **Not me**), and gives the
    buyer a `View HL-…` link to forward too. "Not me" numbers are never alerted again (`contact_optouts`).
 3. The seller sees the photos and taps **Accept** (adds a bank account if needed) or **Decline**.
 4. The buyer is asked to pay. From there it's the normal deal. Unanswered deals expire after `SELLER_ACCEPT_HOURS` (48).
@@ -96,7 +97,7 @@ Form: `src/whatsapp/buy-flow.ts` (banner: `assets/buy-banner.png`). Template wor
 the price minus the fee. A buyer's deal: the buyer pays price + fee, the seller receives the full price.
 
 1. The seller gives the item, price, up to 3 photos and (optionally) the buyer's WhatsApp, in the seller form or the chat.
-2. The buyer is alerted once with the template `hoolam_payment_request` (**View deal** / **Not me**); the seller also gets
+2. The buyer is alerted once with the template `hoolam_order_payment_request` (**View order** / **Not me**); the seller also gets
    a `Pay HL-…` link to forward. The buyer sees the photos, then **Pay now**.
 3. On a buyer's deal the seller can **✏️ Change price**: the buyer gets the new total and accepts or cancels.
 4. After **I've sent it**, the seller can send a photo or a tracking note as proof of shipping. The buyer sees it; it's
@@ -130,16 +131,31 @@ audit trail). Try it locally: `npx tsx scripts/trust-demo.ts`, then open `http:/
 
 ## The WhatsApp menu
 
-People never face an empty chat:
+People see **orders**, never "deals" (the code and database still say `deal`). There are two menus:
 
-- **Main menu**: "hi", "menu", any unknown text, or the **Main menu** button under finished steps shows a list
-  behind an **Open menu** button. Edit the options in `MENU` at the top of `src/whatsapp/messages.ts`
-  (10 options max, title up to 24 characters, description up to 72), then handle a new option in
-  `openMenuItem` in `src/whatsapp/flow.ts`.
+| Buying (everyone starts here) | Selling (after the seller setup) |
+|---|---|
+| 🛒 Buy something | 🏷️ Sell something |
+| 🔑 I have an order code | 📋 My orders (what they sold) |
+| 📋 My orders (what they bought) | 🛡️ My trust card |
+| 🔍 Check a seller | 🏦 Payout account |
+| **Help:** Report a problem · How it works · Talk to a rep · Switch to selling | **Help:** Report a problem · How it works · Talk to a rep · Switch to buying |
+
+- **Which menu**: `users.menu_mode`, shown only once `users.seller_since` is set. It follows what they last did: paying
+  with a code, starting a buy or tapping a buyer alert puts them on buying; selling or accepting an order puts them on
+  selling. **Switch to …** (or `/switch`) moves between them at any time.
+- **Becoming a seller** (once): "Sell something", "Switch to selling" or "My trust card" asks for a shop name (or
+  **Use this name**: the WhatsApp name) and a city (**Skip** works). That sets `seller_since` and creates the trust
+  card. Someone who accepts a buyer's order becomes a seller straight away, with no questions.
+- **Report a problem**: a buyer picks a paid order and the money freezes. A seller picks an open order and writes to a
+  rep; it lands in Support tagged `[Order HL-…]` and freezes nothing.
+- **Welcome**: a brand-new chat gets the story in four lines and three buttons: **I'm buying** (buying menu),
+  **I'm selling** (setup, then straight into the first sale) and **How it works**.
+- **Editing**: `BUYER_MENU` and `SELLER_MENU` at the top of `src/whatsapp/messages.ts` (10 rows max, title up to 24
+  characters, description up to 72); handle a new option in `openMenuItem` in `src/whatsapp/flow.ts`.
 - **Ice breakers** (4 suggestions in a brand-new chat) and **`/` commands**: in `src/whatsapp/automation.ts`.
   They're sent to Meta every time the server starts (log line `whatsapp menu sync OK`). Turn that off with
   `WHATSAPP_SYNC_MENU=false`. If Meta refuses, set them by hand in WhatsApp Manager > Automations.
-- **Welcome**: when someone opens the chat for the first time, WhatsApp tells us and we send the menu.
 
 ## Landing page (`site/`)
 
@@ -207,7 +223,7 @@ A web app for staff at **`/console`** on the same server (`https://hoolam.onrend
 database, so there's nothing extra to host.
 
 **What's in it**
-- **Needs action**: problems, payouts waiting for an OTP, failed payouts, short payments, "Talk to a person" messages,
+- **Needs action**: problems, payouts waiting for an OTP, failed payouts, short payments, "Talk to a rep" messages,
   deals shipped but not confirmed, 👎 ratings, deals about to close. Most urgent first.
 - **Deals**: search and filter every deal; open one to see its timeline, WhatsApp messages, money and photos.
   Release, refund, cancel, give the seller more time, message the buyer or seller, add internal notes.
@@ -263,9 +279,9 @@ All need `Authorization: Bearer <ADMIN_TOKEN>`.
 | `POST /admin/payouts/:ref/retry` | Retry a failed payout (never pays twice) |
 | `GET /admin/messages?status=FAILED` | What Hoolam tried to send, and WhatsApp's error if it failed |
 | `GET /admin/ledger/balances` | Totals per ledger account |
-| `GET /admin/support` | Messages from "Talk to a person" (add `?status=CLOSED` for old ones) |
+| `GET /admin/support` | Messages from "Talk to a rep" (add `?status=CLOSED` for old ones) |
 | `POST /admin/messages/send` `{"phone":"+234…","text":"…"}` | Reply to someone as Hoolam (within 24 hours of their last message) |
-| `POST /admin/support/:id/close` | Mark a "Talk to a person" message as handled |
+| `POST /admin/support/:id/close` | Mark a "Talk to a rep" message as handled |
 | `POST /admin/whatsapp/sync-menu` | Re-send the ice breakers and `/` commands to Meta |
 
 ## How it's built

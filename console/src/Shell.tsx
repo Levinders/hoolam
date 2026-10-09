@@ -39,8 +39,8 @@ export function Shell({ children }: { children: ReactNode }) {
           : <div className="brand"><Logo /><div><b>Hoolam</b><span>Console</span></div></div>}
         <nav className="nav">
           {item('/', 'Needs action', Inbox, c?.inbox)}
-          <div className="nav-group">Deals</div>
-          {item('/deals', 'Deals', Handshake)}
+          <div className="nav-group">Orders</div>
+          {item('/deals', 'Orders', Handshake)}
           {item('/disputes', 'Disputes', Scale, c?.disputes)}
           {item('/money', 'Money', Landmark)}
           <div className="nav-group">People</div>
@@ -63,7 +63,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <header className="topbar">
           <button className="icon-btn menu-btn" aria-label="Open menu" onClick={() => setMenu(true)}><Menu /></button>
           <button className="search-trigger" onClick={() => setPalette(true)}>
-            <Search aria-hidden="true" /><span>Search deals, people, codes…</span><span className="kbd">⌘K</span>
+            <Search aria-hidden="true" /><span>Search orders, people, codes…</span><span className="kbd">⌘K</span>
           </button>
         </header>
         <main key={loc.pathname.split('/')[1]}>{children}</main>

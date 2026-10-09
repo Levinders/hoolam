@@ -25,9 +25,9 @@ export function Insights() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Insights</h1><p className="lede">How Hoolam is doing: money moving through, where deals stall, and who your best sellers are.</p></div>
+        <div><h1>Insights</h1><p className="lede">How Hoolam is doing: money moving through, where orders stall, and who your best sellers are.</p></div>
         <div className="actions">
-          <label className="check"><Switch on={test} onChange={setTest} label="Include test deals" />Include test deals</label>
+          <label className="check"><Switch on={test} onChange={setTest} label="Include test orders" />Include test orders</label>
           <Seg value={days} onChange={setDays} options={[{ value: '7', label: '7 days' }, { value: '30', label: '30 days' }, { value: '90', label: '90 days' }]} />
         </div>
       </div>
@@ -38,8 +38,8 @@ export function Insights() {
           <div className="kpis">
             {kpi('Money traded', money(data.kpis.gmv, cur), data.kpis.gmv, data.previous.gmv)}
             {kpi('Fees earned', money(data.kpis.fees, cur), data.kpis.fees, data.previous.fees)}
-            {kpi('Deals completed', String(data.kpis.completed), data.kpis.completed, data.previous.completed)}
-            {kpi('Sellers with paid deals', String(data.kpis.sellers), data.kpis.sellers, data.previous.sellers)}
+            {kpi('Orders completed', String(data.kpis.completed), data.kpis.completed, data.previous.completed)}
+            {kpi('Sellers with paid orders', String(data.kpis.sellers), data.kpis.sellers, data.previous.sellers)}
           </div>
 
           <div className="grid two">
@@ -48,16 +48,16 @@ export function Insights() {
               <div className="panel-body"><AreaChart data={data.series} value={(d) => d.gmv} format={(n) => moneyShort(n, cur)} label="Money traded per day" /></div>
             </section>
             <section className="panel">
-              <div className="panel-head"><h2>Deals paid per day</h2><span className="muted small" style={{ marginLeft: 'auto' }}>{data.kpis.created} started in total</span></div>
-              <div className="panel-body"><BarChart data={data.series} value={(d) => d.paid} format={(n) => String(Math.round(n))} label="Deals paid per day" /></div>
+              <div className="panel-head"><h2>Orders paid per day</h2><span className="muted small" style={{ marginLeft: 'auto' }}>{data.kpis.created} started in total</span></div>
+              <div className="panel-body"><BarChart data={data.series} value={(d) => d.paid} format={(n) => String(Math.round(n))} label="Orders paid per day" /></div>
             </section>
           </div>
 
           <div className="grid side">
             <section className="panel">
-              <div className="panel-head"><h2>Where deals stall</h2><span className="muted small" style={{ marginLeft: 'auto' }}>Deals started in the last {days} days</span></div>
+              <div className="panel-head"><h2>Where orders stall</h2><span className="muted small" style={{ marginLeft: 'auto' }}>Orders started in the last {days} days</span></div>
               <div className="panel-body">
-                {!data.funnel.created ? <Empty icon={ChartColumn} title="No deals in this period" /> : (
+                {!data.funnel.created ? <Empty icon={ChartColumn} title="No orders in this period" /> : (
                   <div className="funnel">
                     {[['Started', data.funnel.created], ['Both sides in', data.funnel.matched], ['Paid', data.funnel.paid], ['Shipped', data.funnel.shipped], ['Completed', data.funnel.completed]].map(([label, n], i, arr) => (
                       <div className="funnel-row" key={label as string}>
@@ -81,20 +81,20 @@ export function Insights() {
                 </dl>
                 <hr className="sep" />
                 <dl className="kv">
-                  <dt>Disputes</dt><dd>{data.disputes.opened} opened · {pct(data.disputes.opened, Math.max(1, data.kpis.paid))}% of paid deals</dd>
+                  <dt>Disputes</dt><dd>{data.disputes.opened} opened · {pct(data.disputes.opened, Math.max(1, data.kpis.paid))}% of paid orders</dd>
                   <dt>Outcomes</dt><dd>{data.disputes.refunded} refunded · {data.disputes.released} seller paid</dd>
                   <dt>Buyers happy</dt><dd>{data.ratings.rated ? `${pct(data.ratings.happy, data.ratings.rated)}% of ${data.ratings.rated} ratings` : 'No ratings yet'}</dd>
                   <dt>Repeat buyers</dt><dd>{data.repeatBuyers}</dd>
-                  <dt>Who starts deals</dt><dd>{(() => { const s = data.startedBy.SELLER ?? 0, b = data.startedBy.BUYER ?? 0; return `${s} by seller${s === 1 ? '' : 's'} · ${b} by buyer${b === 1 ? '' : 's'}`; })()}</dd>
+                  <dt>Who starts orders</dt><dd>{(() => { const s = data.startedBy.SELLER ?? 0, b = data.startedBy.BUYER ?? 0; return `${s} by seller${s === 1 ? '' : 's'} · ${b} by buyer${b === 1 ? '' : 's'}`; })()}</dd>
                 </dl>
               </div>
             </section>
           </div>
 
           <section className="panel">
-            <div className="panel-head"><h2>Top sellers</h2><span className="muted small" style={{ marginLeft: 'auto' }}>By completed deals, last {days} days</span></div>
-            {!data.topSellers.length ? <Empty icon={ChartColumn} title="No completed deals yet" /> : (
-              <div className="table-wrap"><table className="t"><thead><tr><th>Seller</th><th className="r">Completed deals</th><th className="r">Money traded</th><th className="r">Buyers happy</th></tr></thead>
+            <div className="panel-head"><h2>Top sellers</h2><span className="muted small" style={{ marginLeft: 'auto' }}>By completed orders, last {days} days</span></div>
+            {!data.topSellers.length ? <Empty icon={ChartColumn} title="No completed orders yet" /> : (
+              <div className="table-wrap"><table className="t"><thead><tr><th>Seller</th><th className="r">Completed orders</th><th className="r">Money traded</th><th className="r">Buyers happy</th></tr></thead>
                 <tbody>{data.topSellers.map((s: any) => (
                   <tr key={s.id}><td><Link to={`/people/${s.id}`} className="cell-main">{s.name}</Link></td><td className="r num">{s.deals}</td><td className="r money">{money(s.gmv, cur)}</td><td className="r">{s.rated ? `${pct(s.happy, s.rated)}%` : <span className="faint">—</span>}</td></tr>
                 ))}</tbody></table></div>

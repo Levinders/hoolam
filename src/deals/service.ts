@@ -779,7 +779,7 @@ export class DealService {
   async adminCancel(code: string, note: string): Promise<void> {
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
-      if (!['AWAITING_SELLER', 'AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(deal.status)) throw new DealError('NOT_ALLOWED', 'Only deals that haven\'t been paid can be cancelled. Use Refund for paid deals.');
+      if (!['AWAITING_SELLER', 'AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(deal.status)) throw new DealError('NOT_ALLOWED', 'Only orders that haven\'t been paid can be cancelled. Use Refund for paid orders.');
       const paid = await tx.query(`SELECT 1 FROM payment_intents WHERE deal_id=$1 AND status IN ('PAID','PARTIAL')`, [deal.id]);
       if (paid.rowCount) throw new DealError('NOT_ALLOWED', 'Money has arrived on this deal. Use Refund instead.');
       await this.move(tx, deal, 'CANCELLED', 'admin', note);
@@ -795,7 +795,7 @@ export class DealService {
     const r = await this.o.db.query(
       `UPDATE deals SET accept_by = GREATEST(COALESCE(accept_by, now()), now()) + make_interval(hours => $2), updated_at=now()
        WHERE code=$1 AND status='AWAITING_SELLER' RETURNING accept_by`, [code.toUpperCase(), hours]);
-    if (!r.rows[0]) throw new DealError('NOT_ALLOWED', 'Only deals waiting for a seller can be extended.');
+    if (!r.rows[0]) throw new DealError('NOT_ALLOWED', 'Only orders waiting for a seller can be extended.');
     return r.rows[0].accept_by;
   }
 
@@ -804,7 +804,7 @@ export class DealService {
     const deal = await this.findByCode(code);
     if (!deal) throw new DealError('NOT_FOUND');
     const id = who === 'buyer' ? deal.buyer_id : deal.seller_id ?? deal.counter_seller_id;
-    if (!id) throw new DealError('NOT_ALLOWED', `This deal has no ${who} yet.`);
+    if (!id) throw new DealError('NOT_ALLOWED', `This order has no ${who} yet.`);
     const u = await this.userById(this.o.db, id);
     return this.o.messenger.send(u.phone, msg.fromTeam(text));
   }

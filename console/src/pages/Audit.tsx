@@ -6,7 +6,7 @@ import { useData, useDebounced } from '../hooks';
 import { Empty, ErrorBanner, Pager, SkeletonRows, Switch } from '../ui';
 
 const GROUPS = [
-  { value: '', label: 'Every action' }, { value: 'deal.', label: 'Deals' }, { value: 'payout.', label: 'Payouts' }, { value: 'settings.', label: 'Settings' }, { value: 'media.', label: 'Images' },
+  { value: '', label: 'Every action' }, { value: 'deal.', label: 'Orders' }, { value: 'payout.', label: 'Payouts' }, { value: 'settings.', label: 'Settings' }, { value: 'media.', label: 'Images' },
   { value: 'user.', label: 'People' }, { value: 'support.', label: 'Support' }, { value: 'staff.', label: 'Team' }, { value: 'money.', label: 'Exports' }, { value: 'auth.', label: 'Sign-ins' },
 ];
 

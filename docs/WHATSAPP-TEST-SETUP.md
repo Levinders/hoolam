@@ -86,7 +86,7 @@ Try **Problem** instead of I'm happy to test the dispute flow.
 
 **Try it** (phone A = buyer, phone B = seller)
 1. A: **hi** → **Open menu** → **🛒 Buy something** → fill the form (or answer in the chat) → put phone B's number as the seller → **📨 Send to seller**.
-2. B gets "🛒 New order request" → **View deal** → photos + details → **✅ Accept** → bank account → **Yes, that's me**.
+2. B gets "🛒 New order request" → **View order** → photos + details → **✅ Accept** → bank account → **Yes, that's me**.
 3. A gets "🎉 … accepted your deal!" → **💳 Pay now** → reply **paid** (test mode) → the rest is the normal deal.
 
 Also try: **✕ Decline**, **🚫 Not me** (that number is never alerted again), or no seller number (A forwards the link to B).
@@ -95,8 +95,8 @@ Also try: **✕ Decline**, **🚫 Not me** (that number is never alerted again),
 
 1. B (seller): **hi** → **Open menu** → **🏷️ Sell something** → item → price → a photo → **Done** → A's number (**+229…**) →
    **✅ Create deal**. The summary shows "You receive" (the seller pays the fee on deals they start).
-2. A (buyer) gets "💳 Payment request" (once Meta approves `hoolam_payment_request`), or B forwards the link →
-   **View deal** → photos → **💳 Pay now** → reply **paid**.
+2. A (buyer) gets "💳 Payment request" (once Meta approves `hoolam_order_payment_request`), or B forwards the link →
+   **View order** → photos → **💳 Pay now** → reply **paid**.
 3. B taps **I've sent it**, then sends a photo of the package or a tracking number. A sees it.
 4. A taps **I'm happy**. B gets "You've been paid".
 

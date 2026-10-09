@@ -24,7 +24,7 @@ export function Deal() {
     if (!data) return [];
     const ev = data.events.map((e: any) => ({
       at: e.created_at, kind: e.to_status === 'DISPUTED' ? 'bad' : 'event',
-      what: e.from_status ? `${STATUS[e.from_status]?.label ?? e.from_status} → ${STATUS[e.to_status]?.label ?? e.to_status}` : `Deal created: ${STATUS[e.to_status]?.label ?? e.to_status}`,
+      what: e.from_status ? `${STATUS[e.from_status]?.label ?? e.from_status} → ${STATUS[e.to_status]?.label ?? e.to_status}` : `Order created: ${STATUS[e.to_status]?.label ?? e.to_status}`,
       who: ACTOR[e.actor] ?? e.actor, why: e.note && !String(e.note).startsWith('NEEDS_ATTENTION') ? e.note : null,
       flag: e.note && String(e.note).startsWith('NEEDS_ATTENTION') ? String(e.note).replace(/^NEEDS_ATTENTION:\s*/, '').replace(/\b(payment|by|of) (\d+)\b/g, (_m: string, w: string, n: string) => `${w} ${money(Number(n), data.deal.currency)}`) : null,
     }));
@@ -63,7 +63,7 @@ export function Deal() {
 
   return (
     <div className="page">
-      <nav className="crumbs" aria-label="Breadcrumb"><Link to="/deals">Deals</Link><ChevronRight aria-hidden="true" /><span>{d.code}</span></nav>
+      <nav className="crumbs" aria-label="Breadcrumb"><Link to="/deals">Orders</Link><ChevronRight aria-hidden="true" /><span>{d.code}</span></nav>
       <div className="page-head">
         <div className="deal-hero">
           <div>
@@ -77,7 +77,7 @@ export function Deal() {
         <div className="actions">
           {(allowed.messageBuyer || allowed.messageSeller) && can('deal.message') && <Button icon={MessageSquare} onClick={() => setOpen('message')}>Message</Button>}
           {allowed.extend && can('deal.extend') && <Button icon={TimerReset} onClick={() => setOpen('extend')}>Give seller more time</Button>}
-          {allowed.cancel && can('deal.cancel') && <Button icon={Ban} variant="danger" onClick={() => setOpen('cancel')}>Cancel deal</Button>}
+          {allowed.cancel && can('deal.cancel') && <Button icon={Ban} variant="danger" onClick={() => setOpen('cancel')}>Cancel order</Button>}
           {allowed.refund && can('deal.refund') && <Button icon={Undo2} variant="danger" onClick={() => setOpen('refund')}>Refund buyer</Button>}
           {allowed.release && can('deal.release') && <Button icon={Check} variant="primary" onClick={() => setOpen('release')}>Release to seller</Button>}
         </div>
@@ -148,7 +148,7 @@ export function Deal() {
                 </>
               )}
               {tab === 'messages' && (
-                data.messages.length === 0 ? <Empty icon={MessageSquare} title="No messages about this deal yet" /> : (
+                data.messages.length === 0 ? <Empty icon={MessageSquare} title="No messages about this order yet" /> : (
                   <div className="stack" style={{ gap: 12 }}>
                     {data.messages.map((m: any) => {
                       const to = m.phone === data.buyer?.phone ? 'Buyer' : m.phone === (data.seller ?? data.counterSeller)?.phone ? 'Seller' : 'Invited number';
@@ -189,7 +189,7 @@ export function Deal() {
                   </div>
                   <div>
                     <h3 style={{ marginBottom: 8 }}>Ledger lines</h3>
-                    {data.ledger.length === 0 ? <p className="muted">No money has moved on this deal.</p> : (
+                    {data.ledger.length === 0 ? <p className="muted">No money has moved on this order.</p> : (
                       <table className="t"><thead><tr><th>Account</th><th>What</th><th className="r">Amount</th><th>When</th></tr></thead>
                         <tbody>{data.ledger.map((l: any, i: number) => (
                           <tr key={i}><td className="mono">{l.account}</td><td className="muted">{l.memo}</td><td className={`r money ${Number(l.amount_minor) < 0 ? '' : ''}`}>{money(l.amount_minor, cur, { sign: true })}</td><td className="muted">{dateTime(l.created_at)}</td></tr>
@@ -223,7 +223,7 @@ export function Deal() {
             <div className="panel-head"><h2>People</h2><ArrowLeftRight className="faint" style={{ marginLeft: 'auto', width: 18 }} /></div>
             <div className="panel-body stack" style={{ gap: 14 }}>
               {[{ who: 'Buyer', u: data.buyer, line: data.buyerTrust ? `${data.buyerTrust.purchases} purchases · ${data.buyerTrust.problems ? `${data.buyerTrust.problems} problem${data.buyerTrust.problems === 1 ? '' : 's'} reported` : 'no problems reported'}` : null },
-                { who: 'Seller', u: data.seller ?? data.counterSeller, line: data.sellerTrust ? `${data.sellerTrust.completed} deals · ${data.sellerTrust.rated ? `${Math.round((100 * data.sellerTrust.happy) / data.sellerTrust.rated)}% happy` : 'no ratings yet'}${data.sellerTrust.refunded ? ` · ${data.sellerTrust.refunded} refunded` : ''}` : null }].map(({ who, u, line }) => (
+                { who: 'Seller', u: data.seller ?? data.counterSeller, line: data.sellerTrust ? `${data.sellerTrust.completed} orders · ${data.sellerTrust.rated ? `${Math.round((100 * data.sellerTrust.happy) / data.sellerTrust.rated)}% happy` : 'no ratings yet'}${data.sellerTrust.refunded ? ` · ${data.sellerTrust.refunded} refunded` : ''}` : null }].map(({ who, u, line }) => (
                 <div className="party" key={who}>
                   <Avatar name={u?.business_name || u?.display_name || who} gold={who === 'Seller'} />
                   <div style={{ minWidth: 0 }}>
@@ -240,7 +240,7 @@ export function Deal() {
           <section className="panel">
             <div className="panel-head"><h2>Photos</h2><span className="muted small" style={{ marginLeft: 'auto' }}>{data.photos.length}</span></div>
             <div className="panel-body">
-              {data.photos.length === 0 ? <p className="muted small">No photos on this deal.</p> : (
+              {data.photos.length === 0 ? <p className="muted small">No photos on this order.</p> : (
                 <div className="photos">
                   {data.photos.map((p: any) => (
                     <a key={p.id} className="photo" href={p.url} target="_blank" rel="noreferrer" title={p.kind === 'SHIPPING' ? 'Proof of shipping' : 'Item photo'}>
@@ -265,15 +265,15 @@ export function Deal() {
       </div>
 
       {open === 'release' && <ConfirmAction icon={Check} title={`Release ${money(d.seller_gets_minor, cur)} to the seller?`} confirmLabel="Release to seller"
-        description={<>The seller is paid and the deal completes. {dispute ? 'This closes the problem in the seller\'s favour and shows on their record.' : ''} Both sides get a WhatsApp message.</>}
+        description={<>The seller is paid and the order completes. {dispute ? 'This closes the problem in the seller\'s favour and shows on their record.' : ''} Both sides get a WhatsApp message.</>}
         reasonPlaceholder="e.g. Buyer confirmed on a call that the item arrived" onClose={() => setOpen(null)} onConfirm={(r) => run('release', 'Released to seller')(r)} />}
       {open === 'refund' && <ConfirmAction icon={Undo2} tone="danger" title={`Refund ${money(d.buyer_pays_minor, cur)} to the buyer?`} confirmLabel="Refund buyer"
         description={<>Everything the buyer paid goes back, fee included. {dispute ? 'This counts as "refunded after review" on the seller\'s record.' : ''} The buyer needs a refund account on file.</>}
         reasonPlaceholder="e.g. Seller sent the wrong size and won't replace it" onClose={() => setOpen(null)} onConfirm={(r) => run('refund', 'Refund started')(r)} />}
-      {open === 'cancel' && <ConfirmAction icon={Ban} tone="danger" title="Cancel this deal?" confirmLabel="Cancel deal"
-        description="No money has moved. Both sides are told the Hoolam team closed it." onClose={() => setOpen(null)} onConfirm={(r) => run('cancel', 'Deal cancelled')(r)} />}
+      {open === 'cancel' && <ConfirmAction icon={Ban} tone="danger" title="Cancel this order?" confirmLabel="Cancel order"
+        description="No money has moved. Both sides are told the Hoolam team closed it." onClose={() => setOpen(null)} onConfirm={(r) => run('cancel', 'Order cancelled')(r)} />}
       {open === 'extend' && <ConfirmAction icon={TimerReset} tone="gold" title="Give the seller more time" confirmLabel={`Add ${hoursExtra} hours`}
-        description="The seller gets longer to accept before the deal closes."
+        description="The seller gets longer to accept before the order closes."
         extra={<Seg value={String(hoursExtra)} onChange={(v) => setHoursExtra(Number(v))} options={[{ value: '12', label: '12 hours' }, { value: '24', label: '24 hours' }, { value: '48', label: '48 hours' }, { value: '72', label: '3 days' }]} />}
         onClose={() => setOpen(null)} onConfirm={(r) => run('extend', 'More time given')(r, { hours: hoursExtra })} />}
       {open === 'message' && <MessageModal code={code} hasBuyer={allowed.messageBuyer} hasSeller={allowed.messageSeller} onClose={() => setOpen(null)} onSent={() => { toast({ kind: 'ok', title: 'Message sent on WhatsApp' }); reload(); }} />}

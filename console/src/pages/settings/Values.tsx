@@ -45,7 +45,7 @@ function useDraft(keys: string[]) {
 type Draft = ReturnType<typeof useDraft>;
 
 /** One page of values: rows on the left, an explainer on the right, a save bar when something changed. */
-function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 'applies to new deals', stacked = [], after }: {
+function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 'applies to new orders', stacked = [], after }: {
   applies?: string; stacked?: string[]; after?: ReactNode; title: string; lede: ReactNode; keys: string[]; aside?: (s: Draft) => ReactNode;
   render?: Partial<Record<string, (s: Draft, editable: boolean) => ReactNode>>; confirmExtra?: (s: Draft) => ReactNode;
 }) {
@@ -120,7 +120,7 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
       </div>
 
       {confirm && <ConfirmAction icon={Save} tone="gold" title={`Save ${s.changed.length} change${s.changed.length === 1 ? '' : 's'}?`} confirmLabel="Save changes"
-        description="They apply from now on. Deals already running keep their fee and limits."
+        description="They apply from now on. Orders already running keep their fee and limits."
         extra={<>
           <div className="diff">{s.changed.map((k) => { const d = s.def(k)!; return <div key={k}><span>{d.label}</span><span><s>{showValue(d, data.values[k]!, data.currency)}</s> → <b>{showValue(d, s.draft[k]!, data.currency)}</b></span></div>; })}</div>
           {confirmExtra?.(s)}
@@ -144,7 +144,7 @@ function feeOf(price: number, d: Record<string, Val>) {
 }
 
 export function FeesPage() {
-  return <ValuesPage title="Fees" lede="What Hoolam charges on each deal. Whoever starts the deal pays the fee."
+  return <ValuesPage title="Fees" lede="What Hoolam charges on each order. Whoever starts the order pays the fee."
     keys={['fee_rate_percent', 'fee_min', 'fee_max', 'fee_round_to']}
     aside={(s) => <FeePreview s={s} />} />;
 }
@@ -171,7 +171,7 @@ function FeePreview({ s }: { s: Draft }) {
 }
 
 export function LimitsPage() {
-  return <ValuesPage title="Limits" lede="The most a single deal can be, before identity checks." keys={['max_deal']}
+  return <ValuesPage title="Limits" lede="The most a single order can be, before identity checks." keys={['max_deal']}
     aside={() => (
       <section className="panel"><div className="panel-body stack" style={{ gap: 10 }}>
         <div className="aside-ic"><Gauge /></div>
@@ -183,15 +183,15 @@ export function LimitsPage() {
 }
 
 export function TimingPage() {
-  return <ValuesPage title="Timing" lede="When Hoolam reminds people, and when a deal comes to the team." keys={['seller_accept_hours', 'nudge_after_hours', 'flag_after_hours']}
+  return <ValuesPage title="Timing" lede="When Hoolam reminds people, and when an order comes to the team." keys={['seller_accept_hours', 'nudge_after_hours', 'flag_after_hours']}
     aside={(s) => {
       const h = (k: string) => `${s.draft[k] || '—'} h`;
       return (
         <section className="panel">
-          <div className="panel-head"><h2>How a deal moves</h2></div>
+          <div className="panel-head"><h2>How an order moves</h2></div>
           <div className="panel-body">
             <ol className="flowline">
-              <li><span className="fl-ic"><Hourglass /></span><div><b>Buyer starts a deal</b><span>The seller has <em>{h('seller_accept_hours')}</em> to accept, then it closes.</span></div></li>
+              <li><span className="fl-ic"><Hourglass /></span><div><b>Buyer starts an order</b><span>The seller has <em>{h('seller_accept_hours')}</em> to accept, then it closes.</span></div></li>
               <li><span className="fl-ic"><Truck /></span><div><b>Seller ships</b><span>The money stays held.</span></div></li>
               <li><span className="fl-ic gold"><BellRing /></span><div><b>After <em>{h('nudge_after_hours')}</em></b><span>We ask the buyer if it arrived.</span></div></li>
               <li><span className="fl-ic red"><Flag /></span><div><b>After <em>{h('flag_after_hours')}</em></b><span>Still no answer: it shows in Needs action.</span></div></li>
@@ -274,7 +274,7 @@ export function WhatsAppPage() {
           <ul className="uses">
             <li><MessageCircle />Every "Chat on WhatsApp" button on the website</li>
             <li><MessageCircle />Sellers' public pages and "Buy from" links</li>
-            <li><MessageCircle />Payment and deal links sent to buyers and sellers</li>
+            <li><MessageCircle />Payment and order links sent to buyers and sellers</li>
           </ul>
           <div className="note"><Clock /><span>Changing it here updates links. It doesn't move your WhatsApp account: that's set on Meta, and on Render as <code>WHATSAPP_PHONE_NUMBER_ID</code>.</span></div>
         </div>

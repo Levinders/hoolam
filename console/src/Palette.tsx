@@ -11,7 +11,7 @@ type Item = { key: string; group: string; title: string; sub?: string; icon: typ
 
 const PAGES: Item[] = [
   { key: 'p-home', group: 'Go to', title: 'Needs action', icon: Inbox, to: '/' },
-  { key: 'p-deals', group: 'Go to', title: 'Deals', icon: Handshake, to: '/deals' },
+  { key: 'p-deals', group: 'Go to', title: 'Orders', icon: Handshake, to: '/deals' },
   { key: 'p-disputes', group: 'Go to', title: 'Disputes', icon: Scale, to: '/disputes' },
   { key: 'p-money', group: 'Go to', title: 'Money', icon: Landmark, to: '/money' },
   { key: 'p-people', group: 'Go to', title: 'Buyers & sellers', icon: Users, to: '/people' },
@@ -38,7 +38,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     api<{ deals: any[]; people: any[] }>(`/search?q=${encodeURIComponent(dq.trim())}`).then((r) => {
       if (!alive) return;
       setFound([
-        ...r.deals.map((d) => ({ key: `d-${d.code}`, group: 'Deals', title: `${d.code}  ${d.item}`, sub: money(d.buyer_pays_minor, d.currency), icon: Handshake, to: `/deals/${d.code}`, status: d.status })),
+        ...r.deals.map((d) => ({ key: `d-${d.code}`, group: 'Orders', title: `${d.code}  ${d.item}`, sub: money(d.buyer_pays_minor, d.currency), icon: Handshake, to: `/deals/${d.code}`, status: d.status })),
         ...r.people.map((p) => ({ key: `u-${p.id}`, group: 'People', title: p.business_name || p.display_name || p.phone, sub: p.phone, icon: UserRound, to: `/people/${p.id}` })),
       ]);
     }).catch(() => {});
@@ -57,7 +57,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       <div className="palette" style={{ boxShadow: 'none', animation: 'none' }}>
         <div className="palette-input">
           <Search aria-hidden="true" />
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Deal code, item, name or phone"
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Order code, item, name or phone"
             aria-label="Search"
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(items.length - 1, s + 1)); }

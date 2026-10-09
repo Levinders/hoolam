@@ -159,7 +159,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         title: r.status === 'NEEDS_AUTHORIZATION' ? `${r.kind === 'REFUND' ? 'Refund' : 'Payout'} waiting for OTP` : `${r.kind === 'REFUND' ? 'Refund' : 'Payout'} ${r.status === 'FAILED' ? 'failed' : 'reversed'}`,
         detail: `${r.code} · ${money(r.amount_minor, r.currency)}${r.provider_message ? ' · ' + r.provider_message : ''}`, at: r.updated_at, link: `/money?payout=${encodeURIComponent(r.reference)}`, cta: r.status === 'NEEDS_AUTHORIZATION' ? 'Approve' : 'Retry',
       });
-      for (const r of notes.rows) items.push({ key: `event:${r.id}`, kind: 'payment', severity: 'high', title: `Money needs attention on ${r.code}`, detail: String(r.note).replace(/^NEEDS_ATTENTION:\s*/, '').replace(/\b(payment|by|of) (\d+)\b/g, (_m: string, w: string, n: string) => `${w} ${money(Number(n), r.currency)}`).replace(/^./, (c: string) => c.toUpperCase()), at: r.created_at, link: `/deals/${r.code}`, cta: 'Open deal', dismissible: true });
+      for (const r of notes.rows) items.push({ key: `event:${r.id}`, kind: 'payment', severity: 'high', title: `Money needs attention on ${r.code}`, detail: String(r.note).replace(/^NEEDS_ATTENTION:\s*/, '').replace(/\b(payment|by|of) (\d+)\b/g, (_m: string, w: string, n: string) => `${w} ${money(Number(n), r.currency)}`).replace(/^./, (c: string) => c.toUpperCase()), at: r.created_at, link: `/deals/${r.code}`, cta: 'Open order', dismissible: true });
       for (const r of support.rows) items.push({ key: `support:${r.id}`, kind: 'support', severity: 'medium', title: `${r.display_name ?? r.phone} wants to talk`, detail: String(r.message).slice(0, 110), at: r.created_at, link: `/support?open=${r.id}`, cta: 'Reply' });
       for (const r of overdue.rows) items.push({ key: `overdue:${r.code}`, kind: 'overdue', severity: 'medium', title: `${r.code} shipped, not confirmed`, detail: `${r.item} · shipped ${ago(r.shipped_at)}`, at: r.shipped_at, link: `/deals/${r.code}`, cta: 'Check in', dismissible: true });
       for (const r of unhappy.rows) items.push({ key: `rating:${r.deal_id}`, kind: 'rating', severity: 'low', title: `👎 on ${r.code}${r.seller ? ' (' + r.seller.split(' ')[0] + ')' : ''}`, detail: r.comment ? `“${String(r.comment).slice(0, 110)}”` : 'No comment', at: r.created_at, link: `/deals/${r.code}`, cta: 'Look', dismissible: true });
@@ -227,7 +227,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const code = (req.params as { code: string }).code.toUpperCase();
       const dr = await db.query('SELECT * FROM deals WHERE code=$1', [code]);
       const deal = dr.rows[0];
-      if (!deal) throw new HttpError(404, `No deal ${code}`);
+      if (!deal) throw new HttpError(404, `No order ${code}`);
       const userQ = (id: string | null) => id ? db.query('SELECT id, phone, display_name, business_name, blocked FROM users WHERE id=$1', [id]).then((r) => r.rows[0] ?? null) : Promise.resolve(null);
       const [buyer, seller, counterSeller, events, payments, payouts, ledger, disputes, photos, notes, rating, trail, sellerAcct] = await Promise.all([
         userQ(deal.buyer_id), userQ(deal.seller_id), userQ(deal.counter_seller_id),
@@ -270,7 +270,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     api.get('/deals/:code/photos/:id', async (req, reply) => {
       const { code, id } = req.params as { code: string; id: string };
       const r = await db.query('SELECT p.mime_type, p.bytes FROM deal_photos p JOIN deals d ON d.id=p.deal_id WHERE d.code=$1 AND p.id=$2', [code.toUpperCase(), id]);
-      if (!r.rows[0]?.bytes) return reply.code(404).send({ error: 'No photo stored (test deals have none)' });
+      if (!r.rows[0]?.bytes) return reply.code(404).send({ error: 'No photo stored (test orders have none)' });
       return reply.type(r.rows[0].mime_type).header('cache-control', 'private, max-age=3600').send(r.rows[0].bytes);
     });
 
@@ -310,7 +310,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const note = String((req.body as { note?: string }).note ?? '').trim();
       if (note.length < 2) throw new HttpError(400, 'Write a note first.');
       const deal = (await db.query('SELECT id FROM deals WHERE code=$1', [code])).rows[0];
-      if (!deal) throw new HttpError(404, 'No such deal');
+      if (!deal) throw new HttpError(404, 'No such order');
       await act(req, { action: 'deal.note', targetType: 'deal', targetId: code, details: { note: note.slice(0, 200) } },
         () => db.query('INSERT INTO deal_notes (deal_id, staff_id, note) VALUES ($1,$2,$3)', [deal.id, req.staff!.id, note.slice(0, 2000)]));
       return { ok: true };
@@ -855,7 +855,7 @@ export function roleName(r: Role): string {
   return { OWNER: 'Owner', ADMIN: 'Admin', FINANCE: 'Finance', SUPPORT: 'Support' }[r] ?? r;
 }
 function dealErrorText(reason: string): string {
-  return ({ NOT_FOUND: 'No such deal.', NOT_ALLOWED: 'That isn\'t possible at this stage of the deal.', OWN_DEAL: 'Not allowed on your own deal.', TAKEN: 'Someone else has this deal.', CLOSED: 'This deal is closed.', TOO_BIG: 'Above the deal limit.' } as Record<string, string>)[reason] ?? reason;
+  return ({ NOT_FOUND: 'No such order.', NOT_ALLOWED: 'That isn\'t possible at this stage of the order.', OWN_DEAL: 'Not allowed on your own order.', TAKEN: 'Someone else has this order.', CLOSED: 'This order is closed.', TOO_BIG: 'Above the order limit.' } as Record<string, string>)[reason] ?? reason;
 }
 function pick(o: Record<string, unknown>, keys: string[]) {
   return Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));

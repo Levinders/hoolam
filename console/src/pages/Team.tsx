@@ -8,7 +8,7 @@ import { Avatar, Button, ConfirmAction, ErrorBanner, Modal, SkeletonRows, useCop
 
 const ROLE_TEXT: Record<string, { name: string; does: string }> = {
   OWNER: { name: 'Owner', does: 'Everything: the team, fees, limits and Hoolam\'s WhatsApp number.' },
-  ADMIN: { name: 'Admin', does: 'Handles deals and disputes: release, refund, cancel. Pauses accounts. Settings: timing, alerts, logo and website images.' },
+  ADMIN: { name: 'Admin', does: 'Handles orders and disputes: release, refund, cancel. Pauses accounts. Settings: timing, alerts, logo and website images.' },
   FINANCE: { name: 'Finance', does: 'Approves and retries payouts, exports for the accountant.' },
   SUPPORT: { name: 'Support', does: 'Replies to people, messages buyers and sellers, adds notes. Can\'t move money.' },
 };
@@ -57,7 +57,7 @@ export function Team() {
           <div className="panel-head"><h2>What each role can do</h2><ShieldCheck className="faint" style={{ marginLeft: 'auto', width: 18 }} /></div>
           <div className="panel-body stack" style={{ gap: 14 }}>
             {Object.entries(ROLE_TEXT).map(([r, t]) => <div key={r}><span className={`role ${r}`}>{t.name}</span><p className="small" style={{ marginTop: 6, color: 'var(--ink-2)' }}>{t.does}</p></div>)}
-            <p className="small muted">Every role can see deals, people and insights. Every action anyone takes is in the audit trail with their name and the time.</p>
+            <p className="small muted">Every role can see orders, people and insights. Every action anyone takes is in the audit trail with their name and the time.</p>
           </div>
         </section>
       </div>

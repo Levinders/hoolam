@@ -87,13 +87,13 @@ export function PaymentsPage() {
             </div>
 
             {monnify && !c.sandbox && !c.signatureRequired && (
-              <div className="banner gold small"><AlertTriangle /><div>Live keys: also set <code>MONNIFY_REQUIRE_SIGNATURE</code> = <code>true</code> on Render, so only genuine Monnify notices can mark a deal as paid.</div></div>
+              <div className="banner gold small"><AlertTriangle /><div>Live keys: also set <code>MONNIFY_REQUIRE_SIGNATURE</code> = <code>true</code> on Render, so only genuine Monnify notices can mark an order as paid.</div></div>
             )}
             {monnify && !c.sandbox && c.selfDeals && (
               <div className="banner red small"><AlertTriangle /><div>Live keys with <code>ALLOW_SELF_DEAL</code> on. Remove it on Render.</div></div>
             )}
             {monnify && c.sandbox && c.selfDeals && (
-              <div className="banner teal small"><FlaskConical /><div>Test mode: one phone can be both buyer and seller. Buyers pay with Monnify's test bank (websim.sdk.monnify.com). Test deals never count on trust cards or in Money.</div></div>
+              <div className="banner teal small"><FlaskConical /><div>Test mode: one phone can be both buyer and seller. Buyers pay with Monnify's test bank (websim.sdk.monnify.com). Test orders never count on trust cards or in Money.</div></div>
             )}
           </div>
         </section>

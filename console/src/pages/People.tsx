@@ -19,7 +19,7 @@ export function People() {
   const { data, error, loading, reload } = useData<any>(`/people?page=${page}${kind !== 'all' ? `&kind=${kind}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}`);
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Buyers & sellers</h1><p className="lede">Everyone who has talked to Hoolam, their record, and the controls to keep deals safe.</p></div></div>
+      <div className="page-head"><div><h1>Buyers & sellers</h1><p className="lede">Everyone who has talked to Hoolam, their record, and the controls to keep orders safe.</p></div></div>
       <section className="panel">
         <div className="toolbar">
           <div className="input-icon"><Search aria-hidden="true" /><input className="input" placeholder="Name, shop name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search people" /></div>
@@ -32,7 +32,7 @@ export function People() {
             <>
               <div className="table-wrap">
                 <table className="t">
-                  <thead><tr><th>Person</th><th>Phone</th><th className="r">Sales</th><th className="r">Purchases</th><th>Last deal</th><th>Joined</th></tr></thead>
+                  <thead><tr><th>Person</th><th>Phone</th><th className="r">Sales</th><th className="r">Purchases</th><th>Last order</th><th>Joined</th></tr></thead>
                   <tbody>
                     {data.rows.map((u: any) => (
                       <tr key={u.id} className="link" tabIndex={0} onClick={() => nav(`/people/${u.id}`)} onKeyDown={(e) => { if (e.key === 'Enter') nav(`/people/${u.id}`); }}>
@@ -85,7 +85,7 @@ export function Person() {
         </div>
         <div className="actions">
           {u.profile_slug && u.profile_public && <a className="btn" href={`/s/${u.profile_slug}`} target="_blank" rel="noreferrer"><Globe />Public page</a>}
-          {can('user.cap') && <Button icon={Gauge} onClick={() => { setCap(capNow ? String(capNow / 100) : ''); setOpen('cap'); }}>Deal limit</Button>}
+          {can('user.cap') && <Button icon={Gauge} onClick={() => { setCap(capNow ? String(capNow / 100) : ''); setOpen('cap'); }}>Order limit</Button>}
           {can('user.block') && (u.blocked
             ? <Button icon={Play} variant="primary" onClick={() => setOpen('pause')}>Unpause account</Button>
             : <Button icon={CirclePause} variant="danger" onClick={() => setOpen('pause')}>Pause account</Button>)}
@@ -99,7 +99,7 @@ export function Person() {
           <section className="panel">
             <div className="panel-head"><h2>As a seller</h2>{s?.isNew ? <span className="pill teal plain" style={{ marginLeft: 'auto' }}>New on Hoolam</span> : null}</div>
             <div className="panel-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 16 }}>
-              {stat('Deals completed', String(s?.completed ?? 0))}
+              {stat('Orders completed', String(s?.completed ?? 0))}
               {stat('Different buyers', String(s?.buyers ?? 0))}
               {stat('Buyers happy', s?.rated ? `${Math.round((100 * s.happy) / s.rated)}%` : '—')}
               {stat('Usually ships in', hours(s?.shipHours))}
@@ -117,9 +117,9 @@ export function Person() {
             </div>
           </section>
           <section className="panel">
-            <div className="panel-head"><h2>Deals</h2><span className="muted small" style={{ marginLeft: 'auto' }}>Latest 30</span></div>
-            {!data.deals.length ? <Empty icon={Users} title="No deals yet" /> : (
-              <div className="table-wrap"><table className="t"><thead><tr><th>Deal</th><th>As</th><th>Status</th><th className="r">Amount</th><th>Started</th></tr></thead>
+            <div className="panel-head"><h2>Orders</h2><span className="muted small" style={{ marginLeft: 'auto' }}>Latest 30</span></div>
+            {!data.deals.length ? <Empty icon={Users} title="No orders yet" /> : (
+              <div className="table-wrap"><table className="t"><thead><tr><th>Order</th><th>As</th><th>Status</th><th className="r">Amount</th><th>Started</th></tr></thead>
                 <tbody>{data.deals.map((d: any) => (
                   <tr key={d.code}><td><Link to={`/deals/${d.code}`} className="cell-main">{d.code}</Link><div className="cell-sub">{d.item}</div></td><td className="muted">{d.role === 'seller' ? 'Seller' : 'Buyer'}</td>
                     <td><StatusPill status={d.status} /></td><td className="r money">{money(d.buyer_pays_minor, d.currency)}</td><td className="muted">{dateOnly(d.created_at)}</td></tr>
@@ -152,7 +152,7 @@ export function Person() {
           )}
           <section className="panel">
             <div className="panel-head"><h2>Limits</h2></div>
-            <div className="panel-body"><dl className="kv"><dt>Largest deal</dt><dd className="money">{money(capNow ?? data.normalCapMinor)} {capNow ? <span className="pill gold plain">Custom</span> : <span className="muted small">normal limit</span>}</dd></dl></div>
+            <div className="panel-body"><dl className="kv"><dt>Largest order</dt><dd className="money">{money(capNow ?? data.normalCapMinor)} {capNow ? <span className="pill gold plain">Custom</span> : <span className="muted small">normal limit</span>}</dd></dl></div>
           </section>
           <section className="panel">
             <div className="panel-head"><h2>Payout accounts</h2></div>
@@ -177,7 +177,7 @@ export function Person() {
 
       {open === 'pause' && <ConfirmAction icon={u.blocked ? Play : CirclePause} tone={u.blocked ? 'teal' : 'danger'}
         title={u.blocked ? `Unpause ${name}?` : `Pause ${name}?`} confirmLabel={u.blocked ? 'Unpause account' : 'Pause account'}
-        description={u.blocked ? 'They can start and join deals again.' : 'They can\'t start or join deals until unpaused. Deals already paid carry on. They can still talk to the team.'}
+        description={u.blocked ? 'They can start and join orders again.' : 'They can\'t start or join orders until unpaused. Orders already paid carry on. They can still talk to the team.'}
         onClose={() => setOpen(null)}
         onConfirm={async (reason) => { await post(`/people/${id}/pause`, { paused: !u.blocked, reason }); toast({ kind: 'ok', title: u.blocked ? 'Account unpaused' : 'Account paused' }); reload(); }} />}
       {open === 'photo' && <ConfirmAction icon={ImageOff} tone="danger" title="Remove their photo?" confirmLabel="Remove photo"
@@ -190,11 +190,11 @@ export function Person() {
         reasonPlaceholder="e.g. Links to someone else's shop"
         onClose={() => setOpen(null)}
         onConfirm={async (reason) => { await api(`/people/${id}/social`, { method: 'PUT', body: { kind: open.social, value: null, reason } }); toast({ kind: 'ok', title: 'Link removed' }); reload(); }} />}
-      {open === 'cap' && <ConfirmAction icon={Gauge} tone="gold" title="Set their deal limit" confirmLabel="Save limit"
-        description={<>The most one deal can be for {name}. Leave it empty to use the normal limit ({money(data.normalCapMinor)}).</>}
-        extra={<div className="field"><label htmlFor="cap">Largest deal (₦)</label><input id="cap" className="input" inputMode="numeric" placeholder="e.g. 200000" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^\d]/g, ''))} /></div>}
+      {open === 'cap' && <ConfirmAction icon={Gauge} tone="gold" title="Set their order limit" confirmLabel="Save limit"
+        description={<>The most one order can be for {name}. Leave it empty to use the normal limit ({money(data.normalCapMinor)}).</>}
+        extra={<div className="field"><label htmlFor="cap">Largest order (₦)</label><input id="cap" className="input" inputMode="numeric" placeholder="e.g. 200000" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^\d]/g, ''))} /></div>}
         onClose={() => setOpen(null)}
-        onConfirm={async (reason) => { await post(`/people/${id}/cap`, { cap: cap ? Number(cap) : null, reason }); toast({ kind: 'ok', title: 'Deal limit saved' }); reload(); }} />}
+        onConfirm={async (reason) => { await post(`/people/${id}/cap`, { cap: cap ? Number(cap) : null, reason }); toast({ kind: 'ok', title: 'Order limit saved' }); reload(); }} />}
     </div>
   );
 }

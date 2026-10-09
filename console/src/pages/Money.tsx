@@ -55,7 +55,7 @@ export function Money() {
                 <>
                   <div className="table-wrap">
                     <table className="t">
-                      <thead><tr><th>Deal</th><th>To</th><th>Status</th><th className="r">Amount</th><th>Updated</th><th></th></tr></thead>
+                      <thead><tr><th>Order</th><th>To</th><th>Status</th><th className="r">Amount</th><th>Updated</th><th></th></tr></thead>
                       <tbody>
                         {payouts.data.rows.map((r: any) => (
                           <tr key={r.reference} style={sp.get('payout') === r.reference ? { background: 'var(--gold-50)' } : undefined}>
@@ -104,8 +104,8 @@ export function Money() {
                     <div className="field" style={{ flex: 1 }}><label htmlFor="from">From</label><input id="from" type="date" className="input" value={range.from} max={range.to} onChange={(e) => setRange({ ...range, from: e.target.value })} /></div>
                     <div className="field" style={{ flex: 1 }}><label htmlFor="to">To</label><input id="to" type="date" className="input" value={range.to} max={today} onChange={(e) => setRange({ ...range, to: e.target.value })} /></div>
                   </div>
-                  <a className="btn" href={`/console/api/money/export.csv?from=${range.from}&to=${range.to}`} download><Download />Download deals (CSV)</a>
-                  <p className="small muted">Every deal with its price, fee, what the buyer paid and what the seller received. The download is recorded in the audit trail.</p>
+                  <a className="btn" href={`/console/api/money/export.csv?from=${range.from}&to=${range.to}`} download><Download />Download orders (CSV)</a>
+                  <p className="small muted">Every order with its price, fee, what the buyer paid and what the seller received. The download is recorded in the audit trail.</p>
                 </div>
               </section>
             )}

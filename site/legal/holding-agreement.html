@@ -1,4 +1,4 @@
-<!--lede-->How Hoolam receives, holds, releases and refunds the money in every deal. It is an agreement between Hoolam, the buyer and the seller, and it applies to each deal from the moment the buyer pays.<!--/lede-->
+<!--lede-->How Hoolam receives, holds, releases and refunds the money in every order. It is an agreement between Hoolam, the buyer and the seller, and it applies to each order from the moment the buyer pays.<!--/lede-->
 
 <div class="lg-short">
   <h2>In short</h2>
@@ -7,7 +7,7 @@
     <li>We hold it with {{BANK_PARTNER}}, a bank licensed by the Central Bank of Nigeria. We don’t spend it, lend it or invest it.</li>
     <li>The seller is paid when the buyer says they are happy, or when our team decides a problem in the seller’s favour.</li>
     <li>If the item never comes, or our team decides for the buyer, the buyer gets back everything they paid, our fee included.</li>
-    <li>Whoever starts the deal pays our fee: {{FEE_RATE}} of the price, never less than {{FEE_MIN}}, never more than {{FEE_MAX}}.</li>
+    <li>Whoever starts the order pays our fee: {{FEE_RATE}} of the price, never less than {{FEE_MIN}}, never more than {{FEE_MAX}}.</li>
   </ul>
 </div>
 
@@ -15,33 +15,33 @@
   <h2 id="definitions">Words used in this agreement</h2>
   <dl class="defs">
     <div><dt>Hoolam, we, us</dt><dd>{{LEGAL_NAME}}, a company registered in Nigeria with RC number {{RC}}, at {{ADDRESS}}.</dd></div>
-    <div><dt>Deal</dt><dd>One sale between a buyer and a seller, made through Hoolam on WhatsApp, with its own deal code (for example HL-7K2QD).</dd></div>
-    <div><dt>Buyer and seller</dt><dd>The two people in a deal. Together, “the parties”.</dd></div>
-    <div><dt>Price</dt><dd>The amount the buyer and seller agreed for the item, as shown in the deal summary on WhatsApp.</dd></div>
-    <div><dt>Fee</dt><dd>What Hoolam charges for the deal, explained in section 4.</dd></div>
-    <div><dt>Held money</dt><dd>The money the buyer paid into a deal, while Hoolam is holding it.</dd></div>
+    <div><dt>Order</dt><dd>One sale between a buyer and a seller, made through Hoolam on WhatsApp, with its own order code (for example HL-7K2QD).</dd></div>
+    <div><dt>Buyer and seller</dt><dd>The two people in an order. Together, “the parties”.</dd></div>
+    <div><dt>Price</dt><dd>The amount the buyer and seller agreed for the item, as shown in the order summary on WhatsApp.</dd></div>
+    <div><dt>Fee</dt><dd>What Hoolam charges for the order, explained in section 4.</dd></div>
+    <div><dt>Held money</dt><dd>The money the buyer paid into an order, while Hoolam is holding it.</dd></div>
     <div><dt>“I’m happy”</dt><dd>The buyer’s confirmation, in the WhatsApp chat, that they received the item as agreed.</dd></div>
-    <div><dt>Problem</dt><dd>A report from the buyer, in the WhatsApp chat, that something is wrong with the deal. Also called a dispute.</dd></div>
+    <div><dt>Problem</dt><dd>A report from the buyer, in the WhatsApp chat, that something is wrong with the order. Also called a dispute.</dd></div>
     <div><dt>Payment partner</dt><dd>{{BANK_PARTNER}}, through its {{PAY_SERVICE}} payment service, which receives buyers’ payments, keeps the held money and sends payouts and refunds.</dd></div>
   </dl>
 </section>
 
 <section>
   <h2 id="role">What Hoolam does, and doesn’t do</h2>
-  <p>Hoolam stands in the middle of a deal so neither side has to trust a stranger first. We receive the buyer’s money, hold it, and pass it on only when the deal’s conditions are met.</p>
+  <p>Hoolam stands in the middle of an order so neither side has to trust a stranger first. We receive the buyer’s money, hold it, and pass it on only when the order’s conditions are met.</p>
   <p>We are not the seller, we are not the buyer, and we are not a party to the sale itself. We don’t see, inspect or deliver the item. The seller alone is responsible for the item being as described, legal to sell, and delivered. The buyer alone is responsible for paying, receiving the item, and telling us honestly whether it arrived as agreed.</p>
   <p>Hoolam is not a bank and does not take deposits. The held money is kept by our payment partner, which is licensed by the Central Bank of Nigeria. We don’t pay interest on held money.</p>
 </section>
 
 <section>
-  <h2 id="starting">How a deal starts</h2>
-  <p>Either side can start a deal in our WhatsApp chat.</p>
+  <h2 id="starting">How an order starts</h2>
+  <p>Either side can start an order in our WhatsApp chat.</p>
   <ul>
-    <li><strong>The seller starts it:</strong> the seller describes the item and sets the price. The buyer joins with the deal code or link, sees the summary, and pays.</li>
-    <li><strong>The buyer starts it:</strong> the buyer describes what they want and offers a price. The seller has {{ACCEPT_HOURS}} to accept, decline or suggest a different price. If the seller suggests a different price, the deal only goes ahead if the buyer accepts it. If the seller doesn’t answer in time, the deal closes and nothing is charged.</li>
+    <li><strong>The seller starts it:</strong> the seller describes the item and sets the price. The buyer joins with the order code or link, sees the summary, and pays.</li>
+    <li><strong>The buyer starts it:</strong> the buyer describes what they want and offers a price. The seller has {{ACCEPT_HOURS}} to accept, decline or suggest a different price. If the seller suggests a different price, the order only goes ahead if the buyer accepts it. If the seller doesn’t answer in time, the order closes and nothing is charged.</li>
   </ul>
-  <p>Before anyone pays, both sides see the same summary: the item, the price, the fee, what the buyer pays and what the seller gets. That summary is the deal. Once the buyer has paid, the price and fee can’t be changed.</p>
-  <p>For now, one deal can be up to {{MAX_DEAL}}. We may ask for proof of identity before allowing larger deals, and we may set a different limit for one person.</p>
+  <p>Before anyone pays, both sides see the same summary: the item, the price, the fee, what the buyer pays and what the seller gets. That summary is the order. Once the buyer has paid, the price and fee can’t be changed.</p>
+  <p>For now, one order can be up to {{MAX_DEAL}}. We may ask for proof of identity before allowing larger orders, and we may set a different limit for one person.</p>
 </section>
 
 <section>
@@ -51,27 +51,27 @@
     <div><b>{{FEE_MIN}}</b><span>smallest fee</span></div>
     <div><b>{{FEE_MAX}}</b><span>biggest fee</span></div>
   </div>
-  <p>Fees are rounded to the nearest {{FEE_ROUND}}. <strong>Whoever starts the deal pays the fee.</strong> If the buyer starts it, the buyer pays the price plus the fee and the seller gets the full price. If the seller starts it, the buyer pays just the price and the seller gets the price minus the fee.</p>
-  <p>The fee is shown in the deal summary before anyone pays. There is no sign-up fee, monthly fee or other charge from Hoolam. Your own bank may charge you for making a transfer; that is between you and your bank. If we change our fees, the change applies to new deals only: a deal keeps the fee it started with.</p>
+  <p>Fees are rounded to the nearest {{FEE_ROUND}}. <strong>Whoever starts the order pays the fee.</strong> If the buyer starts it, the buyer pays the price plus the fee and the seller gets the full price. If the seller starts it, the buyer pays just the price and the seller gets the price minus the fee.</p>
+  <p>The fee is shown in the order summary before anyone pays. There is no sign-up fee, monthly fee or other charge from Hoolam. Your own bank may charge you for making a transfer; that is between you and your bank. If we change our fees, the change applies to new orders only: an order keeps the fee it started with.</p>
   <p>We take our fee only when the money is released to the seller. If the buyer is refunded, we take no fee.</p>
 </section>
 
 <section>
   <h2 id="paying">Paying in</h2>
-  <p>The buyer pays by bank transfer to a one-time account number that we send in the chat for that deal. Each account number is for one payment only and works for a short time (about 40 minutes). If it runs out, the buyer can ask for a new one in the chat. All deals are in Nigerian naira.</p>
+  <p>The buyer pays by bank transfer to a one-time account number that we send in the chat for that order. Each account number is for one payment only and works for a short time (about 40 minutes). If it runs out, the buyer can ask for a new one in the chat. All orders are in Nigerian naira.</p>
   <ul>
-    <li><strong>The exact amount:</strong> the deal is paid and the seller is told to send the item.</li>
-    <li><strong>Less than the amount:</strong> the deal is not paid. We tell the buyer, and the part that arrived is returned to them.</li>
-    <li><strong>More than the amount:</strong> the deal is paid, and the extra is returned to the buyer.</li>
-    <li><strong>Paid twice, or after a deal was cancelled:</strong> the money is returned to the buyer.</li>
+    <li><strong>The exact amount:</strong> the order is paid and the seller is told to send the item.</li>
+    <li><strong>Less than the amount:</strong> the order is not paid. We tell the buyer, and the part that arrived is returned to them.</li>
+    <li><strong>More than the amount:</strong> the order is paid, and the extra is returned to the buyer.</li>
+    <li><strong>Paid twice, or after an order was cancelled:</strong> the money is returned to the buyer.</li>
   </ul>
-  <p>We never treat money as received until our payment partner confirms it. A deal that isn’t paid within {{UNPAID_HOURS}} closes. If payment arrives after it closed, we honour it and the deal goes ahead.</p>
+  <p>We never treat money as received until our payment partner confirms it. An order that isn’t paid within {{UNPAID_HOURS}} closes. If payment arrives after it closed, we honour it and the order goes ahead.</p>
 </section>
 
 <section>
   <h2 id="holding">How we hold the money</h2>
-  <div class="note"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><p><b>The held money is the buyer’s until it is released.</b> We hold it for both parties, as a neutral stakeholder. We have no right to it and we don’t use it for anything except this deal.</p></div>
-  <p>Held money is kept with our payment partner, apart from the money Hoolam uses to run its business. Our records track every deal separately, so the money for each deal can be accounted for at any time. Hoolam staff can’t move held money anywhere except to the seller (on release) or back to the buyer (on refund), and every such step is recorded with the name of the person who took it.</p>
+  <div class="note"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><p><b>The held money is the buyer’s until it is released.</b> We hold it for both parties, as a neutral stakeholder. We have no right to it and we don’t use it for anything except this order.</p></div>
+  <p>Held money is kept with our payment partner, apart from the money Hoolam uses to run its business. Our records track every order separately, so the money for each order can be accounted for at any time. Hoolam staff can’t move held money anywhere except to the seller (on release) or back to the buyer (on refund), and every such step is recorded with the name of the person who took it.</p>
   <p>Where the money sits, step by step, is explained on the page <a href="/legal/money/">Where the money sits</a>.</p>
 </section>
 
@@ -85,7 +85,7 @@
   <h3>If the buyer goes quiet</h3>
   <p>Held money is never released just because time has passed. {{NUDGE_HOURS}} after the seller marks the item as sent, we remind the buyer to confirm. If there is still no answer {{FLAG_HOURS}} after it was sent, our team contacts both sides. If the buyer doesn’t respond and the seller shows that the item was delivered (for example with proof of delivery or the conversation with the buyer), our team may release the money to the seller. We tell the buyer before we do.</p>
   <h3>How the seller is paid</h3>
-  <p>We send the seller the price, minus our fee if the seller started the deal, by bank transfer to the Nigerian bank account the seller gave us. The account must be in the seller’s own name. Most transfers arrive within minutes. If a transfer fails or is delayed by a bank, we tell the seller and try again; the money stays held until it arrives.</p>
+  <p>We send the seller the price, minus our fee if the seller started the order, by bank transfer to the Nigerian bank account the seller gave us. The account must be in the seller’s own name. Most transfers arrive within minutes. If a transfer fails or is delayed by a bank, we tell the seller and try again; the money stays held until it arrives.</p>
 </section>
 
 <section>
@@ -93,25 +93,25 @@
   <p>We return the held money to the buyer when:</p>
   <ol class="list alpha">
     <li>our team decides a problem in the buyer’s favour; or</li>
-    <li>the seller can’t or won’t send the item after the buyer paid, and the deal is cancelled.</li>
+    <li>the seller can’t or won’t send the item after the buyer paid, and the order is cancelled.</li>
   </ol>
   <div class="note gold"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><p><b>A refund is everything the buyer paid, our fee included.</b> We send it to the bank account the buyer gives us in the chat, which must be in the buyer’s own name. We can only send a refund once the buyer has given us that account.</p></div>
   <p>Where the buyer is to send the item back, our team will say so in the chat and may hold the refund until the seller confirms it was returned.</p>
-  <p>At present, the held money in a deal goes wholly to one side: all to the seller, or all back to the buyer. We don’t split it.</p>
+  <p>At present, the held money in an order goes wholly to one side: all to the seller, or all back to the buyer. We don’t split it.</p>
 </section>
 
 <section>
-  <h2 id="cancel">Cancelling a deal</h2>
+  <h2 id="cancel">Cancelling an order</h2>
   <ul>
-    <li>Before the buyer pays, the buyer can cancel and the seller can decline, at no cost. Hoolam can also close an unpaid deal.</li>
-    <li>After the buyer pays, a deal can’t simply be cancelled. It ends with a release to the seller or a refund to the buyer, as above.</li>
+    <li>Before the buyer pays, the buyer can cancel and the seller can decline, at no cost. Hoolam can also close an unpaid order.</li>
+    <li>After the buyer pays, an order can’t simply be cancelled. It ends with a release to the seller or a refund to the buyer, as above.</li>
   </ul>
 </section>
 
 <section>
   <h2 id="problems">Problems and how we decide</h2>
-  <p>If something is wrong, the buyer taps “Problem” in the chat before confirming. From that moment the held money is frozen: it can’t go to the seller until the problem is decided. Problems can also be raised with our team by either side through “Talk to a person”.</p>
-  <p>A member of the Hoolam team looks at the deal. We may ask both sides for information, photos, videos, proof of delivery or the conversation between them. We decide based on what we have, acting fairly and in good faith, and we explain our decision to both sides in the chat. We are not required to investigate beyond the information we are given.</p>
+  <p>If something is wrong, the buyer taps “Problem” in the chat before confirming. From that moment the held money is frozen: it can’t go to the seller until the problem is decided. Problems can also be raised with our team by either side through “Talk to a rep”.</p>
+  <p>A member of the Hoolam team looks at the order. We may ask both sides for information, photos, videos, proof of delivery or the conversation between them. We decide based on what we have, acting fairly and in good faith, and we explain our decision to both sides in the chat. We are not required to investigate beyond the information we are given.</p>
   <p>Our decision settles what happens to the held money. It doesn’t take away any right either party has under Nigerian law, including the right to go to court or to the Federal Competition and Consumer Protection Commission. How this works in practice is on the page <a href="/legal/disputes/">If something goes wrong</a>.</p>
 </section>
 
@@ -128,21 +128,21 @@
 
 <section>
   <h2 id="liability">Our responsibility</h2>
-  <p>Our job under this agreement is to receive, hold, release and refund the money in each deal as set out here, and we will do that with care. We are not responsible for the item, its quality, legality or delivery, or for what the buyer and seller do or say to each other.</p>
-  <p>If we fail in our job, the most we are responsible for in a deal is the held money in that deal plus any fee we took for it. Nothing in this agreement limits our responsibility for fraud, or for anything else the law does not allow us to limit.</p>
+  <p>Our job under this agreement is to receive, hold, release and refund the money in each order as set out here, and we will do that with care. We are not responsible for the item, its quality, legality or delivery, or for what the buyer and seller do or say to each other.</p>
+  <p>If we fail in our job, the most we are responsible for in an order is the held money in that order plus any fee we took for it. Nothing in this agreement limits our responsibility for fraud, or for anything else the law does not allow us to limit.</p>
 </section>
 
 <section>
   <h2 id="messages">Messages and records</h2>
-  <p>We tell you about your deal in the WhatsApp chat, and those messages count as notice to you. Every step of a deal (who did what, and when) is recorded, and those records are what we rely on if there’s a question later.</p>
+  <p>We tell you about your order in the WhatsApp chat, and those messages count as notice to you. Every step of an order (who did what, and when) is recorded, and those records are what we rely on if there’s a question later.</p>
 </section>
 
 <section>
   <h2 id="changes">Changes to this agreement</h2>
-  <p>We may update this agreement. For important changes, such as fees, how money moves, or how problems are decided, we will give at least 7 days’ notice on this website and in WhatsApp before they take effect. A deal that has already started keeps the terms it started with.</p>
+  <p>We may update this agreement. For important changes, such as fees, how money moves, or how problems are decided, we will give at least 7 days’ notice on this website and in WhatsApp before they take effect. An order that has already started keeps the terms it started with.</p>
 </section>
 
 <section>
   <h2 id="law">The law that applies</h2>
-  <p>This agreement is governed by the laws of the Federal Republic of Nigeria. If a court finds any part of it can’t be enforced, the rest still applies. Together with our <a href="/legal/terms/">Terms of service</a>, this agreement is the whole agreement between Hoolam and the parties about holding the money in a deal.</p>
+  <p>This agreement is governed by the laws of the Federal Republic of Nigeria. If a court finds any part of it can’t be enforced, the rest still applies. Together with our <a href="/legal/terms/">Terms of service</a>, this agreement is the whole agreement between Hoolam and the parties about holding the money in an order.</p>
 </section>

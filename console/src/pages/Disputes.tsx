@@ -22,7 +22,7 @@ export function Disputes() {
           : (
             <div className="table-wrap">
               <table className="t">
-                <thead><tr><th>Deal</th><th>What the buyer said</th><th>People</th><th className="r">Frozen</th><th>{state === 'open' ? 'Open for' : 'Outcome'}</th></tr></thead>
+                <thead><tr><th>Order</th><th>What the buyer said</th><th>People</th><th className="r">Frozen</th><th>{state === 'open' ? 'Open for' : 'Outcome'}</th></tr></thead>
                 <tbody>
                   {data.rows.map((r: any) => (
                     <tr key={r.id} className="link" tabIndex={0} onClick={() => nav(`/deals/${r.code}`)} onKeyDown={(e) => { if (e.key === 'Enter') nav(`/deals/${r.code}`); }}>

@@ -117,7 +117,7 @@ const hours = (h) => `${h} hour${+h === 1 ? '' : 's'}`;
 const contactItems = [
   // the same number for calls and WhatsApp shows once
   contact.phone && contact.phone !== wa && `<li><a class="sf-row" href="tel:+${esc(contact.phone)}"><svg class="ic" aria-hidden="true"><use href="#sf-phone"/></svg><span>${esc(phoneText(contact.phone))}<small>Phone</small></span></a></li>`,
-  wa && `<li><a class="sf-row" data-wa href="${esc(waLink)}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#sf-whatsapp"/></svg><span>${esc(phoneText(wa))}<small>${contact.phone === wa ? 'Phone and WhatsApp' : 'WhatsApp, for deals and help'}</small></span></a></li>`,
+  wa && `<li><a class="sf-row" data-wa href="${esc(waLink)}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#sf-whatsapp"/></svg><span>${esc(phoneText(wa))}<small>${contact.phone === wa ? 'Phone and WhatsApp' : 'WhatsApp, for orders and help'}</small></span></a></li>`,
   contact.email && `<li><a class="sf-row" href="mailto:${esc(contact.email)}"><svg class="ic" aria-hidden="true"><use href="#sf-mail"/></svg><span>${esc(contact.email)}<small>Email</small></span></a></li>`,
   (contact.socials ?? []).length && `<li class="sf-socials" aria-label="Hoolam on social media">${contact.socials.filter((s) => /^https:\/\//.test(s.url)).map((s) =>
     `<a href="${esc(s.url)}" target="_blank" rel="noopener" aria-label="Hoolam on ${esc(s.name)}: ${esc(s.label)}"><svg class="ic" aria-hidden="true"><use href="#sf-${esc(s.kind)}"/></svg>${esc(s.label)}</a>`).join('')}</li>`,
@@ -158,7 +158,7 @@ const sprite = (indexSrc.match(/<svg width="0" height="0" style="position:absolu
 const LEGAL_PAGES = [
   { slug: 'terms', title: 'Terms of service', blurb: 'The agreement between you and Hoolam when you use the service.' },
   { slug: 'privacy', title: 'Privacy policy', blurb: 'What we collect, why, who sees it and your rights under Nigerian law.' },
-  { slug: 'holding-agreement', title: 'Holding agreement', blurb: 'How we receive, hold, release and refund the money in every deal.' },
+  { slug: 'holding-agreement', title: 'Holding agreement', blurb: 'How we receive, hold, release and refund the money in every order.' },
   { slug: 'disputes', title: 'If something goes wrong', blurb: 'Reporting a problem, how we decide, and how refunds work.' },
   { slug: 'acceptable-use', title: 'Acceptable use', blurb: 'What you can and can’t sell or do with Hoolam.' },
   { slug: 'money', title: 'Where the money sits', blurb: 'The bank, the accounts, and every step your money takes.' },
@@ -193,7 +193,7 @@ const hub = `<div class="lg-hub">${LEGAL_PAGES.map((p) => `<a class="lg-card" hr
 <section class="lg-company" aria-labelledby="company"><h2 id="company" class="plain">The company behind Hoolam</h2>
 <dl><div><dt>Registered name</dt><dd>${COMPANY.legalName}</dd></div><div><dt>RC number</dt><dd>${COMPANY.rc}</dd></div>
 <div><dt>Registered with</dt><dd>Corporate Affairs Commission, Nigeria, on ${COMPANY.incorporated}</dd></div><div><dt>Registered office</dt><dd>${esc(COMPANY.address)}</dd></div>
-<div><dt>Money for deals held with</dt><dd>${COMPANY.bankPartner}, through ${COMPANY.payService}</dd></div><div><dt>Contact</dt><dd>${shared.EMAIL_LINK}</dd></div></dl></section>`;
+<div><dt>Money for orders held with</dt><dd>${COMPANY.bankPartner}, through ${COMPANY.payService}</dd></div><div><dt>Contact</dt><dd>${shared.EMAIL_LINK}</dd></div></dl></section>`;
 mkdirSync(join(out, 'legal'), { recursive: true });
 writeFileSync(join(out, 'legal', 'index.html'), page({ slug: '', title: 'Legal', blurb: 'Every agreement and policy for using Hoolam, written to be read.',
   lede: 'Every agreement and policy for using Hoolam. We’ve written them to be read, not skimmed past. Each page starts with a short version.', body: hub, toc: '', path: '/legal/' }));

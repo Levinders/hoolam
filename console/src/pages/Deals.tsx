@@ -39,29 +39,29 @@ export function Deals() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Deals</h1><p className="lede">Every deal, where its money is, and who is waiting on whom.</p></div>
+        <div><h1>Orders</h1><p className="lede">Every order, where its money is, and who is waiting on whom.</p></div>
       </div>
       <section className="panel">
         <div className="toolbar">
-          <div className="input-icon"><Search aria-hidden="true" /><input className="input" placeholder="Code, item, name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search deals" /></div>
+          <div className="input-icon"><Search aria-hidden="true" /><input className="input" placeholder="Code, item, name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" /></div>
           <Seg value={group} onChange={(v) => set('group', v === 'all' ? null : v)} options={[
             { value: 'all', label: 'All', n: count('all') }, { value: 'waiting', label: 'Waiting', n: count('waiting') }, { value: 'held', label: 'Money held', n: count('held') },
             { value: 'problems', label: 'Problems', n: count('problems') }, { value: 'done', label: 'Completed', n: count('done') }, { value: 'closed', label: 'Closed', n: count('closed') },
           ]} />
           <span className="spacer" />
-          <select className="select" style={{ width: 160 }} value={startedBy} onChange={(e) => set('by', e.target.value || null)} aria-label="Who started the deal">
+          <select className="select" style={{ width: 160 }} value={startedBy} onChange={(e) => set('by', e.target.value || null)} aria-label="Who started the order">
             <option value="">Started by anyone</option><option value="seller">Started by seller</option><option value="buyer">Started by buyer</option>
           </select>
-          <label className="check"><Switch on={hideTest} onChange={(v) => set('test', v ? 'hide' : null)} label="Hide test deals" />Hide test deals</label>
+          <label className="check"><Switch on={hideTest} onChange={(v) => set('test', v ? 'hide' : null)} label="Hide test orders" />Hide test orders</label>
         </div>
         {error ? <div className="panel-body"><ErrorBanner error={error} onRetry={reload} /></div>
           : loading && !data ? <SkeletonRows rows={8} />
-          : !data?.rows.length ? <Empty icon={Handshake} title={dq ? `No deals match “${dq}”` : 'No deals here yet'}>{dq ? 'Try a deal code like HL-7K2QF, a phone number or a name.' : 'Deals appear the moment someone starts one on WhatsApp.'}</Empty>
+          : !data?.rows.length ? <Empty icon={Handshake} title={dq ? `No orders match “${dq}”` : 'No orders here yet'}>{dq ? 'Try an order code like HL-7K2QF, a phone number or a name.' : 'Orders appear the moment someone starts one on WhatsApp.'}</Empty>
           : (
             <>
               <div className="table-wrap">
                 <table className="t">
-                  <thead><tr><th>Deal</th><th>Status</th><th>Buyer</th><th>Seller</th><th className="r">Buyer pays</th><th>Fee paid by</th><th className="r">Updated</th></tr></thead>
+                  <thead><tr><th>Order</th><th>Status</th><th>Buyer</th><th>Seller</th><th className="r">Buyer pays</th><th>Fee paid by</th><th className="r">Updated</th></tr></thead>
                   <tbody>
                     {data.rows.map((d: any) => (
                       <tr key={d.code} className="link" onClick={() => nav(`/deals/${d.code}`)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') nav(`/deals/${d.code}`); }}>
