@@ -22,7 +22,7 @@ async function newSeller(name = 'Bayo Shoes') {
 }
 /** One full deal from seller to a given buyer, ending with the buyer happy (and optionally rating). */
 async function completeDeal(seller: string, buyer: string, opts: { rate?: 'up' | 'down'; shipHours?: number } = {}) {
-  await h.tap(seller, 'menu:sell');
+  await h.sell(seller);
   await h.say(seller, 'Sneakers'); await h.say(seller, '10000');
   await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.tap(seller, 'sell:confirm');
   const code = codeIn(h.last(seller));
@@ -51,18 +51,18 @@ describe('the numbers', () => {
     expect(t).toMatchObject({ name: 'Bayo', completed: 4, buyers: 3, happy: 3, rated: 4, problems: 0, isNew: false });
     expect(t.shipHours).toBe(23);
     const card = msg.trustCardText(t);
-    expect(card).toMatch(/✅ 4 deals completed/);
+    expect(card).toMatch(/✅ 4 orders completed/);
     expect(card).toMatch(/👥 3 different buyers/);
     expect(card).toMatch(/📦 Ships in about 1 day/);
     expect(card).toMatch(/⚖️ No problems reported/);
     expect(card).toMatch(/👍 3 of 4 buyers happy/);
     expect(card).toMatch(/Paid out to Test A\., bank-verified/);
-    expect(msg.trustLine(t)).toBe('🛡️ Bayo · ✅ 4 deals');
+    expect(msg.trustLine(t)).toBe('🛡️ Bayo · ✅ 4 orders');
   });
 
   it('a refund after review shows on the card; a new seller shows "New on Hoolam"', async () => {
     const seller = await newSeller('Kemi Wigs'); const buyer = phone();
-    await h.tap(seller, 'menu:sell'); await h.say(seller, 'Wig'); await h.say(seller, '20000');
+    await h.sell(seller); await h.say(seller, 'Wig'); await h.say(seller, '20000');
     await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.tap(seller, 'sell:confirm');
     const code = codeIn(h.last(seller));
     await h.say(buyer, `Pay ${code}`); await h.tap(buyer, `pay:${code}`);
@@ -72,7 +72,7 @@ describe('the numbers', () => {
     await h.app.deals.adminRefund(code, 'Wrong item');
     const t = (await h.app.trust.seller(await userId(seller)))!;
     expect(t).toMatchObject({ problems: 1, refunded: 1, completed: 0, isNew: true });
-    expect(msg.trustCardText(t)).toMatch(/🌱 New on Hoolam: no completed deals yet/);
+    expect(msg.trustCardText(t)).toMatch(/🌱 New on Hoolam: no completed orders yet/);
     expect(msg.trustCardText(t)).toMatch(/⚖️ 1 problem reported · 1 refunded after review/);
     expect(msg.trustLine(t)).toBe('🛡️ Kemi · 🌱 New on Hoolam · ⚖️ 1 refunded');
     const b = (await h.app.trust.buyer(await userId(buyer)))!;
@@ -93,16 +93,16 @@ describe('where buyers see it', () => {
   it('a one-line record above Pay now, and the full card one tap away', async () => {
     const seller = await newSeller();
     await completeDeal(seller, phone()); await completeDeal(seller, phone()); await completeDeal(seller, phone());
-    await h.tap(seller, 'menu:sell'); await h.say(seller, 'Bag'); await h.say(seller, '9000');
+    await h.sell(seller); await h.say(seller, 'Bag'); await h.say(seller, '9000');
     await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.tap(seller, 'sell:confirm');
     const code = codeIn(h.last(seller));
     const buyer = phone();
     await h.say(buyer, `Pay ${code}`, 'Tolu');
-    expect(h.last(buyer)).toMatch(/🛡️ Bayo · ✅ 3 deals/);
+    expect(h.last(buyer)).toMatch(/🛡️ Bayo · ✅ 3 orders/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[🛡️ Seller's record\] \[Not now\]/);
     expect(h.last(seller)).toMatch(/👤 Tolu · 🌱 new buyer on Hoolam/); // sellers see the buyer too
     await h.tap(buyer, `record:${code}`);
-    expect(h.last(buyer)).toMatch(/✅ 3 deals completed/);
+    expect(h.last(buyer)).toMatch(/✅ 3 orders completed/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[Main menu\]/);
   });
 
@@ -131,10 +131,10 @@ describe('where buyers see it', () => {
     await h.tap(buyer, `buyfrom:${sid}`);
     expect(h.last(buyer)).toMatch(/You're buying from \*Bayo\*/);
     await h.say(buyer, 'Loafers'); await h.say(buyer, '12000'); await h.tap(buyer, 'buy:nophotos');
-    expect(h.last(buyer)).toMatch(/Check your deal/);
+    expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/We'll alert \+234 807/);
     await h.tap(buyer, 'buy:send');
-    expect((await lastBody(seller)).text).toMatch(/\[template hoolam_order_request\]/);
+    expect((await lastBody(seller)).text).toMatch(/\[template hoolam_new_order_request\]/);
   });
 });
 
@@ -183,7 +183,7 @@ describe('the seller\'s own card and public page', () => {
     const page = await h.app.app.inject({ method: 'GET', url: '/s/bayo-kicks-lagos' });
     expect(page.statusCode).toBe(200);
     expect(page.body).toMatch(/Bayo Kicks Lagos/);
-    expect(page.body).toMatch(/deal completed/);
+    expect(page.body).toMatch(/order completed/);
     expect(page.body).toMatch(/text=Buy%20from%20%40bayo-kicks-lagos/);
     expect(page.body).toMatch(/og:image" content="https:\/\/hoolam\.test\/s\/bayo-kicks-lagos\/share\.jpg/);
     expect((await h.app.app.inject({ method: 'GET', url: '/share.png' })).headers['content-type']).toBe('image/png');

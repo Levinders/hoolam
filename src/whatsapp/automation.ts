@@ -14,7 +14,7 @@ import type { Template } from './client.js';
  *
  * Every ice breaker and command here must also be understood in flow.ts (PHRASES and SLASH).
  */
-export type MenuItem = 'open' | 'sell' | 'buy' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human' | 'card' | 'check';
+export type MenuItem = 'open' | 'sell' | 'buy' | 'orders' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human' | 'card' | 'check' | 'tosell' | 'tobuy' | 'switch';
 
 /**
  * Shown in a brand-new chat. Each one is a first line a real person would say, and where it leads.
@@ -22,7 +22,7 @@ export type MenuItem = 'open' | 'sell' | 'buy' | 'deals' | 'account' | 'pay' | '
  */
 export const ICE_BREAKER_STEPS: { text: string; goTo: MenuItem }[] = [
   { text: 'I want to buy something safely', goTo: 'buy' },
-  { text: 'A seller sent me a deal code', goTo: 'pay' },
+  { text: 'A seller sent me an order code', goTo: 'pay' },
   { text: 'I want to sell something safely', goTo: 'sell' },
   { text: 'How does Hoolam protect my money?', goTo: 'how' },
 ];
@@ -31,17 +31,18 @@ export const ICE_BREAKERS = ICE_BREAKER_STEPS.map((i) => i.text);
 /** Typed with "/" at any time. Short hints: they show up in a small pop-up list. */
 export const COMMANDS: { name: string; hint: string; goTo: MenuItem }[] = [
   { name: 'menu', hint: 'Everything you can do', goTo: 'open' },
-  { name: 'buy', hint: 'Start a safe deal with a seller', goTo: 'buy' },
+  { name: 'buy', hint: 'Start a safe order with a seller', goTo: 'buy' },
   { name: 'sell', hint: 'Get a safe-pay link for your buyer', goTo: 'sell' },
-  { name: 'pay', hint: 'Pay with a code from a seller', goTo: 'pay' },
-  { name: 'deals', hint: 'Where your deals and money are', goTo: 'deals' },
-  { name: 'problem', hint: 'Freeze the money on a bad delivery', goTo: 'problem' },
-  { name: 'account', hint: 'Where we send your money', goTo: 'account' },
+  { name: 'pay', hint: 'Pay with an order code from a seller', goTo: 'pay' },
+  { name: 'orders', hint: 'Your orders, and where your money is', goTo: 'orders' },
   { name: 'check', hint: 'See a seller\'s record before you buy', goTo: 'check' },
   { name: 'card', hint: 'Your trust card and share link', goTo: 'card' },
+  { name: 'account', hint: 'Where we send your money', goTo: 'account' },
+  { name: 'problem', hint: 'Report a problem with an order', goTo: 'problem' },
+  { name: 'switch', hint: 'Switch between buying and selling', goTo: 'switch' },
   { name: 'fees', hint: 'What it costs and who pays', goTo: 'fees' },
   { name: 'help', hint: 'How Hoolam keeps you safe', goTo: 'how' },
-  { name: 'human', hint: 'Talk to a real person', goTo: 'human' },
+  { name: 'rep', hint: 'Talk to a real person', goTo: 'human' },
 ];
 
 export interface AutomationOptions {
@@ -87,87 +88,91 @@ export async function syncAutomation(o: AutomationOptions): Promise<{ ok: boolea
 
 export interface MetaSetupOptions extends AutomationOptions { wabaId: string; formMode: 'draft' | 'published' }
 
-/** The seller alert. Utility template: strictly about the order, nothing promotional. */
+/**
+ * The seller alert. Utility template: strictly about the order, nothing promotional.
+ * `replaces`: the earlier version's name. Until Meta approves the new one, the old one is used if it was approved,
+ * so alerts never stop while wording changes are reviewed. Variables and buttons must stay in the same places.
+ */
 export const SELLER_ALERT = {
-  name: 'hoolam_order_request',
+  name: 'hoolam_new_order_request', replaces: 'hoolam_order_request',
   body:
     '🛒 New order request on Hoolam\n\n{{1}} wants to buy {{2}} from you for {{3}}.\n\n' +
     'They pay Hoolam first. You ship once the money is held, and you get paid when they are happy.\n\n' +
-    'Deal {{4}}. Tap below to see the photos and accept.',
+    'Order {{4}}. Tap below to see the photos and accept.',
   example: ['Ada', 'Black sneakers, size 42', '₦15,000', 'HL-7K2QF'],
   footer: 'Not expecting this? Tap Not me.',
-  buttons: ['View deal', 'Not me'],
+  buttons: ['View order', 'Not me'],
 };
 
-/** The buyer alert (a seller started the deal and typed the buyer's number). */
+/** The buyer alert (a seller started the order and typed the buyer's number). */
 export const BUYER_ALERT = {
-  name: 'hoolam_payment_request',
+  name: 'hoolam_order_payment_request', replaces: 'hoolam_payment_request',
   body:
     '💳 Payment request on Hoolam\n\n{{1}} is selling you {{2}} for {{3}}.\n\n' +
     'You pay Hoolam, not the seller. We hold the money until you receive the item and are happy.\n\n' +
-    'Deal {{4}}. Tap below to see the photos and pay.',
+    'Order {{4}}. Tap below to see the photos and pay.',
   example: ['Bayo', 'Black sneakers, size 42', '₦15,000', 'HL-7K2QF'],
   footer: 'Not expecting this? Tap Not me.',
-  buttons: ['View deal', 'Not me'],
+  buttons: ['View order', 'Not me'],
 };
 
-export interface TemplateDef { name: string; body: string; example: string[]; footer?: string; buttons?: string[] }
+export interface TemplateDef { name: string; body: string; example: string[]; footer?: string; buttons?: string[]; replaces?: string }
 
 /**
- * Deal updates Hoolam starts when the other person last wrote more than 24 hours ago (WhatsApp then only
+ * Order updates Hoolam starts when the other person last wrote more than 24 hours ago (WhatsApp then only
  * allows pre-approved templates). Each mirrors a chat message in messages.ts. All are UTILITY: about one
- * deal, nothing promotional. The server submits them to Meta on start and uses each once Meta approves it.
+ * order, nothing promotional. The server submits them to Meta on start and uses each once Meta approves it.
  * Rules Meta enforces: the body can't start or end with a variable; button labels max 25 characters.
  */
 export const DEAL_TEMPLATES = {
   sellerAccepted: {
-    name: 'hoolam_seller_accepted', label: 'Seller accepted (to the buyer)',
-    body: 'Good news: the seller accepted your order for deal {{1}}.\n\nPay {{2}} to Hoolam to start. We hold the money until you have your item and are happy.',
+    name: 'hoolam_order_accepted', replaces: 'hoolam_seller_accepted', label: 'Seller accepted (to the buyer)',
+    body: 'Good news: the seller accepted your order {{1}}.\n\nPay {{2}} to Hoolam to start. We hold the money until you have your item and are happy.',
     example: ['HL-7K2QF', '₦15,300'], buttons: ['Pay now'],
   },
   counterOffer: {
-    name: 'hoolam_counter_offer', label: 'New price from the seller (to the buyer)',
-    body: 'The seller replied to your order for deal {{1}} with a new price. You would pay {{2}} in total.\n\nYou only pay if you accept.',
-    example: ['HL-7K2QF', '₦18,400'], buttons: ['Accept new price', 'Cancel deal'],
+    name: 'hoolam_order_new_price', replaces: 'hoolam_counter_offer', label: 'New price from the seller (to the buyer)',
+    body: 'The seller replied to your order {{1}} with a new price. You would pay {{2}} in total.\n\nYou only pay if you accept.',
+    example: ['HL-7K2QF', '₦18,400'], buttons: ['Accept new price', 'Cancel order'],
   },
   paymentReceived: {
-    name: 'hoolam_payment_received', label: 'Buyer paid (to the seller)',
-    body: 'The buyer has paid for deal {{1}}. Your {{2}} is held safely by Hoolam.\n\nSend the item now, then tap below.',
+    name: 'hoolam_order_paid', replaces: 'hoolam_payment_received', label: 'Buyer paid (to the seller)',
+    body: 'The buyer has paid for order {{1}}. Your {{2}} is held safely by Hoolam.\n\nSend the item now, then tap below.',
     example: ['HL-7K2QF', '₦15,000'], buttons: ['I have sent it'],
   },
   itemOnTheWay: {
-    name: 'hoolam_item_on_the_way', label: 'Item on the way (to the buyer)',
-    body: 'Your item for deal {{1}} is on the way.\n\nWhen it arrives, open it and check it. Your money stays held by Hoolam until you tell us.',
+    name: 'hoolam_order_on_the_way', replaces: 'hoolam_item_on_the_way', label: 'Item on the way (to the buyer)',
+    body: 'Your item for order {{1}} is on the way.\n\nWhen it arrives, open it and check it. Your money stays held by Hoolam until you tell us.',
     example: ['HL-7K2QF'], buttons: ["I'm happy", 'Problem'],
   },
   confirmReminder: {
-    name: 'hoolam_confirm_reminder', label: 'Has it arrived? (to the buyer)',
-    body: 'Has your item for deal {{1}} arrived? Your {{2}} is still held safely by Hoolam.\n\nCheck it, then tell us below.',
+    name: 'hoolam_order_arrived_check', replaces: 'hoolam_confirm_reminder', label: 'Has it arrived? (to the buyer)',
+    body: 'Has your item for order {{1}} arrived? Your {{2}} is still held safely by Hoolam.\n\nCheck it, then tell us below.',
     example: ['HL-7K2QF', '₦15,300'], buttons: ["I'm happy", 'Problem'],
   },
   sellerPaid: {
-    name: 'hoolam_seller_paid', label: 'You have been paid (to the seller)',
-    body: "You've been paid for deal {{1}}. {{2}} has been sent to your {{3}} account.\n\nThank you for selling safely with Hoolam.",
+    name: 'hoolam_order_payout_sent', replaces: 'hoolam_seller_paid', label: 'You have been paid (to the seller)',
+    body: "You've been paid for order {{1}}. {{2}} has been sent to your {{3}} account.\n\nThank you for selling safely with Hoolam.",
     example: ['HL-7K2QF', '₦15,000', 'GTBank'],
   },
   refundSent: {
-    name: 'hoolam_refund_sent', label: 'Refund sent (to the buyer)',
-    body: 'Your refund for deal {{1}} has been sent. {{2}} is on its way to your {{3}} account.\n\nThank you for your patience.',
+    name: 'hoolam_order_refund_sent', replaces: 'hoolam_refund_sent', label: 'Refund sent (to the buyer)',
+    body: 'Your refund for order {{1}} has been sent. {{2}} is on its way to your {{3}} account.\n\nThank you for your patience.',
     example: ['HL-7K2QF', '₦15,300', 'Opay'],
   },
   problemReported: {
-    name: 'hoolam_problem_reported', label: 'Buyer reported a problem (to the seller)',
-    body: 'The buyer reported a problem with deal {{1}}. The money stays held while the Hoolam team looks into it.\n\nTap below to send us your side.',
-    example: ['HL-7K2QF'], buttons: ['Talk to Hoolam'],
+    name: 'hoolam_order_problem', replaces: 'hoolam_problem_reported', label: 'Buyer reported a problem (to the seller)',
+    body: 'The buyer reported a problem with order {{1}}. The money stays held while the Hoolam team looks into it.\n\nTap below to send us your side.',
+    example: ['HL-7K2QF'], buttons: ['Talk to a rep'],
   },
   sellerNoReply: {
-    name: 'hoolam_deal_closed', label: 'Seller did not answer in time (to the buyer)',
-    body: "Deal {{1}} has closed because the seller didn't respond in time. No money was taken.\n\nYou can start a new deal any time.",
+    name: 'hoolam_order_closed', replaces: 'hoolam_deal_closed', label: 'Seller did not answer in time (to the buyer)',
+    body: "Order {{1}} has closed because the seller didn't respond in time. No money was taken.\n\nYou can start a new order any time.",
     example: ['HL-7K2QF'], buttons: ['Start another'],
   },
   sellerDeclined: {
-    name: 'hoolam_seller_declined', label: 'Seller declined (to the buyer)',
-    body: 'The seller declined deal {{1}}. No money was taken.\n\nYou can start a new deal any time.',
+    name: 'hoolam_order_declined', replaces: 'hoolam_seller_declined', label: 'Seller declined (to the buyer)',
+    body: 'The seller declined order {{1}}. No money was taken.\n\nYou can start a new order any time.',
     example: ['HL-7K2QF'], buttons: ['Start another'],
   },
 } satisfies Record<string, TemplateDef & { label: string }>;

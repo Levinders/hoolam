@@ -46,7 +46,14 @@ export type SellerAlert = 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed
 
 export const SELLER_ALERT_TEMPLATE = SELLER_ALERT.name;
 export type Alert = SellerAlert;
-export interface User { id: string; phone: string; display_name: string | null; blocked?: boolean; deal_cap_minor?: number | null }
+export type MenuMode = 'buyer' | 'seller';
+export interface User {
+  id: string; phone: string; display_name: string | null; blocked?: boolean; deal_cap_minor?: number | null;
+  /** When they became a seller (null = buyer only). */
+  seller_since?: Date | null;
+  /** Which menu they see. */
+  menu_mode?: MenuMode;
+}
 export interface BankAccount { id: string; user_id: string; bank_code: string; bank_name: string; account_number: string; account_name: string }
 
 /** Messages to send after the transaction commits. `fallback` is the approved template used if they're outside WhatsApp's 24-hour window. */
@@ -170,14 +177,14 @@ export class DealService {
     const r = await this.o.db.query(
       `INSERT INTO users (phone, display_name) VALUES ($1,$2)
        ON CONFLICT (phone) DO UPDATE SET display_name = COALESCE(users.display_name, EXCLUDED.display_name)
-       RETURNING id, phone, display_name, blocked, deal_cap_minor`,
+       RETURNING id, phone, display_name, blocked, deal_cap_minor, seller_since, menu_mode`,
       [phone, name],
     );
     return r.rows[0];
   }
 
   async userById(q: Queryable, id: string): Promise<User> {
-    const r = await q.query('SELECT id, phone, display_name, blocked, deal_cap_minor FROM users WHERE id=$1', [id]);
+    const r = await q.query('SELECT id, phone, display_name, blocked, deal_cap_minor, seller_since, menu_mode FROM users WHERE id=$1', [id]);
     return r.rows[0];
   }
 
@@ -216,6 +223,24 @@ export class DealService {
     const r = await tx.query('SELECT * FROM deals WHERE id=$1 FOR UPDATE', [id]);
     if (!r.rows[0]) throw new DealError('NOT_FOUND');
     return r.rows[0];
+  }
+
+  /**
+   * Which menu someone sees. Choosing "seller" also makes them a seller (their trust card starts) the first time.
+   * Updates the user object passed in, so the rest of this request sees the change.
+   */
+  async setMenuMode(user: User, mode: MenuMode): Promise<void> {
+    const r = await this.o.db.query(
+      `UPDATE users SET menu_mode=$2::text, seller_since = CASE WHEN $2::text='seller' THEN COALESCE(seller_since, now()) ELSE seller_since END
+       WHERE id=$1 RETURNING seller_since, menu_mode`, [user.id, mode]);
+    if (r.rows[0]) { user.seller_since = r.rows[0].seller_since; user.menu_mode = r.rows[0].menu_mode; }
+  }
+
+  /** Orders where this person is the buyer, or the seller. */
+  async recentOrders(userId: string, as: MenuMode, limit = 8): Promise<Deal[]> {
+    const col = as === 'seller' ? 'seller_id' : 'buyer_id';
+    const r = await this.o.db.query(`SELECT * FROM deals WHERE ${col}=$1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
+    return r.rows;
   }
 
   async recentDeals(userId: string, limit = 5): Promise<Deal[]> {
@@ -297,7 +322,7 @@ export class DealService {
       params: [name, deal.item, total, deal.code],
       buttonPayloads: [`bview:${deal.code}`, `bnotme:${deal.code}`],
       buttonTitles: BUYER_ALERT.buttons,
-      preview: `💳 Payment request on Hoolam\n\n${name} is selling you ${deal.item} for ${total}. Deal ${deal.code}.`,
+      preview: `💳 Payment request on Hoolam\n\n${name} is selling you ${deal.item} for ${total}. Order ${deal.code}.`,
     });
     if (status === 'FAILED') { this.log(`buyer alert for ${deal.code} failed; the seller still has the link`); return 'failed'; }
     return 'sent';
@@ -378,7 +403,7 @@ export class DealService {
       params: [name, deal.item, price, deal.code],
       buttonPayloads: [`sview:${deal.code}`, `snotme:${deal.code}`],
       buttonTitles: SELLER_ALERT.buttons,
-      preview: `🛒 New order request on Hoolam\n\n${name} wants to buy ${deal.item} from you for ${price}. Deal ${deal.code}.`,
+      preview: `🛒 New order request on Hoolam\n\n${name} wants to buy ${deal.item} from you for ${price}. Order ${deal.code}.`,
     });
     if (status === 'FAILED') { this.log(`seller alert for ${deal.code} failed; the buyer still has the link`); return 'failed'; }
     return 'sent';
@@ -683,7 +708,7 @@ export class DealService {
     if (photos.length) {
       const ids = await this.photoIdsForSending(deal.id, 'SHIPPING');
       const last = ids[ids.length - 1];
-      if (last) await this.o.messenger.send(buyer.phone, { kind: 'image', mediaId: last, caption: `📦 Proof of shipping for deal ${deal.code}` });
+      if (last) await this.o.messenger.send(buyer.phone, { kind: 'image', mediaId: last, caption: `📦 Proof of shipping for order ${deal.code}` });
     }
     if (note) await this.o.messenger.send(buyer.phone, msg.buyerShippingNote(deal.code, note));
     await this.o.messenger.send(seller.phone, msg.shippingProofSaved(deal.code));

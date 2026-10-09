@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 /**
  * THE BUYER'S AND SELLER'S FORMS (WhatsApp Flows). Two screens each:
  *   1. ITEM:   banner, the item, the price, the other side's WhatsApp (optional), arrival date (buyer only, optional)
- *   2. PHOTOS: up to 3 photos (optional), then "Review my deal"
+ *   2. PHOTOS: up to 3 photos (optional), then "Review my order"
  * WhatsApp shows it in its own style; our branding is the banner image and the words.
- * Static form: no server endpoint. The answers arrive in the webhook when the buyer taps "Review my deal".
+ * Static form: no server endpoint. The answers arrive in the webhook when the buyer taps "Review my order".
  *
  * Changing anything here creates a new form on Meta automatically (the name includes a hash of this JSON).
  * WhatsApp limits: labels 20 characters, helper text 30, footer button 35.
@@ -89,7 +89,7 @@ function dealFlowJson(kind: Kind, bannerBase64: string) {
                   'photo-source': 'camera_gallery', 'max-file-size-kb': 5120, 'min-uploaded-photos': 0, 'max-uploaded-photos': 3,
                 },
                 { type: 'TextCaption', text: buy ? '💡 Nothing to pay yet. You pay after the seller accepts.' : '💡 The buyer pays Hoolam. You get paid when they\'re happy.' },
-                { type: 'Footer', label: 'Review my deal', 'on-click-action': { name: 'complete', payload: done } },
+                { type: 'Footer', label: 'Review my order', 'on-click-action': { name: 'complete', payload: done } },
               ],
             },
           ],

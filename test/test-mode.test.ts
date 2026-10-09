@@ -10,7 +10,7 @@ describe('test mode: one phone plays both sides', () => {
   it('runs a whole deal from a single phone, with "paid" standing in for the transfer', async () => {
     const me = '+2290190000001';
     await h.say(me, 'hi', 'Raphael');
-    await h.tap(me, 'menu:sell');
+    await h.sell(me);
     await h.say(me, 'Test sneakers');
     await h.say(me, '10000');
     await h.tap(me, 'sell:nophotos');

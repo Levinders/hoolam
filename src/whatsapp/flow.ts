@@ -4,7 +4,7 @@ import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { PRICING, quote } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
 import type { Bank, PaymentProvider } from '../payments/provider.js';
-import { DealError, type BuyerDealInput, type DealService, type User } from '../deals/service.js';
+import { DealError, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
 import type { Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
 import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
@@ -26,7 +26,8 @@ type State =
   | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_PRICE' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SHIP_PROOF'
-  | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL';
+  | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
+  | 'SETUP_NAME' | 'SETUP_CITY';
 interface Session { state: State; data: Record<string, any>; isNew: boolean }
 
 export interface FlowOptions {
@@ -62,20 +63,22 @@ const CODE_RE = /\bHL-?([A-Z2-9]{5})\b/i;
 const clean = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s/-]/gu, '').replace(/\s+/g, ' ').trim();
 
 /** "/sell" etc. Built from COMMANDS in automation.ts, so the two never drift apart. Works at any point. */
-const SLASH: Record<string, MenuItem> = { start: 'open', ...Object.fromEntries(COMMANDS.map((c) => [c.name, c.goTo])) };
+const SLASH: Record<string, MenuItem> = { start: 'open', human: 'human', deals: 'orders', code: 'pay', ...Object.fromEntries(COMMANDS.map((c) => [c.name, c.goTo])) };
 /** Words that always bring the menu back, whatever we were waiting for. */
 const GREETINGS = ['menu', 'hi', 'hello', 'start', 'help', 'hey', 'main menu', 'good morning', 'good afternoon', 'good evening'];
 /** Typed phrases (the ice breakers first) understood when nothing else is in progress. */
 const PHRASES: Record<string, MenuItem> = {
   ...Object.fromEntries(ICE_BREAKER_STEPS.map((i) => [clean(i.text), i.goTo])),
   'i want to sell something': 'sell', 'sell': 'sell', 'sell something': 'sell',
-  'i have a deal code to pay': 'pay', 'pay': 'pay', 'pay for a deal': 'pay', 'i have a deal code': 'pay', 'code': 'pay',
+  'i have an order code': 'pay', 'i have a deal code to pay': 'pay', 'pay': 'pay', 'pay for a deal': 'pay', 'pay for an order': 'pay', 'i have a deal code': 'pay', 'code': 'pay', 'order code': 'pay',
+  'a seller sent me a deal code': 'pay',
   'buy': 'buy', 'buy something': 'buy', 'i want to buy something': 'buy', 'buy safely': 'buy',
   'how does hoolam work': 'how', 'how it works': 'how', 'how hoolam works': 'how',
-  'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'agent': 'human', 'support': 'human',
-  'my deals': 'deals', 'deals': 'deals', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
+  'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'talk to a rep': 'human', 'rep': 'human', 'agent': 'human', 'support': 'human',
+  'my orders': 'orders', 'orders': 'orders', 'my deals': 'orders', 'deals': 'orders', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
   'check a seller': 'check', 'check seller': 'check', 'my trust card': 'card', 'trust card': 'card',
-  'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'account': 'account',
+  'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'payout account': 'account', 'account': 'account',
+  'switch to selling': 'tosell', 'switch to buying': 'tobuy', 'switch': 'switch', 'im selling': 'tosell', 'im buying': 'tobuy',
 };
 
 export class Conversation {
@@ -124,11 +127,21 @@ export class Conversation {
       const [action, code] = m.buttonId.split(':');
       switch (action) {
         case 'menu':
-          return this.openMenuItem(m.phone, user, (code === 'help' ? 'how' : code) as MenuItem);
+          return this.openMenuItem(m.phone, user, (code === 'help' ? 'how' : code === 'deals' ? 'orders' : code) as MenuItem);
+        case 'setup':
+          if (code === 'wname' && s.state === 'SETUP_NAME') { // keep the name buyers already see
+            await this.save(m.phone, 'SETUP_CITY', s.data);
+            return this.send(m.phone, msg.setupCity());
+          }
+          if (code === 'nocity' && s.state === 'SETUP_CITY') return this.finishSetup(m.phone, user, s.data.next);
+          return this.openMenuItem(m.phone, user, 'open');
+        case 'sproblem':
+          await this.save(m.phone, 'HUMAN_MESSAGE', { code });
+          return this.send(m.phone, msg.askSellerProblem(code!));
         case 'account':
           await this.save(m.phone, 'ACCOUNT_BANK');
           return this.send(m.phone, msg.askNewAccount());
-        case 'pay': return this.o.deals.requestPayment(code!, user);
+        case 'pay': await this.o.deals.setMenuMode(user, 'buyer'); return this.o.deals.requestPayment(code!, user);
         case 'newacct': return this.o.deals.requestPayment(code!, user, true);
         case 'cancel': return this.o.deals.cancelByBuyer(code!, user);
         case 'shipped':
@@ -150,7 +163,7 @@ export class Conversation {
           return;
         // ----- the seller's side of a buyer's deal -----
         case 'sview': await this.save(m.phone, 'IDLE'); return this.o.deals.showToSeller(code!, user);
-        case 'saccept': return this.sellerAccepts(m.phone, user, code!);
+        case 'saccept': await this.o.deals.setMenuMode(user, 'seller'); return this.sellerAccepts(m.phone, user, code!);
         case 'sdecline': {
           await this.save(m.phone, 'IDLE');
           const d = await this.o.deals.findByCode(code!);
@@ -159,7 +172,7 @@ export class Conversation {
           return this.o.deals.declineAsSeller(code!, user);
         }
         case 'sno': await this.save(m.phone, 'IDLE'); return this.o.deals.declineAsSeller(code!, user);
-        case 'scounter': return this.startCounter(m.phone, user, code!);
+        case 'scounter': await this.o.deals.setMenuMode(user, 'seller'); return this.startCounter(m.phone, user, code!);
         case 'cyes': await this.save(m.phone, 'IDLE'); return this.o.deals.acceptCounter(code!, user);
         // ----- trust card -----
         case 'record': return this.o.deals.showSellerRecord(code!, user);
@@ -171,7 +184,7 @@ export class Conversation {
         case 'buyfrom': return this.buyFrom(m.phone, user, code!);
         case 'card': return this.cardAction(m.phone, user, code!);
         // ----- the buyer's side of a seller's deal -----
-        case 'bview': await this.save(m.phone, 'IDLE'); return this.o.deals.joinAsBuyer(code!, user);
+        case 'bview': await this.save(m.phone, 'IDLE'); await this.o.deals.setMenuMode(user, 'buyer'); return this.o.deals.joinAsBuyer(code!, user);
         case 'bnotme': await this.save(m.phone, 'IDLE'); return this.o.deals.buyerNotMe(code!, user);
         case 'snotme': await this.save(m.phone, 'IDLE'); return this.o.deals.declineAsSeller(code!, user, true);
         case 'sell':
@@ -232,6 +245,7 @@ export class Conversation {
       const deal = await this.o.deals.findByCode(code);
       // A buyer's deal waiting for its seller: whoever opens it is shown it as the seller.
       if (deal?.status === 'AWAITING_SELLER' || (deal?.started_by === 'BUYER' && deal.buyer_id !== user.id)) return this.o.deals.showToSeller(code, user);
+      if (deal && deal.seller_id !== user.id) await this.o.deals.setMenuMode(user, 'buyer');
       return this.o.deals.joinAsBuyer(code, user);
     }
     if (s.state === 'IDLE' && PHRASES[words]) return this.openMenuItem(m.phone, user, PHRASES[words]!);
@@ -335,6 +349,17 @@ export class Conversation {
         if (!text) return this.send(m.phone, msg.ratingCommentThanks());
         return this.o.deals.rateComment(s.data.code, user, text);
       }
+      case 'SETUP_NAME': {
+        if (text.length < 2) return this.send(m.phone, msg.setupIntro(await this.shownName(user)));
+        await this.o.trust?.setProfile(user.id, { businessName: text.slice(0, 60) });
+        await this.save(m.phone, 'SETUP_CITY', s.data);
+        return this.send(m.phone, msg.setupCity());
+      }
+      case 'SETUP_CITY': {
+        if (/^(skip|no|none)$/i.test(text)) return this.finishSetup(m.phone, user, s.data.next);
+        await this.o.trust?.setProfile(user.id, { city: text.slice(0, 60) });
+        return this.finishSetup(m.phone, user, s.data.next);
+      }
       case 'PROFILE_NAME': {
         if (text.length < 2) return this.send(m.phone, msg.askBusinessName(user.display_name ?? ''));
         await this.o.trust?.setProfile(user.id, { businessName: text });
@@ -374,8 +399,9 @@ export class Conversation {
       case 'HUMAN_MESSAGE': {
         const body = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
         if (!body) return this.send(m.phone, msg.askHumanMessage());
+        const about = s.data.code ? `[Order ${s.data.code}] ` : '';
         const r = await this.o.db.query(
-          'INSERT INTO support_requests (user_id, phone, message) VALUES ($1,$2,$3) RETURNING id', [user.id, m.phone, body.slice(0, 2000)]);
+          'INSERT INTO support_requests (user_id, phone, message) VALUES ($1,$2,$3) RETURNING id', [user.id, m.phone, (about + body).slice(0, 2000)]);
         await this.save(m.phone, 'IDLE');
         this.o.log?.(`support request #${r.rows[0].id} from …${m.phone.slice(-4)}`);
         return this.send(m.phone, msg.humanLogged('S-' + r.rows[0].id));
@@ -392,23 +418,29 @@ export class Conversation {
         return this.send(m.phone, msg.askRefundBank());
       }
       default:
-        return this.send(m.phone, s.state === 'IDLE' ? msg.menu(user.display_name) : msg.didntUnderstand());
+        return this.send(m.phone, s.state === 'IDLE' ? msg.menu(user.display_name, modeOf(user)) : msg.didntUnderstand());
     }
   }
 
   private maxDeal(user?: User): number { return user ? this.o.deals.capFor(user) : this.o.deals.maxDealMinor; }
 
-  /** Everything the main menu (and the slash commands) can do. */
-  private async openMenuItem(phone: string, user: User, item: MenuItem) {
+  /** Everything the menus (and the slash commands) can do. */
+  private async openMenuItem(phone: string, user: User, item: MenuItem): Promise<unknown> {
     switch (item) {
-      case 'sell': return this.startSelling(phone);
-      case 'buy': return this.startBuying(phone);
+      case 'sell':
+        if (!user.seller_since) return this.startSetup(phone, user, 'sell');
+        await this.o.deals.setMenuMode(user, 'seller');
+        return this.startSelling(phone);
+      case 'buy':
+        await this.o.deals.setMenuMode(user, 'buyer');
+        return this.startBuying(phone);
       case 'pay':
+        await this.o.deals.setMenuMode(user, 'buyer');
         await this.save(phone, 'BUY_CODE');
         return this.send(phone, msg.askDealCode());
       case 'problem':
         await this.save(phone, 'IDLE');
-        return this.pickProblemDeal(phone, user);
+        return modeOf(user) === 'seller' ? this.pickSellerProblem(phone, user) : this.pickProblemDeal(phone, user);
       case 'account': {
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
@@ -425,14 +457,66 @@ export class Conversation {
         await this.save(phone, 'CHECK_SELLER');
         return this.send(phone, msg.askCheckSeller());
       case 'card':
+        if (!user.seller_since) return this.startSetup(phone, user, 'card');
         await this.save(phone, 'IDLE');
         return this.showMyCard(phone, user);
+      case 'switch':
+        return this.openMenuItem(phone, user, modeOf(user) === 'seller' ? 'tobuy' : 'tosell');
+      case 'tosell':
+      case 'tobuy': {
+        const to: MenuMode = item === 'tosell' ? 'seller' : 'buyer';
+        if (to === 'seller' && !user.seller_since) return this.startSetup(phone, user, 'menu');
+        const changed = modeOf(user) !== to;
+        await this.o.deals.setMenuMode(user, to);
+        await this.save(phone, 'IDLE');
+        return this.send(phone, msg.menu(user.display_name, to, changed ? msg.switchedTo(to) : undefined));
+      }
     }
     await this.save(phone, 'IDLE');
-    if (item === 'deals') return this.listDeals(phone, user);
+    if (item === 'orders' || item === 'deals') return this.listOrders(phone, user);
     if (item === 'how') return this.send(phone, msg.help());
     if (item === 'fees') return this.send(phone, this.feesMessage());
-    return this.send(phone, msg.menu(user.display_name));
+    return this.send(phone, msg.menu(user.display_name, modeOf(user)));
+  }
+
+  // ===== BECOMING A SELLER (once) =====
+  /** Two quick questions that create the trust card. `next`: where to go after. */
+  private async startSetup(phone: string, user: User, next: 'sell' | 'card' | 'menu') {
+    await this.save(phone, 'SETUP_NAME', { next });
+    return this.send(phone, msg.setupIntro(await this.shownName(user)));
+  }
+
+  /** The name buyers would see if they don't type a shop name (from their WhatsApp profile). */
+  private async shownName(user: User): Promise<string | null> {
+    if (!user.display_name) return null;
+    const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
+    return t?.name ?? user.display_name;
+  }
+
+  private async finishSetup(phone: string, user: User, next: 'sell' | 'card' | 'menu' = 'menu') {
+    await this.o.deals.setMenuMode(user, 'seller');
+    await this.save(phone, 'IDLE');
+    const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
+    const card = t ? msg.trustCardText(t) : '';
+    if (next === 'sell') {
+      await this.send(phone, msg.setupDone(card, true));
+      return this.startSelling(phone);
+    }
+    if (next === 'card') return this.showMyCard(phone, user);
+    return this.send(phone, msg.setupDone(card, false));
+  }
+
+  /** A seller's "Report a problem": pick an order, then tell a rep what's wrong. */
+  private async pickSellerProblem(phone: string, user: User) {
+    const r = await this.o.db.query(
+      `SELECT code, item FROM deals WHERE seller_id=$1 AND status IN ('AWAITING_PAYMENT','FUNDED','SHIPPED','DISPUTED','PAYOUT_PENDING','RELEASING')
+       ORDER BY created_at DESC LIMIT 10`, [user.id]);
+    if (r.rows.length === 0) return this.send(phone, msg.noOrdersToReport());
+    if (r.rows.length === 1) {
+      await this.save(phone, 'HUMAN_MESSAGE', { code: r.rows[0].code });
+      return this.send(phone, msg.askSellerProblem(r.rows[0].code));
+    }
+    return this.send(phone, msg.pickOrderForSellerProblem(r.rows));
   }
 
   private feesMessage(): Outbound {
@@ -440,7 +524,7 @@ export class Conversation {
     const r = this.o.deals.pricingRules() ?? PRICING[c];
     const unit = c === 'NGN' ? 100 : 1;
     const f = (major: number) => formatMoney(major * unit, c);
-    const who = '🤝 *Whoever starts the deal pays the fee.*\n🏷️ Seller starts it → buyer pays just the price\n🛒 Buyer starts it → seller gets the full price';
+    const who = '🤝 *Whoever starts the order pays the fee.*\n🏷️ Seller starts it → buyer pays just the price\n🛒 Buyer starts it → seller gets the full price';
     const rules = `*${r.ratePercent}%* of the price\nMin ${f(r.min)} · Max ${f(r.max)} · rounded to ${f(r.roundTo)}\n\n${who}`;
     const examples = [5_000, 15_000, 50_000]
       .map((major) => major * unit)
@@ -546,10 +630,15 @@ export class Conversation {
     return this.send(phone, msg.askCounterPrice({ minor: deal.price_minor, currency: deal.currency }));
   }
 
-  private async listDeals(phone: string, user: User) {
-    const deals = await this.o.deals.recentDeals(user.id);
-    const lines = deals.map((d) => `${d.code} · ${d.item.slice(0, 28)} · ${formatMoney(d.buyer_pays_minor, d.currency)} · ${STATUS_WORDS[d.status] ?? d.status}`);
-    return this.send(phone, msg.dealsList(lines));
+  /** "My orders": what they bought (buying menu) or sold (selling menu). */
+  private async listOrders(phone: string, user: User) {
+    const mode = modeOf(user);
+    const orders = await this.o.deals.recentOrders(user.id, mode);
+    const lines = orders.map((d) => {
+      const amount = mode === 'seller' ? d.seller_gets_minor : d.buyer_pays_minor;
+      return `*${d.code}* · ${d.item.slice(0, 28)}\n${formatMoney(amount, d.currency)} · ${STATUS_WORDS[d.status] ?? d.status}`;
+    });
+    return this.send(phone, msg.ordersList(lines, mode));
   }
 
 
@@ -579,6 +668,7 @@ export class Conversation {
     const seller = await this.o.db.query('SELECT phone FROM users WHERE id=$1', [sellerId]);
     if (!t || !seller.rows[0]) return this.startBuying(phone);
     if (sellerId === user.id && !this.o.testMode) return this.showMyCard(phone, user);
+    await this.o.deals.setMenuMode(user, 'buyer');
     await this.save(phone, 'BUY_ITEM', { sellerPhone: seller.rows[0].phone });
     return this.send(phone, msg.buyingFrom(t.name, msg.trustLine(t)));
   }
@@ -769,6 +859,11 @@ export class Conversation {
     await this.save(phone, 'IDLE');
     return this.send(phone, msg.problemLogged(rest.code, caseRef(rest.caseId ?? '')));
   }
+}
+
+/** The menu someone sees: selling only once they're a seller. */
+export function modeOf(user: User): MenuMode {
+  return user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer';
 }
 
 function caseRef(disputeId: string): string {

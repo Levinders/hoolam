@@ -3,7 +3,7 @@ import { startHarness, type Harness } from '../scripts/harness.js';
 import { automationPayload, COMMANDS, ICE_BREAKERS, syncAutomation } from '../src/whatsapp/automation.js';
 import { checkLimits, toPayload } from '../src/whatsapp/client.js';
 import { parseInbound } from '../src/whatsapp/inbound.js';
-import { msg, MENU } from '../src/whatsapp/messages.js';
+import { BUYER_MENU, msg, SELLER_MENU } from '../src/whatsapp/messages.js';
 
 let h: Harness;
 let seq = 0;
@@ -18,7 +18,7 @@ const state = async (p: string) => (await h.db.query('SELECT state FROM chat_ses
 /** A seller makes a deal and the buyer pays it (test provider). Returns the code. */
 async function paidDeal(seller: string, buyer: string, item = 'Blue handbag'): Promise<string> {
   await h.say(seller, 'hi', 'Ada');
-  await h.tap(seller, 'menu:sell');
+  await h.sell(seller);
   await h.say(seller, item);
   await h.say(seller, '10000');
   await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone');
@@ -37,10 +37,15 @@ describe('message shapes', () => {
   it('the main menu fits WhatsApp limits', () => {
     const m = msg.menu('Ada Obi');
     expect(() => checkLimits(m)).not.toThrow();
+    expect(() => checkLimits(msg.menu('Ada Obi', 'seller', msg.switchedTo('seller')))).not.toThrow();
     expect(() => checkLimits(msg.welcome('Ada Obi'))).not.toThrow();
     expect(() => checkLimits(msg.help())).not.toThrow();
+    expect(() => checkLimits(msg.setupIntro('Ada'))).not.toThrow();
+    expect(() => checkLimits(msg.setupDone('card', false))).not.toThrow();
     expect(m.kind).toBe('list');
-    expect(MENU.flatMap((s) => s.rows).length).toBeLessThanOrEqual(10);
+    for (const menu of [BUYER_MENU, SELLER_MENU]) expect(menu.flatMap((s) => s.rows).length).toBe(8);
+    expect(BUYER_MENU.flatMap((s) => s.rows.map((r) => r.id))).toEqual(['menu:buy', 'menu:pay', 'menu:orders', 'menu:check', 'menu:problem', 'menu:how', 'menu:human', 'menu:tosell']);
+    expect(SELLER_MENU.flatMap((s) => s.rows.map((r) => r.id))).toEqual(['menu:sell', 'menu:orders', 'menu:card', 'menu:account', 'menu:problem', 'menu:how', 'menu:human', 'menu:tobuy']);
   });
 
   it('builds the WhatsApp list payload', () => {
@@ -48,10 +53,12 @@ describe('message shapes', () => {
     expect(p.type).toBe('interactive');
     expect(p.interactive.type).toBe('list');
     expect(p.interactive.action.button).toBe('Open menu');
-    expect(p.interactive.action.sections[0].rows[0]).toEqual({ id: 'menu:sell', title: '🏷️ Sell something', description: expect.any(String) });
+    expect(p.interactive.action.sections[0].rows[0]).toEqual({ id: 'menu:buy', title: '🛒 Buy something', description: expect.any(String) });
+    expect(p.interactive.header).toEqual({ type: 'text', text: '🛒 Buying' });
     const w = toPayload('2348000000000', msg.welcome(null)) as any;
-    expect(w.interactive.header).toEqual({ type: 'text', text: 'Welcome to Hoolam' });
-    expect(w.interactive.footer).toEqual({ text: 'Nobody gets burned.' });
+    expect(w.interactive.type).toBe('button');
+    expect(w.interactive.body.text).toMatch(/Welcome to Hoolam/);
+    expect(w.interactive.action.buttons.map((b: any) => b.reply.id)).toEqual(['menu:tobuy', 'menu:sell', 'menu:how']);
   });
 
   it('rejects lists WhatsApp would refuse', () => {
@@ -101,25 +108,25 @@ describe('the menu in the chat', () => {
     const p = phone();
     await h.say(p, 'hi', 'Ada Obi');
     const first = await lastBody(p);
-    expect(first.kind).toBe('list');
-    expect(first.header).toBe('Welcome to Hoolam');
-    expect(h.last(p)).toMatch(/Hi Ada 👋/);
+    expect(first.kind).toBe('buttons');
+    expect(h.last(p)).toMatch(/Hi Ada 👋 \*Welcome to Hoolam\*/);
     expect(h.last(p)).toMatch(/Hoolam holds the money/);
+    expect(h.last(p)).toMatch(/\[🛒 I’m buying\] \[🏷️ I’m selling\] \[💡 How it works\]/);
     await h.say(p, 'hi');
     const again = await lastBody(p);
     expect(again.kind).toBe('list');
-    expect(again.header).toBeUndefined();
+    expect(again.header).toBe('🛒 Buying');
     expect(h.last(p)).toMatch(/What would you like to do/);
 
     const q = phone();
     await h.app.chat.handle({ id: `wel-${q}`, phone: q, name: 'Bayo', type: 'welcome', text: '', buttonId: null, mediaId: null });
-    expect((await lastBody(q)).header).toBe('Welcome to Hoolam');
+    expect(h.last(q)).toMatch(/Welcome to Hoolam/);
   });
 
   it('someone new who already knows what they want skips the welcome', async () => {
     const p = phone();
-    await h.say(p, 'I want to sell something safely'); // ice breaker
-    expect(h.last(p)).toMatch(/What are you selling/);
+    await h.say(p, 'I want to sell something safely'); // ice breaker: straight to the one-time seller setup
+    expect(h.last(p)).toMatch(/Set up as a seller/);
     const q = phone();
     await h.say(q, '/fees');
     expect(h.last(q)).toMatch(/Fees/);
@@ -129,7 +136,7 @@ describe('the menu in the chat', () => {
     for (const t of ICE_BREAKERS) {
       const p = phone();
       await h.say(p, t);
-      expect((await lastBody(p)).header).toBeUndefined(); // not the generic welcome
+        expect(h.last(p)).not.toMatch(/Welcome to Hoolam/); // not the generic welcome
     }
     for (const c of COMMANDS) {
       const p = phone();
@@ -155,8 +162,8 @@ describe('the menu in the chat', () => {
     await h.say(p, '/help');
     expect(h.last(p)).toMatch(/One payment, start to finish/);
     await h.say(p, 'I want to sell something safely');
-    expect(h.last(p)).toMatch(/What are you selling/);
-    await h.say(p, '/menu'); // leaves the sell flow
+    expect(h.last(p)).toMatch(/Set up as a seller/);
+    await h.say(p, '/menu'); // leaves the setup
     expect(await state(p)).toBe('IDLE');
     await h.say(p, 'How does Hoolam protect my money?');
     expect(h.last(p)).toMatch(/One payment, start to finish/);
@@ -166,17 +173,17 @@ describe('the menu in the chat', () => {
 
   it('"Pay for a deal" asks for the code, then opens the deal', async () => {
     const seller = phone(), buyer = phone();
-    await h.say(seller, 'hi'); await h.tap(seller, 'menu:sell'); await h.say(seller, 'Shoes'); await h.say(seller, '8000');
+    await h.say(seller, 'hi'); await h.sell(seller); await h.say(seller, 'Shoes'); await h.say(seller, '8000');
     await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone');
     await h.say(seller, '0123456789 Opay'); await h.tap(seller, 'bank:yes'); await h.tap(seller, 'sell:confirm');
     const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
 
     await h.tap(buyer, 'menu:pay');
-    expect(h.last(buyer)).toMatch(/Send the deal code/);
+    expect(h.last(buyer)).toMatch(/Send the order code/);
     await h.say(buyer, 'not a code');
-    expect(h.last(buyer)).toMatch(/doesn't look like a deal code/);
+    expect(h.last(buyer)).toMatch(/doesn't look like an order code/);
     await h.say(buyer, code.toLowerCase().replace('-', ''));
-    expect(h.last(buyer)).toMatch(new RegExp(`Deal ${code}`));
+    expect(h.last(buyer)).toMatch(new RegExp(`Order ${code}`));
     expect(h.last(buyer)).toMatch(/Pay now\]/);
   });
 
@@ -184,14 +191,14 @@ describe('the menu in the chat', () => {
     const p = phone();
     await h.tap(p, 'menu:problem');
     expect(h.last(p)).toMatch(/no money to freeze/);
-    expect(h.last(p)).toMatch(/\[🙋 Talk to a person\]/);
+    expect(h.last(p)).toMatch(/\[🙋 Talk to a rep\]/);
   });
 
   it('"Report a problem" with one paid deal freezes it straight away', async () => {
     const seller = phone(), buyer = phone();
     const code = await paidDeal(seller, buyer);
     await h.tap(buyer, 'menu:problem');
-    expect(h.last(buyer)).toMatch(new RegExp(`what's wrong with deal ${code}`));
+    expect(h.last(buyer)).toMatch(new RegExp(`what's wrong with order ${code}`));
     expect((await h.db.query('SELECT status FROM deals WHERE code=$1', [code])).rows[0].status).toBe('DISPUTED');
   });
 
@@ -215,7 +222,7 @@ describe('the menu in the chat', () => {
     expect(h.last(p)).toMatch(/account number and bank/); // none yet: asks for one
     await h.say(p, '0123456789 GTBank');
     await h.tap(p, 'bank:yes');
-    expect(h.last(p)).toMatch(/Saved\. New deals pay into .*••••6789/);
+    expect(h.last(p)).toMatch(/Saved\. New orders pay into .*••••6789/);
 
     await h.tap(p, 'menu:account');
     expect(h.last(p)).toMatch(/We send your money here/);
@@ -251,8 +258,128 @@ describe('the menu in the chat', () => {
   it('finished steps end with a Main menu button', async () => {
     const p = phone();
     await h.tap(p, 'menu:deals');
-    expect(h.last(p)).toMatch(/You have no deals yet.*\[Sell something\] \[Main menu\]/s);
+    expect(h.last(p)).toMatch(/You haven’t bought anything with Hoolam yet.*\[🛒 Buy something\] \[Main menu\]/s);
     await h.tap(p, 'menu:open');
     expect((await lastBody(p)).kind).toBe('list');
+  });
+});
+
+describe('buying and selling menus', () => {
+  const header = async (p: string) => (await lastBody(p)).header;
+  const user = async (p: string) => (await h.db.query('SELECT seller_since, menu_mode, business_name, city FROM users WHERE phone=$1', [p])).rows[0];
+
+  it('everyone starts on the buying menu; "I\'m buying" from the welcome opens it', async () => {
+    const p = phone();
+    await h.say(p, 'hello there', 'Chidi Okafor');
+    await h.tap(p, 'menu:tobuy');
+    expect(await header(p)).toBe('🛒 Buying');
+    expect(h.last(p)).not.toMatch(/menu now/); // nothing switched
+    expect((await user(p)).seller_since).toBeNull();
+  });
+
+  it('"I\'m selling": two quick questions create the trust card, then straight into the first sale', async () => {
+    const p = phone();
+    await h.say(p, 'hi', 'Ngozi Eze');
+    await h.tap(p, 'menu:sell');
+    expect(h.last(p)).toMatch(/Set up as a seller/);
+    expect(h.last(p)).toMatch(/Or keep the name from your WhatsApp: \*Ngozi\*/);
+    await h.say(p, 'Ngozi Bags');
+    expect(h.last(p)).toMatch(/Which city/);
+    await h.say(p, 'Port Harcourt');
+    const t = h.transcript.filter((x) => x.phone === p).map((x) => x.text);
+    expect(t.at(-2)).toMatch(/Your trust card is ready[\s\S]*Ngozi Bags\* · Port Harcourt[\s\S]*your first sale/);
+    expect(h.last(p)).toMatch(/What are you selling/);
+    expect(await user(p)).toMatchObject({ menu_mode: 'seller', business_name: 'Ngozi Bags', city: 'Port Harcourt' });
+    expect((await user(p)).seller_since).not.toBeNull();
+
+    await h.say(p, 'menu');
+    expect(await header(p)).toBe('🏷️ Selling');
+    await h.tap(p, 'menu:sell'); // no setup the second time
+    expect(h.last(p)).toMatch(/What are you selling/);
+  });
+
+  it('"Use this name" and Skip keep setup to two taps', async () => {
+    const p = phone();
+    await h.say(p, 'hi', 'Tunde Bakare');
+    await h.tap(p, 'menu:tosell');
+    await h.tap(p, 'setup:wname');
+    await h.tap(p, 'setup:nocity');
+    expect(h.last(p)).toMatch(/Your trust card is ready[\s\S]*Tunde/);
+    expect(h.last(p)).toMatch(/\[🏷️ Sell something\] \[Main menu\]/);
+    expect((await user(p)).business_name).toBeNull(); // keeps showing the WhatsApp name
+  });
+
+  it('switching moves between the menus; a seller keeps their card', async () => {
+    const p = phone();
+    await h.say(p, 'hi', 'Ada');
+    await h.sell(p);
+    await h.say(p, '/menu');
+    expect(await header(p)).toBe('🏷️ Selling');
+    await h.tap(p, 'menu:tobuy');
+    expect(await header(p)).toBe('🛒 Buying');
+    expect(h.last(p)).toMatch(/buying\* menu now/);
+    await h.say(p, 'hi');
+    expect(await header(p)).toBe('🛒 Buying'); // remembered
+    await h.tap(p, 'menu:tosell');
+    expect(await header(p)).toBe('🏷️ Selling'); // no setup again
+    expect(h.last(p)).toMatch(/selling\* menu now/);
+    await h.say(p, '/switch');
+    expect(await header(p)).toBe('🛒 Buying');
+  });
+
+  it('the menu follows the last order: paying with a code puts you on buying, accepting an order on selling', async () => {
+    const seller = phone(), buyer = phone();
+    const code = await paidDeal(seller, buyer);
+    await h.say(buyer, 'hi');
+    expect(await header(buyer)).toBe('🛒 Buying');
+    await h.say(seller, 'hi');
+    expect(await header(seller)).toBe('🏷️ Selling');
+    expect(code).toMatch(/^HL-/);
+
+    // a buyer starts an order and names a seller who has never used Hoolam: accepting makes them a seller, no setup
+    const b2 = phone(), s2 = phone();
+    await h.say(b2, 'hi', 'Kemi');
+    await h.tap(b2, 'menu:buy'); await h.say(b2, 'Wig'); await h.say(b2, '20000');
+    await h.tap(b2, 'buy:nophotos'); await h.say(b2, s2); await h.tap(b2, 'buy:send');
+    const c2 = (await h.db.query("SELECT code FROM deals d JOIN users u ON u.id=d.buyer_id WHERE u.phone=$1", [b2])).rows[0].code;
+    await h.tap(s2, `sview:${c2}`);
+    await h.tap(s2, `saccept:${c2}`);
+    if (/account number and bank/.test(h.last(s2))) { await h.say(s2, '0123456789 GTBank'); await h.tap(s2, 'bank:yes'); }
+    expect((await user(s2)).seller_since).not.toBeNull();
+    await h.say(s2, 'menu');
+    expect(await header(s2)).toBe('🏷️ Selling');
+  });
+
+  it('"My orders" shows what you bought on buying, and what you sold on selling', async () => {
+    const seller = phone(), buyer = phone();
+    const code = await paidDeal(seller, buyer, 'Green kaftan');
+    await h.tap(buyer, 'menu:orders');
+    expect(h.last(buyer)).toMatch(new RegExp(`Your orders:[\\s\\S]*${code}\\* · Green kaftan\\n₦10,\\d{3} · paid, money held`));
+    await h.tap(seller, 'menu:orders');
+    expect(h.last(seller)).toMatch(new RegExp(`Orders you’re selling:[\\s\\S]*${code}\\* · Green kaftan\\n₦9,\\d{3} · paid, money held`));
+    await h.tap(seller, 'menu:tobuy');
+    await h.tap(seller, 'menu:orders');
+    expect(h.last(seller)).toMatch(/haven’t bought anything/);
+  });
+
+  it('a seller\'s "Report a problem" goes to a rep, tagged with the order', async () => {
+    const seller = phone(), buyer = phone();
+    const code = await paidDeal(seller, buyer, 'Speaker');
+    await h.tap(seller, 'menu:problem');
+    expect(h.last(seller)).toMatch(new RegExp(`What's wrong with order ${code}`));
+    await h.say(seller, 'Buyer is not picking up the delivery calls');
+    expect(h.last(seller)).toMatch(/Ref S-\d+/);
+    const r = await h.db.query('SELECT message FROM support_requests WHERE phone=$1', [seller]);
+    expect(r.rows[0].message).toBe(`[Order ${code}] Buyer is not picking up the delivery calls`);
+    expect((await h.db.query('SELECT status FROM deals WHERE code=$1', [code])).rows[0].status).toBe('FUNDED'); // nothing frozen by the seller
+  });
+
+  it('"My trust card" for someone who has never sold starts the setup, then shows the card', async () => {
+    const p = phone();
+    await h.say(p, 'hi', 'Femi');
+    await h.say(p, '/card');
+    expect(h.last(p)).toMatch(/Set up as a seller/);
+    await h.tap(p, 'setup:wname'); await h.tap(p, 'setup:nocity');
+    expect(h.last(p)).toMatch(/This is what buyers see before they pay/);
   });
 });

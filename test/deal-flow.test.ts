@@ -15,7 +15,7 @@ const people = () => {
 /** Seller creates a ₦15,000 deal through the chat, buyer opens it and asks to pay. Returns the deal code. */
 async function dealUpToPayment(seller: string, buyer: string): Promise<{ code: string; ref: string }> {
   await h.say(seller, 'hi', 'Mama Bella');
-  await h.tap(seller, 'menu:sell');
+  await h.sell(seller);
   await h.say(seller, 'Sneakers size 42');
   await h.say(seller, '15,000');
   await h.tap(seller, 'sell:nophotos');
@@ -176,7 +176,7 @@ describe('who can do what', () => {
     const { seller, buyer } = people();
     const { code, ref } = await dealUpToPayment(seller, buyer);
     await h.say(seller, `Pay ${code}`);
-    expect(h.last(seller)).toMatch(/your own deal/);
+    expect(h.last(seller)).toMatch(/your own order/);
     h.provider.pay(ref);
     await h.app.deals.handleCollection(ref);
     await h.tap(buyer, `shipped:${code}`);
@@ -203,7 +203,7 @@ describe('who can do what', () => {
 
   it('prices above the Phase 1 limit are refused', async () => {
     const { seller } = people();
-    await h.tap(seller, 'menu:sell');
+    await h.sell(seller);
     await h.say(seller, 'Laptop');
     await h.say(seller, '2m');
     expect(h.last(seller)).toMatch(/up to ₦50,000/);
@@ -253,7 +253,7 @@ describe('safety nets', () => {
     const phone = '+2348066666667';
     await h.db.query(`INSERT INTO chat_sessions (phone, last_inbound_at) VALUES ($1, now() - interval '3 days') ON CONFLICT (phone) DO UPDATE SET last_inbound_at = now() - interval '3 days'`, [phone]);
     const t = dealTemplate('itemOnTheWay', ['HL-ABCDE'], ['happy:HL-ABCDE', 'problem:HL-ABCDE']);
-    expect(t.preview).toMatch(/^Your item for deal HL-ABCDE is on the way/);
+    expect(t.preview).toMatch(/^Your item for order HL-ABCDE is on the way/);
     expect(t.buttonPayloads).toEqual(['happy:HL-ABCDE', 'problem:HL-ABCDE']);
     const last = async () => (await h.db.query(`SELECT status, kind, error FROM outbound_messages WHERE phone=$1 ORDER BY id DESC LIMIT 1`, [phone])).rows[0];
 

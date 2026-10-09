@@ -34,6 +34,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const messenger = new Messenger(db, {
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
+  for (const t of ALL_TEMPLATES) if (t.replaces) messenger.setTemplateReplaces(t.name, t.replaces);
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider.sandbox;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
@@ -383,6 +384,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const before = messenger.templateStatus(t.name);
       messenger.setTemplateStatus(t.name, st[t.name] ?? null);
       if (st[t.name] && st[t.name] !== before) log(`template ${t.name}: ${st[t.name]}`);
+      if (t.replaces) messenger.setTemplateStatus(t.replaces, st[t.replaces] ?? null);
     }
   }
 
@@ -398,6 +400,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log };
       // the alerts and the deal updates used outside WhatsApp's 24-hour window (submitted once; used after Meta approves)
       for (const t of ALL_TEMPLATES) messenger.setTemplateStatus(t.name, await ensureTemplate(o, t, t.label));
+      // reworded templates: keep using the earlier approved version until Meta approves the new wording
+      await refreshTemplates();
       if (c.WHATSAPP_BUY_FORM) {
         const buyId = await ensureBuyFlow(o);
         buyForm = buyId ? { flowId: buyId, mode: c.WHATSAPP_FORM_MODE } : null;

@@ -21,6 +21,8 @@ export interface Harness {
   say(phone: string, text: string, name?: string): Promise<void>;
   tap(phone: string, buttonId: string, title?: string): Promise<void>;
   last(phone: string): string;
+  /** Taps "Sell something", answering the one-time seller setup if it comes up. */
+  sell(phone: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -52,11 +54,20 @@ export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: 
   await app.load();
 
   const deliver = (m: Inbound) => app.chat.handle(m);
+  const last = (phone: string) => [...transcript].reverse().find((t) => t.phone === phone)?.text ?? '';
+  const tap = (phone: string, buttonId: string, title?: string) => deliver({ id: `m${++n}`, phone, name: null, type: 'button', text: title ?? buttonId, buttonId, mediaId: null });
   return {
     db, provider, app, transcript,
     say: (phone, text, name) => deliver({ id: `m${++n}`, phone, name: name ?? null, type: 'text', text, buttonId: null, mediaId: null }),
-    tap: (phone, buttonId, title) => deliver({ id: `m${++n}`, phone, name: null, type: 'button', text: title ?? buttonId, buttonId, mediaId: null }),
-    last: (phone) => [...transcript].reverse().find((t) => t.phone === phone)?.text ?? '',
+    tap,
+    last,
+    sell: async (phone) => {
+      await tap(phone, 'menu:sell');
+      if (!/Set up as a seller/.test(last(phone))) return;
+      if (/Use this name/.test(last(phone))) await tap(phone, 'setup:wname');
+      else await deliver({ id: `m${++n}`, phone, name: null, type: 'text', text: 'Test Shop', buttonId: null, mediaId: null });
+      await tap(phone, 'setup:nocity');
+    },
     stop: async () => {
       await app.app.close();
       await new Promise((r) => setTimeout(r, 200)); // let in-flight webhook work finish

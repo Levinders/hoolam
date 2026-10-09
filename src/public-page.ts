@@ -27,7 +27,7 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
   const home = o.siteUrl || null;
 
   const stats: { icon: string; big: string; small: string; tone?: string }[] = [];
-  stats.push(t.completed ? { icon: ICON.check, big: String(t.completed), small: t.completed === 1 ? 'deal completed' : 'deals completed', tone: 'green' } : { icon: ICON.sprout, big: 'New', small: 'on Hoolam' });
+  stats.push(t.completed ? { icon: ICON.check, big: String(t.completed), small: t.completed === 1 ? 'order completed' : 'orders completed', tone: 'green' } : { icon: ICON.sprout, big: 'New', small: 'on Hoolam' });
   if (t.buyers > 1) stats.push({ icon: ICON.users, big: String(t.buyers), small: 'different buyers' });
   if (pct != null) stats.push({ icon: ICON.thumbsUp, big: `${pct}%`, small: `buyers happy · ${t.rated} ratings`, tone: 'gold' });
   else if (t.rated) stats.push({ icon: ICON.thumbsUp, big: `${t.happy}/${t.rated}`, small: 'buyers happy', tone: 'gold' });
@@ -37,7 +37,7 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
     ? `${t.problems} problem${t.problems === 1 ? '' : 's'} reported` + [t.refunded ? `${t.refunded} refunded after review` : '', t.released ? `${t.released} settled in the seller's favour` : '', open > 0 ? `${open} being reviewed` : ''].filter(Boolean).map((x) => ` · ${x}`).join('')
     : t.completed ? 'No problems reported' : null;
   const title = `${t.name} on Hoolam`;
-  const desc = t.completed ? `${t.completed} safe deals completed. Pay through Hoolam: your money is held until you're happy.` : `Buy from ${t.name} safely: your money is held until you're happy.`;
+  const desc = t.completed ? `${t.completed} safe orders completed. Pay through Hoolam: your money is held until you're happy.` : `Buy from ${t.name} safely: your money is held until you're happy.`;
   const brand = o.logoUrl
     ? `<img class="logo-img" src="${esc(o.logoUrl)}" alt="Hoolam">`
     : `${o.markUrl ? `<img class="mark-img" src="${esc(o.markUrl)}" alt="">` : ICON.mark}<span>Hoolam</span>`;
@@ -164,9 +164,9 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
   ${disputes || t.bankName || t.isNew ? `<div class="rows">
     ${disputes ? `<div class="row${t.problems ? '' : ' good'}">${ICON.scale}<span>${esc(disputes)}</span></div>` : ''}
     ${t.bankName ? `<div class="row">${ICON.landmark}<span>Paid out to ${esc(shortBankName(t.bankName))}, bank-verified${t.bankMatches ? ' · matches their name' : ''}</span></div>` : ''}
-    ${t.isNew ? `<div class="row">${ICON.shieldCheck}<span>New on Hoolam. Every deal is still protected: your money is held until you're happy.</span></div>` : ''}
+    ${t.isNew ? `<div class="row">${ICON.shieldCheck}<span>New on Hoolam. Every order is still protected: your money is held until you're happy.</span></div>` : ''}
   </div>` : ''}
-  <p class="note">${ICON.info}<span>Counted from real deals paid through Hoolam. Nobody can edit these numbers, not even the seller.</span></p>
+  <p class="note">${ICON.info}<span>Counted from real orders paid through Hoolam. Nobody can edit these numbers, not even the seller.</span></p>
 </main>
 <section class="how" aria-labelledby="how-h">
   <h2 id="how-h">How buying safely works</h2>
@@ -178,7 +178,7 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
   </ol>
 </section>
 <div class="cta-bar"><a class="cta" href="${esc(buy)}">${ICON.whatsapp}Buy from ${esc(t.name)} safely</a></div>
-<a class="sub" href="${esc(check)}">Have a deal code? Open Hoolam on WhatsApp</a>
+<a class="sub" href="${esc(check)}">Have an order code? Open Hoolam on WhatsApp</a>
 <footer>${home ? `<a href="${esc(home)}">Hoolam</a>` : '<b>Hoolam</b>'}<span>Pay safe. Ship safe.</span></footer>
 </div>
 ${photo ? `<figure class="lightbox" id="photo" aria-label="${esc(t.name)}"><a class="x" href="#" aria-label="Close"></a><img src="${esc(photo)}" alt="${esc(t.name)}"><a class="close" href="#" aria-label="Close">${ICON.close}</a><figcaption>${esc(t.name)}</figcaption></figure>` : ''}

@@ -17,7 +17,8 @@ beforeAll(async () => {
   await h.tap(seller, 'menu:account'); await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
   sellerId = (await h.db.query('SELECT id FROM users WHERE phone=$1', [seller])).rows[0].id;
   await h.app.trust.setProfile(sellerId, { businessName: 'Bayo <Kicks>', city: 'Lagos' });
-  await h.tap(seller, 'menu:card'); await h.tap(seller, 'card:share');
+  await h.tap(seller, 'menu:card'); await h.tap(seller, 'setup:wname'); await h.tap(seller, 'setup:nocity'); // one-time seller setup
+  await h.tap(seller, 'card:share');
 }, 120_000);
 afterAll(async () => { await h?.stop(); });
 

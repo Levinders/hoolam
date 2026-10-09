@@ -76,6 +76,15 @@ export class Messenger {
   private readonly templates = new Map<string, string>();
   setTemplateStatus(name: string, status: string | null) { if (status) this.templates.set(name, status); }
   templateStatus(name: string): string | null { return this.templates.get(name) ?? null; }
+  /** A reworded template's earlier name: used while Meta reviews the new one, if the old one was approved. */
+  private readonly previous = new Map<string, string>();
+  setTemplateReplaces(name: string, previousName: string) { this.previous.set(name, previousName); }
+  /** The approved name to send under (the template itself, or the version it replaces), or null if neither is approved. */
+  usableTemplate(name: string): string | null {
+    if (this.templateStatus(name) === 'APPROVED') return name;
+    const prev = this.previous.get(name);
+    return prev && this.templateStatus(prev) === 'APPROVED' ? prev : null;
+  }
 
   /**
    * Sends a chat message. Outside the 24-hour window, sends the fallback template instead if Meta has approved it;
@@ -86,9 +95,10 @@ export class Messenger {
     const s = await this.db.query('SELECT last_inbound_at FROM chat_sessions WHERE phone=$1', [phone]);
     const last: Date | null = s.rows[0]?.last_inbound_at ?? null;
     if (!last || Date.now() - new Date(last).getTime() > DAY_MS) {
-      if (fallback && this.templateStatus(fallback.name) === 'APPROVED') {
-        this.o.log?.(`whatsapp …${phone.slice(-4)} is outside the 24-hour window: sending template ${fallback.name}`);
-        return this.sendTemplate(phone, fallback);
+      const use = fallback ? this.usableTemplate(fallback.name) : null;
+      if (fallback && use) {
+        this.o.log?.(`whatsapp …${phone.slice(-4)} is outside the 24-hour window: sending template ${use}`);
+        return this.sendTemplate(phone, { ...fallback, name: use });
       }
       const why = fallback ? `template ${fallback.name} is ${this.templateStatus(fallback.name)?.toLowerCase() ?? 'not on Meta yet'}` : 'no template for this message';
       this.o.log?.(`whatsapp not sent to …${phone.slice(-4)}: outside the 24-hour window (${why})`);
@@ -99,7 +109,8 @@ export class Messenger {
   }
 
   /** Sends an approved template. Allowed outside the 24-hour window. */
-  async sendTemplate(phone: string, t: Template): Promise<SendStatus> {
+  async sendTemplate(phone: string, tpl: Template): Promise<SendStatus> {
+    const t = { ...tpl, name: this.usableTemplate(tpl.name) ?? tpl.name };
     const to = phone.replace(/^\+/, '');
     const payload = {
       messaging_product: 'whatsapp', to, type: 'template',

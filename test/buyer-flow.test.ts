@@ -113,7 +113,7 @@ describe('a buyer starts a deal in the chat', () => {
     await h.say(buyer, '20000');
     await h.tap(buyer, 'buy:nophotos');
     await h.tap(buyer, 'buy:nophone');
-    expect(h.last(buyer)).toMatch(/Check your deal/);
+    expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/You'll pay    ₦20,500/);
     expect(h.last(buyer)).toMatch(/Nothing to pay yet/);
     expect(h.last(buyer)).toMatch(/\[📨 Send to seller\]/);
@@ -147,8 +147,8 @@ describe('the seller answers', () => {
     expect(h.last(seller)).toMatch(/where should we pay you/);
     await h.say(seller, '0123456789 GTBank');
     await h.tap(seller, 'bank:yes');
-    expect(h.last(seller)).toMatch(/Deal HL-.* accepted/);
-    expect(h.last(buyer)).toMatch(/Bayo accepted your deal/);
+    expect(h.last(seller)).toMatch(/Order HL-.* accepted/);
+    expect(h.last(buyer)).toMatch(/Bayo accepted your order/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\]/);
     expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
 
@@ -182,7 +182,7 @@ describe('the seller answers', () => {
     await h.tap(stranger, `snotme:${code}`);
     expect((await deal(code)).status).toBe('CANCELLED');
     expect(h.last(buyer)).toMatch(/says it isn't the seller/);
-    expect(h.last(stranger)).toMatch(/won't send you deal alerts again/);
+    expect(h.last(stranger)).toMatch(/won't send you order alerts again/);
 
     const before = (await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='template'`, [stranger])).rows[0].c;
     await buyByChat(buyer, { sellerPhone: stranger });
@@ -217,7 +217,7 @@ describe('the seller answers', () => {
     const buyer = phone();
     const code = await buyByChat(buyer);
     await h.say(buyer, `View ${code}`);
-    expect(h.last(buyer)).toMatch(/This is your deal/);
+    expect(h.last(buyer)).toMatch(/This is your order/);
   });
 });
 
@@ -226,7 +226,7 @@ describe('buyer side, edges', () => {
     const buyer = phone(), seller = phone();
     await h.say(buyer, 'hi', 'Ada Obi');
     await submitForm(buyer, { item: 'Gold earrings', price: '12000', seller_phone: seller, arrive_by: '2026-10-09', photos: [{ id: 'f1', mime_type: 'image/jpeg' }, { id: 'f2', mime_type: 'image/jpeg' }] });
-    expect(h.last(buyer)).toMatch(/Check your deal/);
+    expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/📷 2 photos/);
     expect(h.last(buyer)).toMatch(/Arrives by Fri 9 Oct/);
     await h.tap(buyer, 'buy:send');
@@ -259,14 +259,14 @@ describe('buyer side, edges', () => {
     await h.db.query(`UPDATE deals SET accept_by=now() - interval '1 minute' WHERE code=$1`, [code]);
     await h.app.deals.sweep({ nudgeAfterHours: 24 });
     expect((await deal(code)).status).toBe('EXPIRED');
-    expect(h.last(buyer)).toMatch(/didn't accept deal .* in time/);
+    expect(h.last(buyer)).toMatch(/didn't accept order .* in time/);
   });
 
-  it('"My deals" shows a deal waiting for the seller', async () => {
+  it('"My orders" shows an order waiting for the seller', async () => {
     const buyer = phone();
     const code = await buyByChat(buyer);
     await h.tap(buyer, 'menu:deals');
-    expect(h.last(buyer)).toMatch(new RegExp(`${code} .* waiting for the seller to accept`));
+    expect(h.last(buyer)).toMatch(new RegExp(`${code}\\* · .*\\n.* · waiting for the seller to accept`));
   });
 });
 
@@ -315,7 +315,7 @@ describe('Meta setup', () => {
     expect(tplPost.body.category).toBe('UTILITY');
     expect(tplPost.body.components[0].text).toBe(SELLER_ALERT.body);
     expect(tplPost.body.components[0].text).not.toMatch(/^\{\{|\}\}$/); // can't start or end with a variable
-    expect(tplPost.body.components[2].buttons.map((b: any) => b.text)).toEqual(['View deal', 'Not me']);
+    expect(tplPost.body.components[2].buttons.map((b: any) => b.text)).toEqual(['View order', 'Not me']);
   });
 
   it('never uses a form Meta found problems with', async () => {

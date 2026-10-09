@@ -19,7 +19,7 @@ const codeIn = (t: string) => t.match(/HL-[A-Z2-9]{5}/)![0];
 /** Seller goes through the chat. Returns the deal code. */
 async function sellByChat(seller: string, opts: { buyerPhone?: string; photos?: number; price?: string } = {}) {
   await h.say(seller, 'hi', 'Bayo Shoes');
-  await h.tap(seller, 'menu:sell');
+  await h.sell(seller);
   await h.say(seller, 'Black sneakers, size 42');
   await h.say(seller, opts.price ?? '15000');
   for (let i = 0; i < (opts.photos ?? 0); i++) await photo(seller);
@@ -46,7 +46,7 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
   it('summary shows what the seller receives; the buyer pays just the price', async () => {
     const seller = phone();
     await h.say(seller, 'hi', 'Bayo');
-    await h.tap(seller, 'menu:sell');
+    await h.sell(seller);
     await h.say(seller, 'Sneakers'); await h.say(seller, '15000');
     expect(h.last(seller)).toMatch(/Add photos of the item/);
     await photo(seller);
@@ -54,7 +54,7 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
     expect(h.last(seller)).toMatch(/buyer's WhatsApp number/);
     await h.tap(seller, 'sell:nophone');
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
-    expect(h.last(seller)).toMatch(/Check your deal/);
+    expect(h.last(seller)).toMatch(/Check your order/);
     expect(h.last(seller)).toMatch(/📷 1 photo/);
     expect(h.last(seller)).toMatch(/Hoolam fee   −₦400/);
     expect(h.last(seller)).toMatch(/You receive  ₦14,600/);
@@ -67,7 +67,7 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
   it('with the buyer\'s number: the buyer is alerted, sees photos, pays just the price', async () => {
     const seller = phone(), buyer = phone();
     const code = await sellByChat(seller, { buyerPhone: buyer.replace('+234', '0'), photos: 2 });
-    expect(h.last(seller)).toMatch(/We've sent the buyer the deal/);
+    expect(h.last(seller)).toMatch(/We've sent the buyer the order/);
     const alerts = await outs(buyer, 'template');
     expect(alerts).toHaveLength(1);
     expect(alerts[0].body.text).toMatch(/Bayo is selling you Black sneakers, size 42 for ₦15,000/);
@@ -98,7 +98,7 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
       form: { flow_token: 'sell:v1', item: 'Wig', price: 20000, other_phone: '', photos: [{ id: 'p1', mime_type: 'image/jpeg' }] } });
     expect(h.last(seller)).toMatch(/account number and bank/);
     await h.say(seller, '0123456789 Kuda'); await h.tap(seller, 'bank:yes');
-    expect(h.last(seller)).toMatch(/Check your deal/);
+    expect(h.last(seller)).toMatch(/Check your order/);
     expect(h.last(seller)).toMatch(/📷 1 photo/);
     expect(h.last(seller)).toMatch(/You receive  ₦19,500/);
   });
@@ -145,7 +145,7 @@ describe('Change price', () => {
     await h.say(seller, `View ${code}`); await h.tap(seller, `scounter:${code}`); await h.say(seller, '16000');
     await h.tap(buyer, `cancel:${code}`);
     expect((await deal(code)).status).toBe('CANCELLED');
-    expect(h.last(seller)).toMatch(/cancelled deal/);
+    expect(h.last(seller)).toMatch(/cancelled order/);
   });
 });
 
@@ -169,7 +169,7 @@ describe('proof of shipping', () => {
     await photo(seller, 'GIG waybill');
     const img = (await outs(buyer, 'image')).pop();
     expect(img.body.caption).toMatch(/Proof of shipping/);
-    expect(h.last(buyer)).toMatch(/From the seller, about deal .*GIG waybill/s);
+    expect(h.last(buyer)).toMatch(/From the seller, about order .*GIG waybill/s);
     expect(h.last(seller)).toMatch(/Proof saved/);
     const d = await deal(code);
     expect(d.shipping_note).toBe('GIG waybill');
@@ -211,7 +211,7 @@ describe('pieces', () => {
   it('fees explain who pays', async () => {
     const p = phone();
     await h.say(p, 'hi'); await h.say(p, '/fees');
-    expect(h.last(p)).toMatch(/Whoever starts the deal pays the fee/);
+    expect(h.last(p)).toMatch(/Whoever starts the order pays the fee/);
   });
 
   it('the buyer alert template is transactional and well-formed', async () => {
@@ -222,7 +222,7 @@ describe('pieces', () => {
       return Response.json({ data: [] });
     }) as unknown as typeof fetch;
     expect(await ensureTemplate({ token: 't', phoneNumberId: 'p', graphVersion: 'v26.0', wabaId: 'w', formMode: 'draft', fetchImpl: f }, BUYER_ALERT, 'buyer alert')).toBe('PENDING');
-    expect(posted[0].name).toBe('hoolam_payment_request');
+    expect(posted[0].name).toBe('hoolam_order_payment_request');
     expect(posted[0].category).toBe('UTILITY');
   });
 });

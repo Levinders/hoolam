@@ -83,7 +83,7 @@ describe('roles and the audit trail', () => {
 
     // a funded deal to act on
     const seller = '+2348090000001', buyer = '+2348090000002';
-    await h.say(seller, 'hi', 'Bayo'); await h.tap(seller, 'menu:sell'); await h.say(seller, 'Bag'); await h.say(seller, '10000');
+    await h.say(seller, 'hi', 'Bayo'); await h.sell(seller); await h.say(seller, 'Bag'); await h.say(seller, '10000');
     await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); await h.tap(seller, 'sell:confirm');
     code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
     await h.say(buyer, `Pay ${code}`, 'Ada'); await h.tap(buyer, `pay:${code}`);
@@ -157,7 +157,7 @@ describe('people controls reach WhatsApp', () => {
     await h.say(p, 'hi', 'Kemi');
     const id = (await h.db.query('SELECT id FROM users WHERE phone=$1', [p])).rows[0].id;
     expect((await call('POST', `/people/${id}/cap`, { cap: 200000, reason: 'Verified wholesale seller' }, owner)).status).toBe(200);
-    await h.tap(p, 'menu:sell'); await h.say(p, 'Fridge'); await h.say(p, '150000');
+    await h.sell(p); await h.say(p, 'Fridge'); await h.say(p, '150000');
     expect(h.last(p)).toMatch(/Add photos/); // allowed above the normal ₦50,000 cap
     expect((await call('POST', `/people/${id}/pause`, { paused: true, reason: 'Reported for fake photos' }, owner)).status).toBe(200);
     await h.say(p, 'hi');
