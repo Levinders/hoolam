@@ -1,10 +1,11 @@
-import { Coins, Contact, Gauge, History, Image as ImageIcon, Lock, MessageCircle, Palette, ShieldCheck, Timer, type LucideIcon } from 'lucide-react';
+import { Coins, Contact, Gauge, Landmark, History, Image as ImageIcon, Lock, MessageCircle, Palette, ShieldCheck, Timer, type LucideIcon } from 'lucide-react';
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Empty } from '../ui';
 import { BrandPage, ImagesPage } from './settings/Images';
 import { HistoryPage } from './settings/History';
+import { PaymentsPage } from './settings/Payments';
 import { ContactPage, FeesPage, LimitsPage, TimingPage, WhatsAppPage } from './settings/Values';
 
 /**
@@ -15,6 +16,7 @@ export const SETTINGS_PAGES: { key: string; group: string; label: string; icon: 
   { key: 'fees', group: 'Service', label: 'Fees', icon: Coins, edit: 'settings.core', ownerOnly: true, el: () => <FeesPage /> },
   { key: 'limits', group: 'Service', label: 'Limits', icon: Gauge, edit: 'settings.core', ownerOnly: true, el: () => <LimitsPage /> },
   { key: 'timing', group: 'Service', label: 'Timing', icon: Timer, edit: 'settings.update', el: () => <TimingPage /> },
+  { key: 'payments', group: 'Service', label: 'Payments', icon: Landmark, edit: 'settings.core', ownerOnly: true, el: () => <PaymentsPage /> },
   { key: 'whatsapp', group: 'Service', label: 'WhatsApp', icon: MessageCircle, edit: 'settings.update', el: () => <WhatsAppPage /> },
   { key: 'contact', group: 'Look', label: 'Contact', icon: Contact, edit: 'settings.update', el: () => <ContactPage /> },
   { key: 'brand', group: 'Look', label: 'Brand', icon: Palette, edit: 'brand.update', el: () => <BrandPage /> },

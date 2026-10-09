@@ -9,6 +9,7 @@ import type {
  */
 export class FakeProvider implements PaymentProvider {
   readonly name = 'fake';
+  readonly sandbox = true;
   private collections = new Map<string, { req: CollectionRequest; paidMinor: number }>();
   private payouts = new Map<string, PayoutResult>();
   payoutOutcome: PayoutResult['status'] = 'SUCCESS';

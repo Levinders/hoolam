@@ -21,7 +21,7 @@ services:
       - key: PAYMENT_PROVIDER
         value: fake          # pretend money until Monnify keys arrive
       - key: ALLOW_SELF_DEAL
-        value: "true"        # one phone can play seller and buyer; reply "paid" to fake a transfer
+        value: "true"        # one phone can play seller and buyer (pretend money or the Monnify sandbox only; the server refuses it with live keys)
       - key: WHATSAPP_DRY_RUN
         value: "false"
       - key: WHATSAPP_VERIFY_TOKEN

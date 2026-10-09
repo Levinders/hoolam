@@ -624,3 +624,18 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 11px; resize: ver
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .chart .line { stroke-dashoffset: 0; }
 }
+
+/* ---------- Settings: payments ---------- */
+.keys-list li.missing svg { color: var(--red); }
+.keys-list code, .copy-row code { font-size: 11.5px; background: var(--sunk); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+.copy-row { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin: 6px 0; }
+.copy-row code { flex: 1; min-width: 0; background: none; padding: 0; font-size: 12.5px; }
+.field-block .strong, .small.strong { font-weight: 600; }
+.check-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.check-steps li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+.check-steps li svg { width: 17px; height: 17px; flex: none; margin-top: 1px; }
+.check-steps li.ok svg { color: var(--green); }
+.check-steps li.bad svg { color: var(--red); }
+.check-steps li.skip svg { color: var(--faint); }
+.check-steps b { display: block; }
+.check-steps span { color: var(--muted); overflow-wrap: anywhere; }

@@ -105,3 +105,21 @@ describe('landing page ↔ server', () => {
     expect((await h.app.app.inject({ method: 'GET', url: '/health', headers: { host: 'go.hoolam.com' } })).statusCode).toBe(200);
   });
 });
+
+describe('Settings → Payments', () => {
+  it('shows which payment partner is connected and checks it without moving money', async () => {
+    const call = (method: string, url: string, body?: unknown, cookie?: string) => h.app.app.inject({ method: method as 'GET', url: `/console/api${url}`, headers: { host: 'console.hoolam.com', 'x-hoolam-console': '1', 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+    const { totpCode } = await import('../src/console/crypto.js');
+    const s = (await call('POST', '/auth/setup', { setupToken: 'test-admin-token-123456', name: 'Raphael', email: 'r@hoolam.ng', password: 'Str0ngPassw0rd' })).json();
+    const e = await call('POST', '/auth/enroll', { ticket: s.ticket, code: totpCode(s.secret) });
+    const owner = String(e.headers['set-cookie']).split(';')[0]!;
+    const res = await call('GET', '/payments/connection', undefined, owner);
+    const conn = res.json();
+    expect(conn).toMatchObject({ provider: 'fake', sandbox: true, baseUrl: null });
+    expect(conn.webhookUrl).toMatch(/\/webhook\/payments$/);
+    expect(JSON.stringify(conn)).not.toMatch(/"(apiKey|secretKey)":"/); // only true/false, never the keys
+    const r = (await call('POST', '/payments/connection/check', { testPayment: true }, owner)).json();
+    expect(r.steps[0]).toMatchObject({ key: 'login', ok: true });
+    expect(r.steps.find((x: { key: string }) => x.key === 'collect')).toMatchObject({ ok: true });
+  });
+});

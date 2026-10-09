@@ -45,8 +45,12 @@ With `PAYMENT_PROVIDER=fake` you can test payments locally: after a buyer taps *
 ## Connect Monnify (sandbox first)
 
 1. Sign up at monnify.com (needs your CAC registration) and open the **sandbox** dashboard.
-2. Copy your **API key**, **secret key**, **contract code** and **wallet account number** into `.env`, set `PAYMENT_PROVIDER=monnify`.
-3. In the dashboard, set the webhook URL to `https://your-domain.com/webhook/payments`.
+2. Copy your **API key**, **secret key**, **contract code** and **wallet account number** into Render (hoolam → Environment):
+   `MONNIFY_API_KEY`, `MONNIFY_SECRET_KEY`, `MONNIFY_CONTRACT_CODE`, `MONNIFY_WALLET_ACCOUNT`, `MONNIFY_BASE_URL=https://sandbox.monnify.com`,
+   and set `PAYMENT_PROVIDER=monnify`. (`.env` for running it on your own computer.)
+3. In the dashboard, set the webhook URL to `https://hoolam.onrender.com/webhook/payments` (Console → Settings → Payments shows it with a Copy button).
+   **Console → Settings → Payments → Run check** then logs in, reads the wallet, can look up an account name and create a ₦100 test payment, without
+   paying anything out. In the sandbox, deals are test deals (never on trust cards or in Money) and `ALLOW_SELF_DEAL` still works.
 4. Check your keys first, with no database or WhatsApp needed: `npm run monnify:check`.
    It logs in, lists banks, creates a ₦100 test payment you pay with Monnify's bank simulator
    (https://websim.sdk.monnify.com/#/bankingapp), and can test a payout:

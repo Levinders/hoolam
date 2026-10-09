@@ -35,7 +35,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
-  const testMode = c.ALLOW_SELF_DEAL && provider instanceof FakeProvider;
+  const testMode = c.ALLOW_SELF_DEAL && provider.sandbox;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
   const settings = new Settings(db, c);
   const siteMedia = new SiteMedia(db);
@@ -212,7 +212,10 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // ---------- payment provider ----------
   app.post('/webhook/payments', async (req, reply) => {
     const ev = provider.parseWebhook(req.rawBody ?? '', req.headers);
-    if (!ev) return reply.code(401).send('rejected');
+    if (!ev) {
+      log(`payments webhook REJECTED (${req.headers['monnify-signature'] ? 'signature does not match MONNIFY_SECRET_KEY' : 'unsigned, or not an event we use'})`);
+      return reply.code(401).send('rejected');
+    }
     const id = await storeEvent(db, 'payments', ev.eventKey, ev);
     if (id) runSoon('payments', id);
     return reply.code(200).send('ok');

@@ -451,13 +451,14 @@ export const msg = {
       'Your money stays with Hoolam, not the seller. They only get paid after you receive your item and say you\'re happy. If it never comes, you get your money back.',
     buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: 'Not now' }],
   }),
-  payInstructions: (total: Money, accountNumber: string, bankName: string, accountName: string, minutes: number | null, code: string, testMode = false): Outbound => ({
+  payInstructions: (total: Money, accountNumber: string, bankName: string, accountName: string, minutes: number | null, code: string, hint: 'fake' | 'sandbox' | null = null): Outbound => ({
     kind: 'buttons',
     text:
       `Transfer exactly ${m(total)} to:\n\n${accountNumber}\n${bankName}\n${accountName}\n\n` +
       (minutes ? `This account number works for ${minutes} minutes. ` : '') +
       'You can pay from any bank app, Opay, Moniepoint or PalmPay. We\'ll confirm the moment it lands.' +
-      (testMode ? '\n\nTEST MODE: no real money. Reply "paid" to pretend you made the transfer.' : ''),
+      (hint === 'fake' ? '\n\nTEST MODE: no real money. Reply "paid" to pretend you made the transfer.' : '') +
+      (hint === 'sandbox' ? '\n\nTEST MODE: no real money. Pay this account with Monnify\'s test bank: websim.sdk.monnify.com' : ''),
     buttons: [{ id: `newacct:${code}`, title: 'New account number' }],
   }),
   paymentPartial: (paid: Money, due: Money): Outbound => ({

@@ -64,8 +64,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!c.WHATSAPP_DRY_RUN && (!c.WHATSAPP_TOKEN || !c.WHATSAPP_PHONE_NUMBER_ID || !c.WHATSAPP_APP_SECRET)) {
     throw new Error('WHATSAPP_DRY_RUN=false needs WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_APP_SECRET');
   }
-  if (c.ALLOW_SELF_DEAL && c.PAYMENT_PROVIDER !== 'fake') {
-    throw new Error('ALLOW_SELF_DEAL only works with PAYMENT_PROVIDER=fake');
+  if (c.ALLOW_SELF_DEAL && c.PAYMENT_PROVIDER !== 'fake' && !/sandbox/i.test(c.MONNIFY_BASE_URL)) {
+    throw new Error('ALLOW_SELF_DEAL only works with pretend money or the Monnify sandbox. Remove it before using live keys.');
   }
   return c;
 }

@@ -33,6 +33,7 @@ const toKobo = (naira: number) => Math.round(Number(naira) * 100);
 
 export class MonnifyProvider implements PaymentProvider {
   readonly name = 'monnify';
+  get sandbox(): boolean { return /sandbox/i.test(this.o.baseUrl); }
   private token: { value: string; expiresAt: number } | null = null;
   private banksCache: { at: number; banks: Bank[] } | null = null;
   private readonly fetch: typeof fetch;
@@ -168,6 +169,15 @@ export class MonnifyProvider implements PaymentProvider {
   async checkPayout(reference: string): Promise<PayoutResult> {
     const r = await this.call<{ status: string }>('GET', `/api/v2/disbursements/single/summary?reference=${encodeURIComponent(reference)}`);
     return this.mapPayout(r.status);
+  }
+
+  // ---------- wallet ----------
+  // confirm in sandbox
+  async walletBalance(): Promise<{ availableMinor: number; ledgerMinor: number }> {
+    if (!this.o.walletAccountNumber) throw new Error('MONNIFY_WALLET_ACCOUNT is not set');
+    const r = await this.call<{ availableBalance: number; ledgerBalance: number }>(
+      'GET', `/api/v2/disbursements/wallet-balance?accountNumber=${encodeURIComponent(this.o.walletAccountNumber)}`);
+    return { availableMinor: toKobo(r.availableBalance ?? 0), ledgerMinor: toKobo(r.ledgerBalance ?? 0) };
   }
 
   // ---------- webhooks ----------

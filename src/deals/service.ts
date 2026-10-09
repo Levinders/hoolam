@@ -108,7 +108,12 @@ export class DealService {
   private money(minor: number) { return { minor, currency: this.o.currency }; }
 
   /** Deals paid with pretend money never count on anyone's trust card. */
-  private isTest(): boolean { return this.o.provider.name === 'fake'; }
+  private isTest(): boolean { return this.o.provider.sandbox; }
+  /** A line under the payment details while testing: how to "pay" without real money. */
+  private payHint(): 'fake' | 'sandbox' | null {
+    if (!this.o.provider.sandbox) return null;
+    return this.o.provider.name === 'fake' ? (this.o.testMode ? 'fake' : null) : 'sandbox';
+  }
 
   /** "🛡️ Bayo · ✅ 48 deals · 👍 96%", or undefined when trust cards are off. */
   async trustLineFor(sellerId: string | null): Promise<string | undefined> {
@@ -547,7 +552,7 @@ export class DealService {
          ORDER BY created_at DESC LIMIT 1`, [deal.id]);
       const pi = existing.rows[0];
       if (pi) {
-        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, minutesLeft(pi.expires_at), deal.code, this.o.testMode));
+        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, minutesLeft(pi.expires_at), deal.code, this.payHint()));
         return;
       }
     }
@@ -566,7 +571,7 @@ export class DealService {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [deal.id, this.o.provider.name, paymentReference, instr.providerReference, deal.buyer_pays_minor, deal.currency, instr.accountNumber, instr.accountName, instr.bankName, instr.expiresAt],
     );
-    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, minutesLeft(instr.expiresAt), deal.code, this.o.testMode));
+    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, minutesLeft(instr.expiresAt), deal.code, this.payHint()));
   }
 
   /** Test mode only: the newest unpaid payment this person asked for. */

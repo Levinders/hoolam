@@ -605,6 +605,60 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       return { ok: true, values: d.settings.all() };
     });
 
+    // ---- the payment partner: is it connected, and does it answer? ----
+    const naira = (m: number) => msg.moneyText({ minor: Number(m), currency: 'NGN' });
+    const serverUrl = () => (d.config.RENDER_EXTERNAL_URL || d.config.PUBLIC_BASE_URL).replace(/\/+$/, '');
+    api.get('/payments/connection', async (req) => {
+      need(req, 'settings.view');
+      const c = d.config;
+      const last = await db.query(`SELECT max(received_at) AS at FROM webhook_events WHERE source='payments'`);
+      return {
+        provider: d.provider.name, sandbox: d.provider.sandbox,
+        baseUrl: c.PAYMENT_PROVIDER === 'monnify' ? c.MONNIFY_BASE_URL : null,
+        configured: { apiKey: !!c.MONNIFY_API_KEY, secretKey: !!c.MONNIFY_SECRET_KEY, contractCode: !!c.MONNIFY_CONTRACT_CODE, wallet: !!c.MONNIFY_WALLET_ACCOUNT },
+        signatureRequired: c.MONNIFY_REQUIRE_SIGNATURE, selfDeals: c.ALLOW_SELF_DEAL,
+        webhookUrl: `${serverUrl()}/webhook/payments`, lastWebhookAt: last.rows[0]?.at ?? null,
+      };
+    });
+    /** Runs a few harmless calls against the payment partner and says, step by step, what works. Never moves money. */
+    api.post('/payments/connection/check', async (req) => {
+      need(req, 'settings.core');
+      const b = (req.body ?? {}) as { bankCode?: string; accountNumber?: string; testPayment?: boolean };
+      type Step = { key: string; ok: boolean | null; title: string; detail: string };
+      const steps: Step[] = [];
+      const run = async (key: string, title: string, fn: () => Promise<string>) => {
+        try { steps.push({ key, ok: true, title, detail: await fn() }); return true; } catch (e) { steps.push({ key, ok: false, title, detail: (e as Error).message }); return false; }
+      };
+      const p = d.provider;
+      let banks: { code: string; name: string }[] = [];
+      const loggedIn = await run('login', 'Log in and fetch the list of banks', async () => {
+        banks = await p.listBanks();
+        return `${banks.length} banks. The API key and secret key work.`;
+      });
+      if (loggedIn && p.walletBalance) {
+        await run('wallet', 'Read the wallet that pays sellers', async () => {
+          const w = await p.walletBalance!();
+          return `${naira(w.availableMinor)} available (${naira(w.ledgerMinor)} in total).`;
+        });
+      } else if (loggedIn) steps.push({ key: 'wallet', ok: null, title: 'Read the wallet that pays sellers', detail: 'Pretend money has no wallet.' });
+      if (loggedIn && b.bankCode && b.accountNumber) {
+        const bank = banks.find((x) => x.code === b.bankCode)?.name ?? b.bankCode;
+        await run('name', `Look up account ${b.accountNumber} at ${bank}`, async () => {
+          const name = await p.resolveAccount(String(b.bankCode), String(b.accountNumber).replace(/\D/g, ''));
+          if (!name) throw new Error('No name came back. Check the number and bank (the sandbox only knows some test accounts).');
+          return name;
+        });
+      }
+      if (loggedIn && b.testPayment) {
+        if (!p.sandbox) steps.push({ key: 'collect', ok: null, title: 'Create a ₦100 test payment', detail: 'Skipped: these are live keys, and a test payment would be real.' });
+        else await run('collect', 'Create a ₦100 test payment', async () => {
+          const r = await p.createCollection({ paymentReference: `HL-CHECK-${Date.now()}`, amountMinor: 100_00, currency: 'NGN', description: 'Hoolam connection check', customerName: 'Hoolam Check', customerEmail: 'check@hoolam.com' });
+          return `Pay ₦100 to ${r.accountNumber} (${r.bankName}, ${r.accountName}) from Monnify's test bank at websim.sdk.monnify.com. Then reload this page: "Last payment notice" should update within a minute.`;
+        });
+      }
+      return { steps, checkedAt: new Date() };
+    });
+
     // ---- logo and website pictures ----
     const siteState = () => ({ autoRefresh: d.siteSync.enabled, pending: d.siteSync.pending, lastRequestedAt: d.siteSync.lastRequestedAt, lastError: d.siteSync.lastError });
     api.get('/media', async (req) => {

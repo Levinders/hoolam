@@ -39,8 +39,9 @@ describe('test mode: one phone plays both sides', () => {
     expect(h.last('+2290190000002')).toMatch(/no payment waiting/);
   });
 
-  it('test mode is refused with real payments', () => {
-    expect(() => loadConfig({ DATABASE_URL: 'x', ADMIN_TOKEN: 'aaaaaaaaaaaaaaaaaaaa', ALLOW_SELF_DEAL: 'true', PAYMENT_PROVIDER: 'monnify', MONNIFY_API_KEY: 'k', MONNIFY_SECRET_KEY: 's', MONNIFY_CONTRACT_CODE: 'c' } as NodeJS.ProcessEnv))
-      .toThrow(/only works with PAYMENT_PROVIDER=fake/);
+  it('test mode is refused with real payments, allowed with the Monnify sandbox', () => {
+    const env = { DATABASE_URL: 'x', ADMIN_TOKEN: 'aaaaaaaaaaaaaaaaaaaa', ALLOW_SELF_DEAL: 'true', PAYMENT_PROVIDER: 'monnify', MONNIFY_API_KEY: 'k', MONNIFY_SECRET_KEY: 's', MONNIFY_CONTRACT_CODE: 'c' };
+    expect(() => loadConfig({ ...env, MONNIFY_BASE_URL: 'https://api.monnify.com' } as NodeJS.ProcessEnv)).toThrow(/Remove it before using live keys/);
+    expect(() => loadConfig({ ...env, MONNIFY_BASE_URL: 'https://sandbox.monnify.com' } as NodeJS.ProcessEnv)).not.toThrow();
   });
 });

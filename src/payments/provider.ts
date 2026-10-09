@@ -56,6 +56,8 @@ export type ProviderEvent =
 
 export interface PaymentProvider {
   readonly name: string;
+  /** True when no real money moves (pretend money, or a provider's test environment). */
+  readonly sandbox: boolean;
   createCollection(req: CollectionRequest): Promise<CollectionInstructions>;
   /** Ask the provider directly. Never trust a webhook on its own. */
   checkCollection(providerReference: string): Promise<PaymentCheck>;
@@ -67,4 +69,6 @@ export interface PaymentProvider {
   checkPayout(reference: string): Promise<PayoutResult>;
   /** Verify a raw webhook body + headers. Returns null if it is not genuine. */
   parseWebhook(rawBody: string, headers: Record<string, string | string[] | undefined>): ProviderEvent | null;
+  /** Money available in the wallet payouts are sent from (minor units). Optional: not every provider has one. */
+  walletBalance?(): Promise<{ availableMinor: number; ledgerMinor: number }>;
 }
