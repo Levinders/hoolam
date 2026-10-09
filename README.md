@@ -69,12 +69,11 @@ payouts wait in `PAYOUT_PENDING` and you approve them with `POST /admin/payouts/
 2. Fill in `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PUBLIC_NUMBER`, set `WHATSAPP_DRY_RUN=false`.
 3. Webhook URL: `https://your-domain.com/webhook/whatsapp`, verify token = `WHATSAPP_VERIFY_TOKEN`. Subscribe to `messages`.
 4. **Templates:** WhatsApp only allows free-form messages within 24 hours of the person's last message. Outside that window
-   we record the message as `NEEDS_TEMPLATE` (see `/admin/attention`). Submit these **utility** templates to Meta:
-   - `payment_received_seller`: "The buyer has paid for deal {{1}}. Your {{2}} is held safely by Hoolam. Ship the item now."
-   - `item_on_the_way`: "Your item for deal {{1}} is on the way. When it arrives, tell us if you're happy."
-   - `confirm_reminder`: "Has your item for deal {{1}} arrived? Your money is still safe with us."
-   - `seller_paid`: "You've been paid. {{1}} has been sent to your {{2}} account for deal {{3}}."
-   - `refund_sent`: "Your refund of {{1}} for deal {{2}} has been sent to your {{3}} account."
+   Hoolam sends a pre-approved **utility template** instead (`src/whatsapp/automation.ts`: `SELLER_ALERT`, `BUYER_ALERT`, `DEAL_TEMPLATES`).
+   The server submits all 12 to Meta on start (needs `WHATSAPP_WABA_ID`), checks every 10 minutes until they're approved, and
+   uses each one as soon as it is. Console → Settings → WhatsApp shows each template and its status. Until one is approved,
+   that update is kept as `NEEDS_TEMPLATE` and shows in Needs action. Templates also need a **payment method** on the
+   WhatsApp Business account (Meta → WhatsApp Manager / Billing).
 
 ## Buyer starts the deal
 

@@ -4,12 +4,12 @@ import { post } from '../ledger.js';
 import type { Currency } from '../money.js';
 import { quote, type FeePayer } from '../pricing.js';
 import type { PaymentProvider, PayoutResult } from '../payments/provider.js';
-import type { Messenger, Outbound } from '../whatsapp/client.js';
+import type { Messenger, Outbound, Template } from '../whatsapp/client.js';
 import type { Media } from '../whatsapp/media.js';
 import type { Trust } from '../trust.js';
 import type { Settings } from '../settings.js';
 import type { PricingRules } from '../pricing.js';
-import { BUYER_ALERT, SELLER_ALERT } from '../whatsapp/automation.js';
+import { BUYER_ALERT, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
 import { msg } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
 
@@ -49,7 +49,8 @@ export type Alert = SellerAlert;
 export interface User { id: string; phone: string; display_name: string | null; blocked?: boolean; deal_cap_minor?: number | null }
 export interface BankAccount { id: string; user_id: string; bank_code: string; bank_name: string; account_number: string; account_name: string }
 
-type Outbox = { phone: string; message: Outbound }[];
+/** Messages to send after the transaction commits. `fallback` is the approved template used if they're outside WhatsApp's 24-hour window. */
+type Outbox = { phone: string; message: Outbound; fallback?: Template }[];
 
 export class DealError extends Error {
   constructor(public readonly reason: 'NOT_FOUND' | 'NOT_ALLOWED' | 'OWN_DEAL' | 'TAKEN' | 'CLOSED' | 'TOO_BIG', message?: string) {
@@ -100,12 +101,13 @@ export class DealService {
     const out: Outbox = [];
     const result = await withTx(this.o.db, (tx) => fn(tx, out));
     for (const o of out) {
-      try { await this.o.messenger.send(o.phone, o.message); } catch (e) { this.log(`send failed: ${(e as Error).message}`); }
+      try { await this.o.messenger.send(o.phone, o.message, o.fallback); } catch (e) { this.log(`send failed: ${(e as Error).message}`); }
     }
     return result;
   }
 
   private money(minor: number) { return { minor, currency: this.o.currency }; }
+  private text(minor: number) { return msg.moneyText(this.money(minor)); }
 
   /** Deals paid with pretend money never count on anyone's trust card. */
   private isTest(): boolean { return this.o.provider.sandbox; }
@@ -447,7 +449,7 @@ export class DealService {
       await this.move(tx, deal, 'AWAITING_PAYMENT', 'seller', 'Seller accepted the buyer\'s deal');
       const buyer = await this.userById(tx, deal.buyer_id!);
       out.push({ phone: seller.phone, message: msg.sellerAcceptedOk(deal.code, firstName(buyer.display_name) ?? 'The buyer', acct.rows[0].bank_name, String(acct.rows[0].account_number).slice(-4)) });
-      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.buyer_pays_minor), await this.trustLineFor(seller.id)) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.buyer_pays_minor), await this.trustLineFor(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(deal.buyer_pays_minor)], [`pay:${deal.code}`]) });
     });
   }
 
@@ -467,7 +469,7 @@ export class DealService {
       const buyer = await this.userById(tx, deal.buyer_id!);
       const q = quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer');
       out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor)) });
-      out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor)) });
+      out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor)), fallback: dealTemplate('counterOffer', [deal.code, this.text(q.buyerPaysMinor)], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
     });
   }
 
@@ -485,7 +487,7 @@ export class DealService {
       const seller = await this.userById(tx, deal.counter_seller_id);
       await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer', `Buyer accepted the new price ${q.priceMinor}`);
       out.push({ phone: seller.phone, message: msg.sellerCounterAccepted(deal.code, firstName(buyer.display_name) ?? 'The buyer', this.money(q.sellerGetsMinor)) });
-      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(q.buyerPaysMinor), await this.trustLineFor(seller.id)) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(q.buyerPaysMinor), await this.trustLineFor(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(q.buyerPaysMinor)], [`pay:${deal.code}`]) });
     });
   }
 
@@ -504,7 +506,7 @@ export class DealService {
       await this.move(tx, deal, 'CANCELLED', 'seller', notMe ? 'Not me: the alerted number is not the seller' : 'Seller declined');
       const buyer = await this.userById(tx, deal.buyer_id!);
       out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.sellerDeclinedOk(deal.code) });
-      out.push({ phone: buyer.phone, message: notMe ? msg.buyerNotMe(deal.code) : msg.buyerSellerDeclined(deal.code) });
+      out.push({ phone: buyer.phone, message: notMe ? msg.buyerNotMe(deal.code) : msg.buyerSellerDeclined(deal.code), fallback: notMe ? undefined : dealTemplate('sellerDeclined', [deal.code], ['menu:buy']) });
     });
   }
 
@@ -648,7 +650,7 @@ export class DealService {
       });
       await this.move(tx, deal, 'FUNDED', 'provider', extra > 0 ? `NEEDS_ATTENTION: overpaid by ${extra}` : undefined);
       if (buyer) out.push({ phone: buyer.phone, message: msg.buyerFunded(this.money(deal.buyer_pays_minor), deal.code) });
-      out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor)) });
+      out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
       return 'funded';
     });
   }
@@ -662,7 +664,7 @@ export class DealService {
       await this.move(tx, deal, 'SHIPPED', 'seller');
       const buyer = await this.userById(tx, deal.buyer_id!);
       out.push({ phone: seller.phone, message: msg.sellerShippedOk(deal.code) });
-      out.push({ phone: buyer.phone, message: msg.buyerShipped(deal.code) });
+      out.push({ phone: buyer.phone, message: msg.buyerShipped(deal.code), fallback: dealTemplate('itemOnTheWay', [deal.code], [`happy:${deal.code}`, `problem:${deal.code}`]) });
     });
   }
 
@@ -731,7 +733,7 @@ export class DealService {
       await tx.query('INSERT INTO disputes (deal_id, opened_by) VALUES ($1,$2)', [deal.id, buyer.id]);
       const seller = await this.sellerOf(tx, deal);
       out.push({ phone: buyer.phone, message: msg.askProblem(deal.code) });
-      out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code) });
+      out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code), fallback: dealTemplate('problemReported', [deal.code], ['menu:human']) });
     });
   }
 
@@ -868,11 +870,11 @@ export class DealService {
         const bankName = acct.rows[0]?.bank_name ?? 'bank';
         if (p.kind === 'SELLER') {
           const seller = await this.sellerOf(tx, deal);
-          out.push({ phone: seller.phone, message: msg.sellerPaid(deal.code, this.money(p.amount_minor), bankName) });
+          out.push({ phone: seller.phone, message: msg.sellerPaid(deal.code, this.money(p.amount_minor), bankName), fallback: dealTemplate('sellerPaid', [deal.code, this.text(p.amount_minor), bankName]) });
         } else {
           const buyer = await this.userById(tx, deal.buyer_id!);
           const seller = await this.sellerOf(tx, deal);
-          out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName) });
+          out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName), fallback: dealTemplate('refundSent', [deal.code, this.text(p.amount_minor), bankName]) });
           out.push({ phone: seller.phone, message: msg.sellerRefunded(deal.code) });
         }
         return;
@@ -907,12 +909,12 @@ export class DealService {
     let nudged = 0;
     let expired = 0;
     const toNudge = await this.o.db.query(
-      `SELECT d.code, u.phone FROM deals d JOIN users u ON u.id=d.buyer_id
+      `SELECT d.code, d.buyer_pays_minor, u.phone FROM deals d JOIN users u ON u.id=d.buyer_id
        WHERE d.status='SHIPPED' AND d.reminded_at IS NULL AND d.shipped_at < now() - make_interval(hours => $1) LIMIT 50`,
       [opts.nudgeAfterHours]);
     for (const row of toNudge.rows) {
       await this.o.db.query('UPDATE deals SET reminded_at=now() WHERE code=$1', [row.code]);
-      await this.o.messenger.send(row.phone, msg.buyerNudge(row.code));
+      await this.o.messenger.send(row.phone, msg.buyerNudge(row.code), dealTemplate('confirmReminder', [row.code, this.text(Number(row.buyer_pays_minor))], [`happy:${row.code}`, `problem:${row.code}`]));
       nudged++;
     }
     const stale = await this.o.db.query(
@@ -931,7 +933,7 @@ export class DealService {
         if (deal.status !== 'AWAITING_SELLER') return;
         await this.move(tx, deal, 'EXPIRED', 'system', 'Seller did not accept in time');
         const buyer = await this.userById(tx, deal.buyer_id!);
-        out.push({ phone: buyer.phone, message: msg.buyerSellerExpired(deal.code) });
+        out.push({ phone: buyer.phone, message: msg.buyerSellerExpired(deal.code), fallback: dealTemplate('sellerNoReply', [deal.code], ['menu:buy']) });
         expired++;
       });
     }

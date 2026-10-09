@@ -1,11 +1,11 @@
 import { AlertTriangle, ArrowUpRight, AtSign, BellRing, Building2, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { put } from '../../api';
+import { post, put } from '../../api';
 import { useAuth } from '../../auth';
 import { ago, money } from '../../format';
 import { useData } from '../../hooks';
-import { Button, ConfirmAction, ErrorBanner, Skeleton, Switch, useToast } from '../../ui';
+import { Button, ConfirmAction, ErrorBanner, Pill, Skeleton, Switch, useToast } from '../../ui';
 import { SectionHead, useUnsaved } from '../Settings';
 
 type Val = number | boolean | string;
@@ -45,8 +45,8 @@ function useDraft(keys: string[]) {
 type Draft = ReturnType<typeof useDraft>;
 
 /** One page of values: rows on the left, an explainer on the right, a save bar when something changed. */
-function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 'applies to new deals', stacked = [] }: {
-  applies?: string; stacked?: string[]; title: string; lede: ReactNode; keys: string[]; aside?: (s: Draft) => ReactNode;
+function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 'applies to new deals', stacked = [], after }: {
+  applies?: string; stacked?: string[]; after?: ReactNode; title: string; lede: ReactNode; keys: string[]; aside?: (s: Draft) => ReactNode;
   render?: Partial<Record<string, (s: Draft, editable: boolean) => ReactNode>>; confirmExtra?: (s: Draft) => ReactNode;
 }) {
   const { can } = useAuth();
@@ -107,6 +107,7 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
         </section>
         {aside && <aside className="stack">{aside(s)}</aside>}
       </div>
+      {after}
 
       <div className={`savebar${s.changed.length ? ' show' : ''}`} aria-hidden={!s.changed.length}>
         <div className="savebar-in">
@@ -278,5 +279,43 @@ export function WhatsAppPage() {
           <div className="note"><Clock /><span>Changing it here updates links. It doesn't move your WhatsApp account: that's set on Meta, and on Render as <code>WHATSAPP_PHONE_NUMBER_ID</code>.</span></div>
         </div>
       </section>
-    )} />;
+    )} after={<TemplatesPanel />} />;
+}
+
+// ---------------------------------------------------------------------------------------------
+
+interface TemplateRow { name: string; label: string; body: string; buttons: string[]; status: string | null }
+const TPL_TONE: Record<string, 'green' | 'gold' | 'red' | 'grey'> = { APPROVED: 'green', PENDING: 'gold', IN_APPEAL: 'gold', REJECTED: 'red', PAUSED: 'red', DISABLED: 'red' };
+
+/** The messages Hoolam may start when someone hasn't written in 24 hours, and whether Meta has approved each. */
+function TemplatesPanel() {
+  const q = useData<{ connected: boolean; templates: TemplateRow[] }>('/whatsapp/templates');
+  const [busy, setBusy] = useState(false);
+  const { can } = useAuth();
+  if (!q.data) return null;
+  const rows = q.data.templates;
+  const approved = rows.filter((r) => r.status === 'APPROVED').length;
+  const refresh = async () => { setBusy(true); try { await post('/whatsapp/templates/refresh'); q.reload(); } finally { setBusy(false); } };
+  return (
+    <section className="panel tpl-panel">
+      <div className="panel-head">
+        <h2>Messages Hoolam starts</h2>
+        <span className="right"><span className="small muted">{approved} of {rows.length} approved</span>
+          {can('settings.update') && q.data.connected && <Button size="sm" variant="ghost" icon={RotateCcw} busy={busy} onClick={refresh}>Check Meta</Button>}</span>
+      </div>
+      <div className="panel-body stack" style={{ gap: 12 }}>
+        <p className="small muted">WhatsApp only lets Hoolam message someone who hasn't written in the last 24 hours with a message Meta approved in advance. The server submits these on start and uses each one as soon as it's approved; until then those updates wait in Needs action. They also need a payment method on the WhatsApp account in Meta. Shown with example details.</p>
+        {!q.data.connected && <div className="banner gold small"><AlertTriangle /><div>Not connected to Meta yet: set <code>WHATSAPP_WABA_ID</code> on Render (and turn off dry run) so the server can submit them.</div></div>}
+        <ul className="tpl-list">
+          {rows.map((r) => (
+            <li key={r.name}>
+              <div className="tpl-top"><b>{r.label}</b><Pill tone={TPL_TONE[r.status ?? ''] ?? 'grey'}>{r.status ? r.status.toLowerCase().replace(/_/g, ' ') : 'not submitted'}</Pill></div>
+              <p className="tpl-body">{r.body}</p>
+              {r.buttons.length > 0 && <div className="tpl-btns">{r.buttons.map((b) => <span key={b}>{b}</span>)}</div>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
 }

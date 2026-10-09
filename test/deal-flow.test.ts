@@ -247,4 +247,28 @@ describe('safety nets', () => {
     const r = await h.db.query(`SELECT status FROM outbound_messages WHERE phone='+2348066666666' ORDER BY id DESC LIMIT 1`);
     expect(r.rows[0].status).toBe('NEEDS_TEMPLATE');
   });
+
+  it('outside the window, a deal update goes out as its template once Meta has approved it', async () => {
+    const { dealTemplate, DEAL_TEMPLATES } = await import('../src/whatsapp/automation.js');
+    const phone = '+2348066666667';
+    await h.db.query(`INSERT INTO chat_sessions (phone, last_inbound_at) VALUES ($1, now() - interval '3 days') ON CONFLICT (phone) DO UPDATE SET last_inbound_at = now() - interval '3 days'`, [phone]);
+    const t = dealTemplate('itemOnTheWay', ['HL-ABCDE'], ['happy:HL-ABCDE', 'problem:HL-ABCDE']);
+    expect(t.preview).toMatch(/^Your item for deal HL-ABCDE is on the way/);
+    expect(t.buttonPayloads).toEqual(['happy:HL-ABCDE', 'problem:HL-ABCDE']);
+    const last = async () => (await h.db.query(`SELECT status, kind, error FROM outbound_messages WHERE phone=$1 ORDER BY id DESC LIMIT 1`, [phone])).rows[0];
+
+    h.app.messenger.setTemplateStatus(t.name, 'PENDING');
+    await h.app.messenger.send(phone, { kind: 'text', text: 'on the way' }, t);
+    expect(await last()).toMatchObject({ status: 'NEEDS_TEMPLATE', error: expect.stringMatching(/pending/) });
+
+    h.app.messenger.setTemplateStatus(t.name, 'APPROVED');
+    await h.app.messenger.send(phone, { kind: 'text', text: 'on the way' }, t);
+    expect(await last()).toMatchObject({ status: 'DRY_RUN', kind: 'template' });
+
+    // Meta's rules: no template body starts or ends with a variable; button labels fit in 25 characters
+    for (const d of Object.values(DEAL_TEMPLATES) as { body: string; buttons?: string[] }[]) {
+      expect(d.body).not.toMatch(/^\{\{|\}\}$/);
+      for (const b of d.buttons ?? []) expect(b.length).toBeLessThanOrEqual(25);
+    }
+  });
 });

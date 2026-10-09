@@ -1,4 +1,5 @@
 import { buyFlowJson, buyFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
+import type { Template } from './client.js';
 
 /**
  * The things WhatsApp shows before anyone types:
@@ -110,7 +111,92 @@ export const BUYER_ALERT = {
   buttons: ['View deal', 'Not me'],
 };
 
-export type TemplateDef = typeof SELLER_ALERT;
+export interface TemplateDef { name: string; body: string; example: string[]; footer?: string; buttons?: string[] }
+
+/**
+ * Deal updates Hoolam starts when the other person last wrote more than 24 hours ago (WhatsApp then only
+ * allows pre-approved templates). Each mirrors a chat message in messages.ts. All are UTILITY: about one
+ * deal, nothing promotional. The server submits them to Meta on start and uses each once Meta approves it.
+ * Rules Meta enforces: the body can't start or end with a variable; button labels max 25 characters.
+ */
+export const DEAL_TEMPLATES = {
+  sellerAccepted: {
+    name: 'hoolam_seller_accepted', label: 'Seller accepted (to the buyer)',
+    body: 'Good news: the seller accepted your order for deal {{1}}.\n\nPay {{2}} to Hoolam to start. We hold the money until you have your item and are happy.',
+    example: ['HL-7K2QF', '₦15,300'], buttons: ['Pay now'],
+  },
+  counterOffer: {
+    name: 'hoolam_counter_offer', label: 'New price from the seller (to the buyer)',
+    body: 'The seller replied to your order for deal {{1}} with a new price. You would pay {{2}} in total.\n\nYou only pay if you accept.',
+    example: ['HL-7K2QF', '₦18,400'], buttons: ['Accept new price', 'Cancel deal'],
+  },
+  paymentReceived: {
+    name: 'hoolam_payment_received', label: 'Buyer paid (to the seller)',
+    body: 'The buyer has paid for deal {{1}}. Your {{2}} is held safely by Hoolam.\n\nSend the item now, then tap below.',
+    example: ['HL-7K2QF', '₦15,000'], buttons: ['I have sent it'],
+  },
+  itemOnTheWay: {
+    name: 'hoolam_item_on_the_way', label: 'Item on the way (to the buyer)',
+    body: 'Your item for deal {{1}} is on the way.\n\nWhen it arrives, open it and check it. Your money stays held by Hoolam until you tell us.',
+    example: ['HL-7K2QF'], buttons: ["I'm happy", 'Problem'],
+  },
+  confirmReminder: {
+    name: 'hoolam_confirm_reminder', label: 'Has it arrived? (to the buyer)',
+    body: 'Has your item for deal {{1}} arrived? Your {{2}} is still held safely by Hoolam.\n\nCheck it, then tell us below.',
+    example: ['HL-7K2QF', '₦15,300'], buttons: ["I'm happy", 'Problem'],
+  },
+  sellerPaid: {
+    name: 'hoolam_seller_paid', label: 'You have been paid (to the seller)',
+    body: "You've been paid for deal {{1}}. {{2}} has been sent to your {{3}} account.\n\nThank you for selling safely with Hoolam.",
+    example: ['HL-7K2QF', '₦15,000', 'GTBank'],
+  },
+  refundSent: {
+    name: 'hoolam_refund_sent', label: 'Refund sent (to the buyer)',
+    body: 'Your refund for deal {{1}} has been sent. {{2}} is on its way to your {{3}} account.\n\nThank you for your patience.',
+    example: ['HL-7K2QF', '₦15,300', 'Opay'],
+  },
+  problemReported: {
+    name: 'hoolam_problem_reported', label: 'Buyer reported a problem (to the seller)',
+    body: 'The buyer reported a problem with deal {{1}}. The money stays held while the Hoolam team looks into it.\n\nTap below to send us your side.',
+    example: ['HL-7K2QF'], buttons: ['Talk to Hoolam'],
+  },
+  sellerNoReply: {
+    name: 'hoolam_deal_closed', label: 'Seller did not answer in time (to the buyer)',
+    body: "Deal {{1}} has closed because the seller didn't respond in time. No money was taken.\n\nYou can start a new deal any time.",
+    example: ['HL-7K2QF'], buttons: ['Start another'],
+  },
+  sellerDeclined: {
+    name: 'hoolam_seller_declined', label: 'Seller declined (to the buyer)',
+    body: 'The seller declined deal {{1}}. No money was taken.\n\nYou can start a new deal any time.',
+    example: ['HL-7K2QF'], buttons: ['Start another'],
+  },
+} satisfies Record<string, TemplateDef & { label: string }>;
+export type DealTemplateKey = keyof typeof DEAL_TEMPLATES;
+
+/** Every template the server keeps on Meta, with a plain label for the console. */
+export const ALL_TEMPLATES: (TemplateDef & { label: string })[] = [
+  { ...SELLER_ALERT, label: 'New order request (to a seller)' },
+  { ...BUYER_ALERT, label: 'Payment request (to a buyer)' },
+  ...Object.values(DEAL_TEMPLATES),
+];
+
+/** A ready-to-send deal update: the template, the values for {{1}}…, and what each button sends back. */
+export function dealTemplate(key: DealTemplateKey, params: string[], buttonPayloads: string[] = []): Template {
+  const t: TemplateDef = DEAL_TEMPLATES[key];
+  return {
+    name: t.name, language: 'en', params,
+    buttonPayloads: t.buttons?.length ? buttonPayloads.slice(0, t.buttons.length) : undefined,
+    buttonTitles: t.buttons,
+    preview: t.body.replace(/\{\{(\d+)\}\}/g, (_m, i) => params[Number(i) - 1] ?? ''),
+  };
+}
+
+/** The current status of every template on the account (APPROVED, PENDING, REJECTED, PAUSED…), by name. */
+export async function fetchTemplateStatuses(o: MetaSetupOptions): Promise<Record<string, string> | null> {
+  const r = await graph(o, 'GET', `${o.wabaId}/message_templates?fields=name,status&limit=200`);
+  if (!r.ok) { o.log?.(`templates: can't list them (HTTP ${r.status}): ${r.text}`); return null; }
+  return Object.fromEntries((r.json?.data ?? []).map((x: { name: string; status: string }) => [x.name, x.status]));
+}
 
 async function graph(o: AutomationOptions, method: 'GET' | 'POST', path: string, body?: unknown) {
   const f = o.fetchImpl ?? fetch;
@@ -142,8 +228,8 @@ export async function ensureTemplate(o: MetaSetupOptions, t: TemplateDef, label:
     name: t.name, language: 'en', category: 'UTILITY', parameter_format: 'positional',
     components: [
       { type: 'BODY', text: t.body, example: { body_text: [t.example] } },
-      { type: 'FOOTER', text: t.footer },
-      { type: 'BUTTONS', buttons: t.buttons.map((text) => ({ type: 'QUICK_REPLY', text })) },
+      ...(t.footer ? [{ type: 'FOOTER', text: t.footer }] : []),
+      ...(t.buttons?.length ? [{ type: 'BUTTONS', buttons: t.buttons.map((text) => ({ type: 'QUICK_REPLY', text })) }] : []),
     ],
   });
   if (!created.ok) {

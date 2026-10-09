@@ -6,7 +6,7 @@ import { DealError, DealService } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { BUYER_ALERT, ensureBuyFlow, ensureSellFlow, ensureSellerAlertTemplate, ensureTemplate, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureBuyFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, syncAutomation } from './whatsapp/automation.js';
 import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
 import { Settings } from './settings.js';
@@ -374,6 +374,18 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   const syncMenu = () => syncAutomation({ token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log });
 
+  /** Asks Meta again which templates are approved (approval comes hours after the server starts). */
+  async function refreshTemplates(): Promise<void> {
+    if (c.WHATSAPP_DRY_RUN || !c.WHATSAPP_WABA_ID) return;
+    const st = await fetchTemplateStatuses({ token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log });
+    if (!st) return;
+    for (const t of ALL_TEMPLATES) {
+      const before = messenger.templateStatus(t.name);
+      messenger.setTemplateStatus(t.name, st[t.name] ?? null);
+      if (st[t.name] && st[t.name] !== before) log(`template ${t.name}: ${st[t.name]}`);
+    }
+  }
+
   /** On start (live mode): the menu extras, the seller alert template and the buyer's form. Never throws. */
   async function setupMeta(): Promise<void> {
     if (c.WHATSAPP_DRY_RUN) return;
@@ -384,8 +396,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         return;
       }
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log };
-      await ensureSellerAlertTemplate(o);
-      await ensureTemplate(o, BUYER_ALERT, 'buyer alert');
+      // the alerts and the deal updates used outside WhatsApp's 24-hour window (submitted once; used after Meta approves)
+      for (const t of ALL_TEMPLATES) messenger.setTemplateStatus(t.name, await ensureTemplate(o, t, t.label));
       if (c.WHATSAPP_BUY_FORM) {
         const buyId = await ensureBuyFlow(o);
         buyForm = buyId ? { flowId: buyId, mode: c.WHATSAPP_FORM_MODE } : null;
@@ -399,7 +411,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   // ---------- the staff console (/console) ----------
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
-  registerConsoleApi(app, { config: c, db, deals, trust, settings, messenger, provider, auth: staffAuth, siteMedia, siteSync, log });
+  registerConsoleApi(app, { config: c, db, deals, trust, settings, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -410,6 +422,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       }
       await deals.pollPayouts();
     } else {
+      if (ALL_TEMPLATES.some((t) => messenger.templateStatus(t.name) !== 'APPROVED')) await refreshTemplates().catch((e) => log(`templates: ${(e as Error).message}`));
       const r = await deals.sweep({ nudgeAfterHours: settings.nudgeHours() });
       if (r.nudged || r.expired) log(`sweep: nudged ${r.nudged}, expired ${r.expired}`);
     }

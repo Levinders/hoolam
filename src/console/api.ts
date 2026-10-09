@@ -10,6 +10,7 @@ import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
 import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
+import { ALL_TEMPLATES } from '../whatsapp/automation.js';
 import { audit, type Actor } from './audit.js';
 import { AuthError, can, permissionsFor, ROLES, type Role, type StaffAuth, type StaffMember } from './staff.js';
 
@@ -21,6 +22,7 @@ import { AuthError, can, permissionsFor, ROLES, type Role, type StaffAuth, type 
 export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; settings: Settings; messenger: Messenger;
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
+  refreshTemplates?: () => Promise<void>;
 }
 
 declare module 'fastify' { interface FastifyRequest { staff?: StaffMember & { sessionId: string } } }
@@ -603,6 +605,18 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       // the website and its legal pages show fees, limits, timings, the number and the contact details: refresh it
       if (Object.keys(changes).some((k) => k !== 'alerts_enabled' && k !== 'forms_enabled')) d.siteSync.changed();
       return { ok: true, values: d.settings.all() };
+    });
+
+    // ---- WhatsApp templates: the messages Hoolam may start outside the 24-hour window ----
+    const templateList = () => ALL_TEMPLATES.map((t) => ({ name: t.name, label: t.label, body: t.body.replace(/\{\{(\d+)\}\}/g, (_m, i) => t.example[Number(i) - 1] ?? ''), buttons: t.buttons ?? [], status: d.messenger.templateStatus(t.name) }));
+    api.get('/whatsapp/templates', async (req) => {
+      need(req, 'settings.view');
+      return { connected: !d.config.WHATSAPP_DRY_RUN && !!d.config.WHATSAPP_WABA_ID, templates: templateList() };
+    });
+    api.post('/whatsapp/templates/refresh', async (req) => {
+      need(req, 'settings.update');
+      await d.refreshTemplates?.();
+      return { templates: templateList() };
     });
 
     // ---- the payment partner: is it connected, and does it answer? ----

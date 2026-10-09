@@ -72,13 +72,27 @@ export class Messenger {
     this.fetch = o.fetchImpl ?? fetch;
   }
 
-  async send(phone: string, msg: Outbound): Promise<SendStatus> {
+  /** Template name → Meta's status (APPROVED, PENDING, REJECTED…). Filled in on start and refreshed on a timer. */
+  private readonly templates = new Map<string, string>();
+  setTemplateStatus(name: string, status: string | null) { if (status) this.templates.set(name, status); }
+  templateStatus(name: string): string | null { return this.templates.get(name) ?? null; }
+
+  /**
+   * Sends a chat message. Outside the 24-hour window, sends the fallback template instead if Meta has approved it;
+   * otherwise records the message as NEEDS_TEMPLATE so the team can see it in the console.
+   */
+  async send(phone: string, msg: Outbound, fallback?: Template): Promise<SendStatus> {
     checkLimits(msg);
     const s = await this.db.query('SELECT last_inbound_at FROM chat_sessions WHERE phone=$1', [phone]);
     const last: Date | null = s.rows[0]?.last_inbound_at ?? null;
     if (!last || Date.now() - new Date(last).getTime() > DAY_MS) {
-      this.o.log?.(`whatsapp not sent to …${phone.slice(-4)}: outside the 24-hour window (needs a template)`);
-      await this.record(phone, msg, 'NEEDS_TEMPLATE', 'Outside the 24-hour window; send an approved template instead');
+      if (fallback && this.templateStatus(fallback.name) === 'APPROVED') {
+        this.o.log?.(`whatsapp …${phone.slice(-4)} is outside the 24-hour window: sending template ${fallback.name}`);
+        return this.sendTemplate(phone, fallback);
+      }
+      const why = fallback ? `template ${fallback.name} is ${this.templateStatus(fallback.name)?.toLowerCase() ?? 'not on Meta yet'}` : 'no template for this message';
+      this.o.log?.(`whatsapp not sent to …${phone.slice(-4)}: outside the 24-hour window (${why})`);
+      await this.record(phone, msg, 'NEEDS_TEMPLATE', `Outside the 24-hour window; ${why}`);
       return 'NEEDS_TEMPLATE';
     }
     return this.deliver(phone, msg, toPayload(phone.replace(/^\+/, ''), msg));
