@@ -1105,7 +1105,7 @@ var HOOLAM_SITE = {
 
   /* WhatsApp buttons */
   function links() {
-    var href = C.whatsapp ? 'https://wa.me/' + C.whatsapp + '?text=' + encodeURIComponent('')
+    var href = C.whatsapp ? 'https://wa.me/' + C.whatsapp + '?text=' + encodeURIComponent('Hi')
              : C.app ? C.app + '/chat' : '#';
     document.querySelectorAll('[data-wa]').forEach(function (a) { a.setAttribute('href', href); });
     var w = C.whatsapp, cc = /^[17]/.test(w) ? w.slice(0, 1) : /^(2[1-9]\d|3[578]\d|42\d|5[09]\d|6[7-9]\d|8[5-9]\d|9[6-9]\d)/.test(w) ? w.slice(0, 3) : w.slice(0, 2), rest = w.slice(cc.length);
