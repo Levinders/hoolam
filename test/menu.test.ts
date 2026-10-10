@@ -339,7 +339,7 @@ describe('buying and selling menus', () => {
     // a buyer starts an order and names a seller who has never used Hoolam: accepting makes them a seller, no setup
     const b2 = phone(), s2 = phone();
     await h.say(b2, 'hi', 'Kemi');
-    await h.tap(b2, 'menu:buy'); await h.say(b2, 'Wig'); await h.say(b2, '20000');
+    await h.tap(b2, 'menu:buy'); await h.say(b2, 'Wig'); await h.say(b2, 'Brand new, in the box'); await h.tap(b2, 'cat:other'); await h.say(b2, '20000'); await h.tap(b2, 'dlv:free');
     await h.tap(b2, 'buy:nophotos'); await h.say(b2, s2); await h.tap(b2, 'buy:send');
     const c2 = (await h.db.query("SELECT code FROM deals d JOIN users u ON u.id=d.buyer_id WHERE u.phone=$1", [b2])).rows[0].code;
     await h.tap(s2, `sview:${c2}`);

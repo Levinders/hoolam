@@ -1,12 +1,16 @@
 import { createHash } from 'node:crypto';
+import { CATEGORIES } from '../deals/categories.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * THE BUYER'S AND SELLER'S FORMS (WhatsApp Flows). Two screens each:
- *   1. ITEM:   banner, the item, the price, the other side's WhatsApp (optional), arrival date (buyer only, optional)
- *   2. PHOTOS: up to 3 photos (optional), then "Review my order"
+ * THE BUYER'S AND SELLER'S FORMS (WhatsApp Flows).
+ * Buyer (three screens, every field required):
+ *   1. ITEM:     banner, item name, description, category, agreed price, seller's WhatsApp
+ *   2. DELIVERY: delivery with a fee / free delivery / pickup, the fee (only if there is one), the date they need it
+ *   3. PHOTOS:   1 to 3 photos (gallery or camera), then "Review my order"
+ * Seller (two screens): the item, price and buyer's WhatsApp (optional), then up to 3 photos (optional).
  * WhatsApp shows it in its own style; our branding is the banner image and the words.
  * Static form: no server endpoint. The answers arrive in the webhook when the buyer taps "Review my order".
  *
@@ -99,8 +103,111 @@ function dealFlowJson(kind: Kind, bannerBase64: string) {
   };
 }
 
+/** The buyer's form: three short screens, every answer required. */
+function buyerFlowJson(bannerBase64: string) {
+  const ex = (v: string) => ({ type: 'string', __example__: v });
+  const itemData = { item: ex('Nike Air Force 1'), description: ex('White, size 43, new in box'), category: ex('shoes'), price: ex('45000'), other_phone: ex('08012345678') };
+  const fromItem = Object.fromEntries(Object.keys(itemData).map((k) => [k, `\${data.${k}}`]));
+  const deliveryData = { ...itemData, delivery: ex('paid'), delivery_fee: ex('2500'), arrive_by: ex('2026-10-20') };
+  return {
+    version: '7.3',
+    screens: [
+      {
+        id: 'ITEM',
+        title: 'Buy safely',
+        data: {},
+        layout: {
+          type: 'SingleColumnLayout',
+          children: [
+            { type: 'Image', src: bannerBase64, height: 120, 'scale-type': 'cover', 'alt-text': 'Hoolam: paid safely, or not at all' },
+            {
+              type: 'Form', name: 'form',
+              children: [
+                { type: 'TextSubheading', text: 'What are you buying?' },
+                { type: 'TextInput', name: 'item', label: 'Item name', 'input-type': 'text', required: true, 'max-chars': 80, 'helper-text': 'e.g. Nike Air Force 1' },
+                { type: 'TextArea', name: 'description', label: 'Describe it', required: true, 'max-length': 600, 'helper-text': 'Size, colour, model, condition' },
+                { type: 'Dropdown', name: 'category', label: 'Category', required: true, 'data-source': CATEGORIES.map((c) => ({ id: c.id, title: c.title })) },
+                { type: 'TextInput', name: 'price', label: 'Agreed price (₦)', 'input-type': 'text', required: true, 'max-chars': 20, 'helper-text': 'e.g. 15000 or 15k' },
+                { type: 'TextInput', name: 'other_phone', label: 'Seller\'s WhatsApp', 'input-type': 'phone', required: true, 'helper-text': 'We\'ll send them your order' },
+                {
+                  type: 'Footer', label: 'Continue',
+                  'on-click-action': { name: 'navigate', next: { type: 'screen', name: 'DELIVERY' }, payload: Object.fromEntries(Object.keys(itemData).map((k) => [k, `\${form.${k}}`])) },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        id: 'DELIVERY',
+        title: 'Delivery',
+        data: itemData,
+        layout: {
+          type: 'SingleColumnLayout',
+          children: [
+            {
+              type: 'Form', name: 'form',
+              children: [
+                { type: 'TextSubheading', text: 'How will you get it?' },
+                {
+                  type: 'RadioButtonsGroup', name: 'delivery', label: 'Delivery or pickup', required: true,
+                  'data-source': [
+                    { id: 'paid', title: 'Delivery, with a fee' },
+                    { id: 'free', title: 'Free delivery' },
+                    { id: 'pickup', title: 'I\'ll pick it up' },
+                  ],
+                },
+                {
+                  type: 'If', condition: "${form.delivery} == 'paid'",
+                  then: [{ type: 'TextInput', name: 'delivery_fee', label: 'Delivery fee (₦)', 'input-type': 'text', required: true, 'max-chars': 20, 'helper-text': 'Paid to the seller with it' }],
+                },
+                { type: 'DatePicker', name: 'arrive_by', label: 'When do you need it?', required: true, 'helper-text': 'Delivery or pickup date' },
+                {
+                  type: 'Footer', label: 'Continue',
+                  'on-click-action': {
+                    name: 'navigate', next: { type: 'screen', name: 'PHOTOS' },
+                    payload: { ...fromItem, delivery: '${form.delivery}', delivery_fee: '${form.delivery_fee}', arrive_by: '${form.arrive_by}' },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        id: 'PHOTOS',
+        title: 'Add photos',
+        terminal: true,
+        data: deliveryData,
+        layout: {
+          type: 'SingleColumnLayout',
+          children: [
+            { type: 'TextSubheading', text: '📷 Photos of the item' },
+            { type: 'TextBody', text: 'A screenshot of the seller\'s post works. It\'s your proof of what was promised.' },
+            {
+              type: 'Form', name: 'form',
+              children: [
+                {
+                  type: 'PhotoPicker', name: 'photos', label: 'Add 1 to 3 photos',
+                  description: 'From your gallery or camera. Only the seller and our team see them.',
+                  'photo-source': 'camera_gallery', 'max-file-size-kb': 25600, 'min-uploaded-photos': 1, 'max-uploaded-photos': 3,
+                },
+                { type: 'TextCaption', text: '💡 Nothing to pay yet. You pay after the seller accepts.' },
+                {
+                  type: 'Footer', label: 'Review my order',
+                  'on-click-action': { name: 'complete', payload: { ...Object.fromEntries(Object.keys(deliveryData).map((k) => [k, `\${data.${k}}`])), photos: '${form.photos}' } },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  };
+}
+
 const banner = () => readFileSync(BANNER).toString('base64');
-export function buyFlowJson(bannerBase64 = banner()) { return dealFlowJson('buy', bannerBase64); }
+export function buyFlowJson(bannerBase64 = banner()) { return buyerFlowJson(bannerBase64); }
 export function sellFlowJson(bannerBase64 = banner()) { return dealFlowJson('sell', bannerBase64); }
 
 /** The form's name on Meta. Changes whenever the form changes, because published forms can't be edited. */
@@ -120,7 +227,13 @@ export function readBuyForm(form: Record<string, unknown>) {
         .filter((p) => p.mediaId)
     : [];
   const date = str(form.arrive_by);
+  const delivery = str(form.delivery);
   return {
+    description: str(form.description) || null,
+    category: str(form.category) || null,
+    delivery: delivery === 'pickup' ? 'PICKUP' as const : delivery === 'paid' || delivery === 'free' ? 'DELIVERY' as const : null,
+    deliveryFee: delivery === 'paid' ? str(form.delivery_fee) || null : null,
+    deliveryPaid: delivery === 'paid',
     item: str(form.item) || null,
     price: str(form.price) || null,
     otherPhone: str(form.other_phone ?? form.seller_phone ?? form.buyer_phone) || null,

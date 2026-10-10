@@ -9,6 +9,12 @@ import { Avatar, Button, ConfirmAction, Empty, ErrorBanner, Modal, PayoutPill, S
 
 const ACTOR: Record<string, string> = { buyer: 'Buyer', seller: 'Seller', provider: 'Payment provider', system: 'Hoolam (automatic)', admin: 'Hoolam team' };
 
+
+/** Same list as src/deals/categories.ts (the buyer's form). */
+const CATEGORY_NAMES: Record<string, string> = {
+  food: 'Food & drinks', clothing: 'Clothing', shoes: 'Shoes', bags: 'Bags & accessories', beauty: 'Beauty & hair',
+  phones: 'Phones & gadgets', electronics: 'Electronics', appliances: 'Home appliances', home: 'Furniture & home', other: 'Something else',
+};
 export function Deal() {
   const { code = '' } = useParams();
   const { can } = useAuth();
@@ -71,6 +77,7 @@ export function Deal() {
               <span className="code">{d.code}</span><StatusPill status={d.status} />{d.is_test && <span className="tag test">Test</span>}
             </div>
             <h1 style={{ marginTop: 6 }}>{d.item}</h1>
+            {d.description && <p style={{ marginTop: 4, maxWidth: '62ch' }}>{d.description}</p>}
             <p className="lede">Started {dateTime(d.created_at)} by the {d.started_by === 'BUYER' ? 'buyer' : 'seller'} · fee paid by the {d.fee_payer === 'SELLER' ? 'seller' : 'buyer'}</p>
           </div>
         </div>
@@ -207,13 +214,16 @@ export function Deal() {
             <div className="panel-head"><h2>Amounts</h2><Coins className="faint" style={{ marginLeft: 'auto', width: 18 }} /></div>
             <div className="panel-body">
               <dl className="kv">
+                {d.category && <><dt>Category</dt><dd>{CATEGORY_NAMES[d.category] ?? d.category}</dd></>}
+                {d.delivery_method && <><dt>Getting it</dt><dd>{d.delivery_method === 'PICKUP' ? 'Buyer picks it up' : Number(d.delivery_fee_minor) > 0 ? 'Delivery, arranged by the seller' : 'Free delivery from the seller'}</dd></>}
                 <dt>Price</dt><dd className="money">{money(d.price_minor, cur)}</dd>
+                {Number(d.delivery_fee_minor) > 0 && <><dt>Delivery fee</dt><dd className="money">{money(d.delivery_fee_minor, cur)} <span className="muted small">goes to the seller</span></dd></>}
                 <dt>Hoolam fee</dt><dd className="money">{money(d.fee_minor, cur)} <span className="muted small">paid by {d.fee_payer === 'SELLER' ? 'seller' : 'buyer'}</span></dd>
                 <dt>Buyer pays</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.buyer_pays_minor, cur)}</dd>
                 <dt>Seller receives</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.seller_gets_minor, cur)}</dd>
                 {d.counter_price_minor && <><dt>New price asked</dt><dd className="money">{money(d.counter_price_minor, cur)} <span className="pill gold plain">Waiting for buyer</span></dd></>}
                 {d.accept_by && d.status === 'AWAITING_SELLER' && <><dt>Seller must accept</dt><dd>{ago(d.accept_by)} <span className="muted small">({dateTime(d.accept_by)})</span></dd></>}
-                {d.arrive_by && <><dt>Wanted by</dt><dd>{d.arrive_by}</dd></>}
+                {d.arrive_by && <><dt>{d.delivery_method === 'PICKUP' ? 'Pickup on' : 'Wanted by'}</dt><dd>{d.arrive_by}</dd></>}
                 {data.sellerAccount && <><dt>Pays out to</dt><dd>{data.sellerAccount.account_name}<div className="cell-sub">{data.sellerAccount.bank_name} ••••{data.sellerAccount.last4}</div></dd></>}
               </dl>
             </div>

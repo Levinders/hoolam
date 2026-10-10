@@ -10,6 +10,7 @@ import type { Trust } from '../trust.js';
 import type { Settings } from '../settings.js';
 import type { PricingRules } from '../pricing.js';
 import { BUYER_ALERT, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
+import { categoryTitle } from './categories.js';
 import { msg } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
 
@@ -20,6 +21,7 @@ export interface Deal {
   started_by: 'SELLER' | 'BUYER'; invited_phone: string | null; arrive_by: string | Date | null; accept_by: Date | null;
   fee_payer: 'BUYER' | 'SELLER'; counter_price_minor: number | null; counter_seller_id: string | null; counter_account_id: string | null;
   shipping_note: string | null;
+  description: string | null; category: string | null; delivery_method: 'DELIVERY' | 'PICKUP' | null; delivery_fee_minor: number | string;
 }
 
 /** What a seller gives us to start a deal. */
@@ -37,8 +39,18 @@ export interface BuyerDealInput {
   item: string;
   priceMinor: number;
   sellerPhone: string | null;
-  arriveBy: string | null;                          // YYYY-MM-DD
+  arriveBy: string | null;                          // YYYY-MM-DD: when they need it (delivered, or picked up)
   photos: { mediaId: string; mimeType?: string | null }[];
+  description?: string | null;
+  category?: string | null;
+  delivery?: 'DELIVERY' | 'PICKUP' | null;
+  deliveryFeeMinor?: number;                        // 0 = free delivery (or pickup)
+}
+
+/** The delivery fee rides on top: the buyer pays it, Hoolam holds it, the seller receives it. No Hoolam fee on it. */
+export function withDelivery<Q extends { buyerPaysMinor: number; sellerGetsMinor: number }>(q: Q, deliveryFeeMinor: number | string | null | undefined): Q & { deliveryFeeMinor: number } {
+  const d = Number(deliveryFeeMinor ?? 0) || 0;
+  return { ...q, buyerPaysMinor: q.buyerPaysMinor + d, sellerGetsMinor: q.sellerGetsMinor + d, deliveryFeeMinor: d };
 }
 
 /** What happened to the alert we tried to send the seller. */
@@ -360,18 +372,20 @@ export class DealService {
    * give the buyer a link for the seller, and alert the seller directly if the buyer gave their number.
    */
   async createBuyerDeal(buyer: User, input: BuyerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
-    const q = this.previewDeal(input.priceMinor, 'buyer', this.capFor(buyer));
+    const q = withDelivery(this.previewDeal(input.priceMinor, 'buyer', this.capFor(buyer)), input.deliveryFeeMinor);
     const photos = await this.fetchPhotos(input.photos);
     const deal = await this.run(async (tx) => {
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newCode();
         const r = await tx.query(
           `INSERT INTO deals (code, buyer_id, item, currency, price_minor, fee_minor, buyer_pays_minor, seller_gets_minor,
-                              status, started_by, fee_payer, invited_phone, arrive_by, accept_by, is_test)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AWAITING_SELLER','BUYER','BUYER',$9,$10, now() + make_interval(hours => $11), $12)
+                              status, started_by, fee_payer, invited_phone, arrive_by, accept_by, is_test,
+                              description, category, delivery_method, delivery_fee_minor)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AWAITING_SELLER','BUYER','BUYER',$9,$10, now() + make_interval(hours => $11), $12, $13, $14, $15, $16)
            ON CONFLICT (code) DO NOTHING RETURNING *`,
           [code, buyer.id, input.item.slice(0, 200), this.o.currency, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor,
-            input.sellerPhone, input.arriveBy, this.acceptHours(), this.isTest()],
+            input.sellerPhone, input.arriveBy, this.acceptHours(), this.isTest(),
+            input.description?.slice(0, 600) ?? null, input.category ?? null, input.delivery ?? null, q.deliveryFeeMinor],
         );
         if (!r.rows[0]) continue;
         const d: Deal = r.rows[0];
@@ -433,6 +447,8 @@ export class DealService {
     const hoursLeft = deal.accept_by ? Math.max(1, Math.round((new Date(deal.accept_by).getTime() - Date.now()) / 3600_000)) : this.acceptHours();
     await this.o.messenger.send(viewer.phone, msg.sellerDealCard({
       code: deal.code, buyerName: firstName(buyer.display_name) ?? 'A buyer', item: deal.item,
+      description: deal.description, category: categoryTitle(deal.category),
+      delivery: deal.delivery_method, deliveryFee: this.money(Number(deal.delivery_fee_minor ?? 0)),
       price: this.money(deal.price_minor), sellerGets: this.money(deal.seller_gets_minor),
       arriveBy: deal.arrive_by ? dayText(deal.arrive_by) : null, hoursLeft,
       invited: deal.invited_phone === viewer.phone,
@@ -492,7 +508,7 @@ export class DealService {
       await tx.query('UPDATE deals SET counter_price_minor=$2, counter_seller_id=$3, counter_account_id=$4, updated_at=now() WHERE id=$1', [deal.id, newPriceMinor, seller.id, accountId]);
       await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', `Suggested a new price: ${newPriceMinor}`]);
       const buyer = await this.userById(tx, deal.buyer_id!);
-      const q = quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer');
+      const q = withDelivery(quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer'), deal.delivery_fee_minor);
       out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor)) });
       out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor)), fallback: dealTemplate('counterOffer', [deal.code, this.text(q.buyerPaysMinor)], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
     });
@@ -504,7 +520,7 @@ export class DealService {
       const deal = await this.lockByCode(tx, code);
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
       if (deal.status !== 'AWAITING_SELLER' || !deal.counter_price_minor || !deal.counter_seller_id) { out.push({ phone: buyer.phone, message: msg.dealClosed(deal.code) }); return; }
-      const q = quote(deal.counter_price_minor, this.o.currency, this.pricingRules(), 'buyer');
+      const q = withDelivery(quote(deal.counter_price_minor, this.o.currency, this.pricingRules(), 'buyer'), deal.delivery_fee_minor);
       await tx.query(
         `UPDATE deals SET price_minor=$2, fee_minor=$3, buyer_pays_minor=$4, seller_gets_minor=$5, seller_id=$6, seller_account_id=$7,
                           counter_price_minor=NULL, counter_seller_id=NULL, counter_account_id=NULL WHERE id=$1`,

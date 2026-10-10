@@ -24,7 +24,8 @@ async function buyByChat(buyer: string, opts: { sellerPhone?: string; photos?: n
   await h.say(buyer, 'hi', 'Ada Obi');
   await h.tap(buyer, 'menu:buy');
   await h.say(buyer, 'Black sneakers, size 42');
-  await h.say(buyer, opts.price ?? '15k');
+  await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
+  await h.say(buyer, opts.price ?? '15k'); await h.tap(buyer, 'dlv:free');
   for (let i = 0; i < (opts.photos ?? 0); i++) await photo(buyer);
   await h.tap(buyer, opts.photos ? 'buy:photosdone' : 'buy:nophotos');
   if (opts.sellerPhone) await h.say(buyer, opts.sellerPhone); else await h.tap(buyer, 'buy:nophone');
@@ -35,7 +36,12 @@ async function buyByChat(buyer: string, opts: { sellerPhone?: string; photos?: n
 describe('the buyer form', () => {
   it('fits WhatsApp limits', () => {
     const json = buyFlowJson('aGVsbG8=');
-    const all = json.screens.flatMap((s) => (s.layout.children as any[]).flatMap((c) => (c.type === 'Form' ? c.children : [c])));
+    const flat = (cs: any[]): any[] => cs.flatMap((c) => (c.type === 'Form' ? flat(c.children) : c.type === 'If' ? flat([...c.then, ...(c.else ?? [])]) : [c]));
+    const all = json.screens.flatMap((s) => flat(s.layout.children as any[]));
+    expect(json.screens.map((s) => s.id)).toEqual(['ITEM', 'DELIVERY', 'PHOTOS']);
+    for (const c of all) if ('required' in c) expect(c.required).toBe(true); // every answer is required
+    expect(all.find((c) => c.type === 'PhotoPicker')).toMatchObject({ 'min-uploaded-photos': 1, 'photo-source': 'camera_gallery', 'max-file-size-kb': 25600 });
+    expect(all.find((c) => c.type === 'Dropdown')['data-source'].length).toBeLessThanOrEqual(10);
     for (const c of all) {
       if (c.type === 'TextInput') { expect(c.label.length).toBeLessThanOrEqual(20); expect((c['helper-text'] ?? '').length).toBeLessThanOrEqual(30); }
       if (c.type === 'DatePicker') expect(c.label.length).toBeLessThanOrEqual(40);
@@ -54,7 +60,11 @@ describe('the buyer form', () => {
 
   it('reads form answers, including photos and dates', () => {
     const f = readBuyForm({ item: ' Phone case ', price: 8000, other_phone: '0803 000 0000', arrive_by: '2026-10-09', photos: [{ id: '111', mime_type: 'image/png', file_name: 'a.png' }] });
-    expect(f).toEqual({ item: 'Phone case', price: '8000', otherPhone: '0803 000 0000', arriveBy: '2026-10-09', photos: [{ mediaId: '111', mimeType: 'image/png' }] });
+    expect(f).toEqual({ item: 'Phone case', price: '8000', otherPhone: '0803 000 0000', arriveBy: '2026-10-09', photos: [{ mediaId: '111', mimeType: 'image/png' }],
+      description: null, category: null, delivery: null, deliveryFee: null, deliveryPaid: false });
+    expect(readBuyForm({ description: ' Black, size 42 ', category: 'shoes', delivery: 'paid', delivery_fee: '2,500' }))
+      .toMatchObject({ description: 'Black, size 42', category: 'shoes', delivery: 'DELIVERY', deliveryPaid: true, deliveryFee: '2,500' });
+    expect(readBuyForm({ delivery: 'pickup', delivery_fee: '' })).toMatchObject({ delivery: 'PICKUP', deliveryPaid: false, deliveryFee: null });
     expect(readBuyForm({ arrive_by: '1791504000000' }).arriveBy).toBe('2026-10-09');
     expect(readBuyForm({ arrive_by: '' }).arriveBy).toBeNull();
   });
@@ -67,6 +77,8 @@ describe('the buyer form', () => {
       msg.buyDealReady('HL-AAAAA', 'https://wa.me/1?text=View%20HL-AAAAA', 'sent', 48),
       msg.sellerDealCard({ code: 'HL-AAAAA', buyerName: 'Ada', item: 'x', price: money, sellerGets: money, arriveBy: null, hoursLeft: 48, invited: true }),
       msg.buyerSellerAccepted('HL-AAAAA', 'Bayo', 'x', money),
+      msg.askCategory(), msg.askDelivery(), msg.askDeliveryFee(), msg.askBuyDescription(),
+      msg.sellerDealCard({ code: 'HL-AAAAA', buyerName: 'Ada', item: 'x', description: 'y', category: 'Shoes', delivery: 'DELIVERY', deliveryFee: money, price: money, sellerGets: money, arriveBy: 'Fri 9 Oct', hoursLeft: 48, invited: true }),
     ]) expect(() => checkLimits(m)).not.toThrow();
   });
 });
@@ -78,8 +90,16 @@ describe('a buyer starts a deal in the chat', () => {
     await h.tap(buyer, 'menu:buy');
     expect(h.last(buyer)).toMatch(/What are you buying/);
     await h.say(buyer, 'Black sneakers, size 42');
+    expect(h.last(buyer)).toMatch(/Describe it/);
+    await h.say(buyer, 'Brand new, in the box');
+    expect((await lastOut(buyer)).body.kind).toBe('list'); // category
+    await h.tap(buyer, 'cat:shoes');
     expect(h.last(buyer)).toMatch(/What price did you agree/);
     await h.say(buyer, '15k');
+    expect(h.last(buyer)).toMatch(/How will you get it/);
+    await h.tap(buyer, 'dlv:paid');
+    expect(h.last(buyer)).toMatch(/How much is the delivery fee/);
+    await h.say(buyer, '2,500');
     expect(h.last(buyer)).toMatch(/Send up to 3/);
     await photo(buyer);
     expect(h.last(buyer)).toMatch(/Photo saved/);
@@ -110,7 +130,8 @@ describe('a buyer starts a deal in the chat', () => {
     await h.say(buyer, 'hi');
     await h.tap(buyer, 'menu:buy');
     await h.say(buyer, 'Wig');
-    await h.say(buyer, '20000');
+    await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
+    await h.say(buyer, '20000'); await h.tap(buyer, 'dlv:free');
     await h.tap(buyer, 'buy:nophotos');
     await h.tap(buyer, 'buy:nophone');
     expect(h.last(buyer)).toMatch(/Check your order/);
@@ -123,7 +144,7 @@ describe('a buyer starts a deal in the chat', () => {
     const buyer = phone();
     await h.say(buyer, 'hi');
     await h.tap(buyer, 'menu:buy');
-    await h.say(buyer, 'Bag'); await h.say(buyer, '9000'); await h.tap(buyer, 'buy:nophotos');
+    await h.say(buyer, 'Bag'); await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other'); await h.say(buyer, '9000'); await h.tap(buyer, 'dlv:free'); await h.tap(buyer, 'buy:nophotos');
     await h.say(buyer, 'not a number');
     expect(h.last(buyer)).toMatch(/couldn't read that number/);
     await h.say(buyer, 'skip');
@@ -138,7 +159,9 @@ describe('the seller answers', () => {
 
     await h.app.chat.handle({ id: `t${++n}`, phone: seller, name: 'Bayo Shoes', type: 'button', text: 'View deal', buttonId: `sview:${code}`, mediaId: null });
     expect(h.last(seller)).toMatch(/Ada wants to buy from you/);
-    expect(h.last(seller)).toMatch(/you receive ₦15,000/);
+    expect(h.last(seller)).toMatch(/You receive \*₦15,000\*/);
+    expect(h.last(seller)).toMatch(/Brand new, in the box/);
+    expect(h.last(seller)).toMatch(/🚚 Free delivery \(you arrange it\)/);
     expect(h.last(seller)).toMatch(/\[✅ Accept\] \[✏️ Change price\] \[✕ Decline\]/);
     const images = await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='image'`, [seller]);
     expect(images.rows[0].c).toBe(2);
@@ -225,24 +248,57 @@ describe('buyer side, edges', () => {
   it('the form: answers arrive, summary shows photos and date, deal saves the date', async () => {
     const buyer = phone(), seller = phone();
     await h.say(buyer, 'hi', 'Ada Obi');
-    await submitForm(buyer, { item: 'Gold earrings', price: '12000', seller_phone: seller, arrive_by: '2026-10-09', photos: [{ id: 'f1', mime_type: 'image/jpeg' }, { id: 'f2', mime_type: 'image/jpeg' }] });
+    await submitForm(buyer, {
+      item: 'Gold earrings', description: '18k plated, pair', category: 'bags', price: '12000', other_phone: seller,
+      delivery: 'paid', delivery_fee: '2500', arrive_by: '2026-10-09', photos: [{ id: 'f1', mime_type: 'image/jpeg' }, { id: 'f2', mime_type: 'image/jpeg' }],
+    });
     expect(h.last(buyer)).toMatch(/Check your order/);
+    expect(h.last(buyer)).toMatch(/18k plated, pair/);
+    expect(h.last(buyer)).toMatch(/🏷️ Bags & accessories/);
     expect(h.last(buyer)).toMatch(/📷 2 photos/);
-    expect(h.last(buyer)).toMatch(/Arrives by Fri 9 Oct/);
+    expect(h.last(buyer)).toMatch(/Needed by Fri 9 Oct/);
+    expect(h.last(buyer)).toMatch(/Price         ₦12,000\nDelivery      ₦2,500\nHoolam fee    ₦300\n\*You'll pay    ₦14,800\*/);
     await h.tap(buyer, 'buy:send');
     const d = await deal(codeIn(h.last(buyer)));
-    expect(d.arrive_by).toBe('2026-10-09');
+    expect(d).toMatchObject({ arrive_by: '2026-10-09', description: '18k plated, pair', category: 'bags', delivery_method: 'DELIVERY' });
+    expect(Number(d.delivery_fee_minor)).toBe(250_000);
+    expect(Number(d.buyer_pays_minor)).toBe(1_480_000); // price + delivery + fee
+    expect(Number(d.seller_gets_minor)).toBe(1_450_000); // price + delivery: the seller pays the rider
     await h.tap(seller, `sview:${d.code}`);
     expect(h.last(seller)).toMatch(/Wanted by Fri 9 Oct/);
+    expect(h.last(seller)).toMatch(/🚚 Delivery fee ₦2,500 \(you arrange the rider\)/);
+    expect(h.last(seller)).toMatch(/You receive \*₦14,500\*/);
+
+    // the seller suggests a new price: the delivery fee stays on top
+    await h.tap(seller, `scounter:${d.code}`);
+    await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
+    await h.say(seller, '14000');
+    if (/account number and bank/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
+    await h.tap(buyer, `cyes:${d.code}`);
+    const after = await deal(d.code);
+    expect(Number(after.buyer_pays_minor)).toBe(1_400_000 + 250_000 + 40_000);
+    expect(Number(after.seller_gets_minor)).toBe(1_400_000 + 250_000);
+  });
+
+  it('the form: pickup, no fee; a missing answer is asked in the chat', async () => {
+    const buyer = phone(), seller = phone();
+    await h.say(buyer, 'hi', 'Ada Obi');
+    await submitForm(buyer, { item: 'Rice, 50kg', category: 'food', price: '45000', other_phone: seller, delivery: 'pickup', arrive_by: '2026-10-12', photos: [{ id: 'p1' }] });
+    expect(h.last(buyer)).toMatch(/Describe it/); // description missing
+    await h.say(buyer, 'Mama Gold, sealed');
+    expect(h.last(buyer)).toMatch(/📍 You'll pick it up/);
+    expect(h.last(buyer)).toMatch(/Pickup on Mon 12 Oct/);
+    expect(h.last(buyer)).not.toMatch(/Delivery  /);
   });
 
   it('the form: a bad price is asked again in the chat', async () => {
     const buyer = phone();
     await h.say(buyer, 'hi');
-    await submitForm(buyer, { item: 'Laptop', price: '900000' });
+    await submitForm(buyer, { item: 'Laptop', description: 'HP, 16GB', category: 'electronics', price: '900000', delivery: 'free', other_phone: '08031112222', photos: [{ id: 'l1' }] });
     expect(h.last(buyer)).toMatch(/up to ₦50,000/);
     await h.say(buyer, '45000');
-    expect(h.last(buyer)).toMatch(/Send up to 3/);
+    expect(h.last(buyer)).toMatch(/Check your order/);
+    expect(h.last(buyer)).toMatch(/🚚 Free delivery from the seller/);
   });
 
   it('the buyer can cancel while waiting for the seller', async () => {

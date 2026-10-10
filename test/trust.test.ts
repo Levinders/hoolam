@@ -130,7 +130,8 @@ describe('where buyers see it', () => {
     await h.say(buyer, 'hi', 'Ada');
     await h.tap(buyer, `buyfrom:${sid}`);
     expect(h.last(buyer)).toMatch(/You're buying from \*Bayo\*/);
-    await h.say(buyer, 'Loafers'); await h.say(buyer, '12000'); await h.tap(buyer, 'buy:nophotos');
+    await h.say(buyer, 'Loafers'); await h.say(buyer, 'Brown, size 41'); await h.tap(buyer, 'cat:shoes');
+    await h.say(buyer, '12000'); await h.tap(buyer, 'dlv:pickup'); await h.tap(buyer, 'buy:nophotos');
     expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/We'll alert \+234 807/);
     await h.tap(buyer, 'buy:send');

@@ -78,8 +78,17 @@ payouts wait in `PAYOUT_PENDING` and you approve them with `POST /admin/payouts/
 
 ## Buyer starts the deal
 
-A buyer describes what they're buying (item, agreed price, up to 3 photos, the seller's WhatsApp, an optional
-arrival date) in a **WhatsApp form**, or answers the same questions in the chat. Hoolam then:
+A buyer fills in a three-page **WhatsApp form** (every answer required), or answers the same questions in the chat:
+
+1. **The item**: name, description, category (`src/deals/categories.ts`), agreed price, the seller's WhatsApp.
+2. **Delivery**: delivery with a fee, free delivery, or pickup; the fee if there is one; the date they need it.
+3. **Photos**: 1 to 3, from the gallery or the camera (up to 25 MB each; shrunk to a 1600px JPEG on arrival).
+
+**Delivery fee:** paid by the buyer on top of the price, held with it, and paid to the seller with it (the seller
+arranges the rider). Hoolam's fee is on the item price only. A refund returns everything, delivery fee included.
+Stored as `deals.delivery_fee_minor`; `buyer_pays = price + delivery + fee`, `seller_gets = price + delivery`.
+
+Hoolam then:
 
 1. Saves the deal as `AWAITING_SELLER`, with the photos kept as proof of what was promised.
 2. Alerts the seller once with the approved template `hoolam_new_order_request` (**View order** / **Not me**), and gives the

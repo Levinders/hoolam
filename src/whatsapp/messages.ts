@@ -2,12 +2,21 @@ import { formatMoney, type Currency } from '../money.js';
 import type { ListSection, Outbound } from './client.js';
 import { shipText, shortBankName, type BuyerStats, type SellerStats } from '../trust.js';
 import { SOCIAL_NAMES, type SocialKind } from '../socials.js';
+import { CATEGORIES } from '../deals/categories.js';
 
 // Every message Hoolam sends, in one place. Plain words, short lines, and always answer
 // the quiet question underneath: "where is my money right now?"
 
 type Money = { minor: number; currency: Currency };
 const m = (x: Money) => formatMoney(x.minor, x.currency);
+
+/** One line about delivery, from the buyer's or the seller's side. */
+function deliveryLine(how: 'DELIVERY' | 'PICKUP' | null | undefined, fee: Money | undefined, side: 'buyer' | 'seller'): string {
+  if (how === 'PICKUP') return side === 'seller' ? '📍 The buyer picks it up\n' : '📍 You pick it up\n';
+  if (how !== 'DELIVERY') return '';
+  if (fee && fee.minor > 0) return side === 'seller' ? `🚚 Delivery fee ${m(fee)} (you arrange the rider)\n` : `🚚 Delivery ${m(fee)}\n`;
+  return side === 'seller' ? '🚚 Free delivery (you arrange it)\n' : '🚚 Free delivery\n';
+}
 
 /**
  * THE TWO MENUS: one for buying, one for selling. Everyone starts on the buying menu; becoming a seller
@@ -321,17 +330,34 @@ export const msg = {
   }),
 
   /** Check before sending. */
-  buySummary: (d: { item: string; photos: number; arriveBy: string | null; sellerPhone: string | null; price: Money; fee: Money; total: Money }): Outbound => ({
+  buySummary: (d: { item: string; description?: string | null; category?: string | null; delivery?: 'DELIVERY' | 'PICKUP' | null; deliveryFee?: Money; photos: number; arriveBy: string | null; sellerPhone: string | null; price: Money; fee: Money; total: Money }): Outbound => ({
     kind: 'buttons',
     text:
       `🛒 *Check your order*\n\n*${d.item}*\n` +
+      (d.description ? `${d.description}\n` : '') +
+      (d.category ? `🏷️ ${d.category}\n` : '') +
       (d.photos ? `📷 ${d.photos} photo${d.photos > 1 ? 's' : ''}\n` : '') +
-      (d.arriveBy ? `📅 Arrives by ${d.arriveBy}\n` : '') +
+      (d.arriveBy ? `📅 ${d.delivery === 'PICKUP' ? 'Pickup on' : 'Needed by'} ${d.arriveBy}\n` : '') +
       `📨 ${d.sellerPhone ? `We'll alert ${maskPhone(d.sellerPhone)}` : 'You\'ll get a link for the seller'}\n\n` +
-      `Price         ${m(d.price)}\nHoolam fee    ${m(d.fee)}\n*You'll pay    ${m(d.total)}*\n\n` +
-      '💡 Nothing to pay yet. You pay after the seller accepts.',
+      `Price         ${m(d.price)}\n` +
+      (d.delivery === 'DELIVERY' && d.deliveryFee && d.deliveryFee.minor > 0 ? `Delivery      ${m(d.deliveryFee)}\n` : '') +
+      `Hoolam fee    ${m(d.fee)}\n*You'll pay    ${m(d.total)}*\n` +
+      (d.delivery === 'PICKUP' ? '📍 You\'ll pick it up\n' : d.delivery === 'DELIVERY' ? (d.deliveryFee && d.deliveryFee.minor > 0 ? '🚚 The seller arranges delivery\n' : '🚚 Free delivery from the seller\n') : '') +
+      '\n💡 Nothing to pay yet. You pay after the seller accepts.',
     buttons: [{ id: 'buy:send', title: '📨 Send to seller' }, { id: 'buy:restart', title: '✏️ Start again' }],
   }),
+
+  // chat version of the new questions (when the form can't be used)
+  askBuyDescription: (): Outbound => ({ kind: 'text', text: '📝 Describe it: size, colour, model, condition.\n\nFor example: _White, size 43, brand new in box_' }),
+  askCategory: (): Outbound => ({
+    kind: 'list', text: '🏷️ What kind of item is it?', button: 'Choose',
+    sections: [{ title: 'Category', rows: CATEGORIES.map((c) => ({ id: `cat:${c.id}`, title: c.title })) }],
+  }),
+  askDelivery: (): Outbound => ({
+    kind: 'buttons', text: '🚚 How will you get it?',
+    buttons: [{ id: 'dlv:paid', title: '🚚 Delivery + fee' }, { id: 'dlv:free', title: '🎁 Free delivery' }, { id: 'dlv:pickup', title: '📍 I\'ll pick it up' }],
+  }),
+  askDeliveryFee: (): Outbound => ({ kind: 'text', text: '🚚 How much is the delivery fee? (in naira)\n\nFor example: _2500_\n\nYou pay it with the order. We hold it and pass it to the seller with the price.' }),
 
   buyDealReady: (code: string, link: string, alert: 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed', hours: number): Outbound => ({
     kind: 'buttons',
@@ -369,12 +395,15 @@ export const msg = {
   }),
 
   // ===== WHAT THE SELLER SEES (seller flow comes later; this is the small part buyers need) =====
-  sellerDealCard: (d: { code: string; buyerName: string; item: string; price: Money; sellerGets: Money; arriveBy: string | null; hoursLeft: number; invited: boolean; buyerLine?: string }): Outbound => ({
+  sellerDealCard: (d: { code: string; buyerName: string; item: string; description?: string | null; category?: string | null; delivery?: 'DELIVERY' | 'PICKUP' | null; deliveryFee?: Money; price: Money; sellerGets: Money; arriveBy: string | null; hoursLeft: number; invited: boolean; buyerLine?: string }): Outbound => ({
     kind: 'buttons',
     text:
-      `🛒 *${d.buyerName} wants to buy from you*\n` + (d.buyerLine ? `${d.buyerLine}\n` : '') + `\n*${d.item}*\n💰 ${m(d.price)} → you receive ${m(d.sellerGets)}\n` +
-      (d.arriveBy ? `📅 Wanted by ${d.arriveBy}\n` : '') +
-      `\n💳 ${d.buyerName} pays Hoolam first\n📦 You ship once the money is held\n💸 You get paid when they're happy\n\n` +
+      `🛒 *${d.buyerName} wants to buy from you*\n` + (d.buyerLine ? `${d.buyerLine}\n` : '') +
+      `\n*${d.item}*\n` + (d.description ? `${d.description}\n` : '') + (d.category ? `🏷️ ${d.category}\n` : '') +
+      `\n💰 Price ${m(d.price)}\n` + deliveryLine(d.delivery, d.deliveryFee, 'seller') +
+      `💸 You receive *${m(d.sellerGets)}*\n` +
+      (d.arriveBy ? `📅 ${d.delivery === 'PICKUP' ? 'Pickup on' : 'Wanted by'} ${d.arriveBy}\n` : '') +
+      `\n💳 ${d.buyerName} pays Hoolam first\n📦 You ${d.delivery === 'PICKUP' ? 'hand it over' : 'ship'} once the money is held\n💸 You get paid when they're happy\n\n` +
       `⏳ Accept within ${d.hoursLeft} hour${d.hoursLeft === 1 ? '' : 's'}. (Order ${d.code})`,
     buttons: [
       { id: `saccept:${d.code}`, title: '✅ Accept' },
