@@ -86,7 +86,7 @@ function dealFlowJson(kind: Kind, bannerBase64: string) {
                 {
                   type: 'PhotoPicker', name: 'photos', label: 'Add up to 3 photos',
                   description: buy ? 'We only show them to the seller and to our team if there\'s a problem.' : 'We show them to the buyer before they pay.',
-                  'photo-source': 'camera_gallery', 'max-file-size-kb': 25600, // gallery photos are often over 5 MB; the server shrinks them 'min-uploaded-photos': 0, 'max-uploaded-photos': 3,
+                  'photo-source': 'camera_gallery', 'max-file-size-kb': 25600, /* gallery photos are often over 5 MB; the server shrinks them */ 'min-uploaded-photos': 0, 'max-uploaded-photos': 3,
                 },
                 { type: 'TextCaption', text: buy ? '💡 Nothing to pay yet. You pay after the seller accepts.' : '💡 The buyer pays Hoolam. You get paid when they\'re happy.' },
                 { type: 'Footer', label: 'Review my order', 'on-click-action': { name: 'complete', payload: done } },
