@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en-NG" data-theme="light">
+<html lang="en-NG">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -17,7 +17,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap">
-<script>try{if(localStorage.getItem('hoolam-theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
 <style>
 :root {
   --teal: #0E5C63; --teal-2: #0A464B; --gold: #C9992E; --green: #2E8B57; --red: #C0392B;
@@ -26,12 +25,6 @@
   --font-display: "Poppins", "Inter", "Segoe UI", system-ui, sans-serif;
   --font-body: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --ease: cubic-bezier(.22,.8,.24,1); --bar-h: 68px;
-}
-:root[data-theme="dark"] {
-  --teal: #6CC3C8; --teal-2: #9ED9DC; --gold: #DDB65A; --green: #62C38F; --red: #E5776A;
-  --bg: #121614; --card: #1A201E; --ink: #ECEFEC; --soft: #A3ACA8; --rule: #2A312E;
-  --gold-tint: #2C2616; --green-tint: #16281E; --red-tint: #2C1A17; --teal-tint: #142826; --mint: #17251F;
-  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: calc(var(--bar-h) + 20px); }
@@ -60,12 +53,8 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
 .icon-btn { width: 44px; height: 44px; border-radius: 14px; border: 0; background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; }
 .icon-btn:hover { background: var(--card); }
 .icon-btn .ic { grid-area: 1 / 1; width: 20px; height: 20px; }
-#mode .sun { display: none; color: var(--gold); }
-:root[data-theme="dark"] #mode .sun { display: block; }
-:root[data-theme="dark"] #mode .moon { display: none; }
 .lg-btn { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 0 18px; border-radius: 14px; background: var(--teal); color: #fff; font-weight: 600; font-size: .93rem; text-decoration: none; white-space: nowrap; }
 .lg-btn:hover { background: var(--teal-2); }
-:root[data-theme="dark"] .lg-btn { color: #0b1f1f; }
 @media (max-width: 520px) { .lg-btn .t { display: none; } .lg-btn { padding: 0 13px; } .lg-crumb::before { height: 18px; } .lg-logo b { font-size: 1.2rem; } }
 
 /* ---------- title ---------- */
@@ -159,7 +148,6 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
 .steps li:last-child::before { content: none; }
 .steps .n { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--card); box-shadow: inset 0 0 0 1.5px var(--rule); color: var(--teal); font-weight: 600; font-size: .95rem; }
 .steps .n.held { background: var(--teal); color: #fff; box-shadow: none; }
-:root[data-theme="dark"] .steps .n.held { color: #0b1f1f; }
 .steps b { display: block; font-weight: 600; padding-top: 7px; }
 .steps p { color: var(--soft); margin-top: 2px; }
 
@@ -200,7 +188,6 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
     <a class="lg-logo" href="/" aria-label="Hoolam home"><span class="logo-mark" data-slot="mark" data-alt=""><svg class="fb"><use href="#mark"/></svg></span><b>Hoolam</b></a>
     <a class="lg-crumb" href="/legal/">Legal</a>
     <span class="sp"></span>
-    <button class="icon-btn" id="mode" type="button" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="ic moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
     <a class="lg-btn" data-wa href="{{WA_HREF}}" target="_blank" rel="noopener" aria-label="Start an order on WhatsApp"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg><span class="t">Start an order</span></a>
   </div>
 </header>
@@ -244,11 +231,6 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
     img.onerror = function () { img.remove(); };
     el.appendChild(img);
   });
-  /* light or dark: the same choice as the home page */
-  var mode = document.getElementById('mode');
-  function label() { var n = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'; mode.setAttribute('aria-label', 'Switch to ' + n + ' mode'); mode.title = 'Switch to ' + n + ' mode'; }
-  label();
-  mode.addEventListener('click', function () { var m = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'; root.setAttribute('data-theme', m); label(); try { localStorage.setItem('hoolam-theme', m); } catch (e) {} });
   /* contents: open beside the page on wide screens, folded on phones */
   var toc = document.getElementById('toc');
   if (!toc.querySelector('ol')) { toc.remove(); return; }

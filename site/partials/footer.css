@@ -1,7 +1,6 @@
 /* ---------- footer: the company, its pages and how to reach it (shared by the home page and the legal pages) ---------- */
 .sf { --sf-bg: #083E43; --sf-ink: #FAFAF7; --sf-soft: rgba(250,250,247,.74); --sf-faint: rgba(250,250,247,.56); --sf-head: #DDB65A; --sf-rule: rgba(250,250,247,.13);
   background: var(--sf-bg); color: var(--sf-soft); padding-block: clamp(48px, 7vw, 88px) 28px; margin-top: 0; font-size: .97rem; line-height: 1.6; }
-:root[data-theme="dark"] .sf { --sf-bg: #0B100F; --sf-rule: rgba(250,250,247,.09); box-shadow: inset 0 1px 0 var(--rule); }
 .sf a { color: inherit; text-decoration: none; transition: color .2s; }
 .sf a:hover { color: var(--sf-ink); }
 .sf a:focus-visible { outline: 3px solid var(--sf-head); outline-offset: 3px; border-radius: 6px; }
@@ -16,7 +15,6 @@
 
 .sf-logo { display: inline-flex; align-items: center; gap: 12px; color: var(--sf-ink) !important; }
 .sf-logo .logo-mark { width: 42px; height: 42px; border-radius: 14px; background: #0E5C63; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); display: grid; place-items: center; overflow: hidden; }
-:root[data-theme="dark"] .sf-logo .logo-mark { background: #0E5C63; }
 .sf-logo .logo-mark svg { width: 26px; height: 26px; }
 .sf-logo .logo-mark .slot-img { position: static; width: 100%; height: 100%; object-fit: contain; }
 .sf-logo b { font: 600 1.55rem var(--font-display); letter-spacing: -0.02em; }

@@ -16,11 +16,11 @@ const m = (x: Money) => formatMoney(x.minor, x.currency);
  * flow.ts (look for openMenuItem). WhatsApp allows 10 rows in total per menu.
  */
 const HELP_ROWS = (switchTo: 'buyer' | 'seller') => [
-  { id: 'menu:problem', title: '🚩 Report a problem', description: switchTo === 'seller' ? 'We freeze the money until it’s fixed' : 'Tell us about an order. We help sort it out' },
-  { id: 'menu:how', title: '💡 How it works', description: 'The steps, and what it costs' },
-  { id: 'menu:human', title: '🙋 Talk to a rep', description: 'A real person, within 24 hours' },
+  { id: 'menu:problem', title: '🚩 Report a problem', description: switchTo === 'seller' ? 'We hold the money until it’s sorted' : 'Get help with an order' },
+  { id: 'menu:how', title: '💡 How it works', description: 'The steps and fees' },
+  { id: 'menu:human', title: '🙋 Talk to a rep', description: 'Live rep within 30 mins' },
   switchTo === 'seller'
-    ? { id: 'menu:tosell', title: '🔁 Switch to selling', description: 'Sell safely and get your own trust card' }
+    ? { id: 'menu:tosell', title: '🔁 Switch to selling', description: 'Sell safely, get paid for sure' }
     : { id: 'menu:tobuy', title: '🔁 Switch to buying', description: 'Buy safely from any seller' },
 ];
 
@@ -28,9 +28,9 @@ export const BUYER_MENU: ListSection[] = [
   {
     title: 'Buying',
     rows: [
-      { id: 'menu:buy', title: '🛒 Buy something', description: 'Start a safe order. You pay after the seller accepts' },
+      { id: 'menu:buy', title: '🛒 Buy something', description: 'Your money’s held until you’re happy' },
       { id: 'menu:pay', title: '🔑 I have an order code', description: 'A seller sent you a code? Start here' },
-      { id: 'menu:orders', title: '📋 My orders', description: 'What you’ve bought, and where your money is' },
+      { id: 'menu:orders', title: '📋 My orders', description: 'All transactions · track your orders' },
       { id: 'menu:check', title: '🔍 Check a seller', description: 'See their record before you buy' },
     ],
   },
@@ -41,9 +41,9 @@ export const SELLER_MENU: ListSection[] = [
   {
     title: 'Selling',
     rows: [
-      { id: 'menu:sell', title: '🏷️ Sell something', description: 'Get a safe-pay link for your buyer' },
-      { id: 'menu:orders', title: '📋 My orders', description: 'What you’ve sold, and where every naira is' },
-      { id: 'menu:card', title: '🛡️ My trust card', description: 'Your record, your name, your share link' },
+      { id: 'menu:sell', title: '🏷️ Sell something', description: 'Send your buyer a safe-pay link' },
+      { id: 'menu:orders', title: '📋 My orders', description: 'Track your sales and payouts' },
+      { id: 'menu:card', title: '🛡️ My trust card', description: 'Your public brand image' },
       { id: 'menu:account', title: '🏦 Payout account', description: 'Where we send your money' },
     ],
   },
@@ -141,7 +141,7 @@ export const msg = {
     button: 'Choose order',
     sections: [{ title: 'Your open orders', rows: rows.slice(0, 10).map((r) => ({ id: `sproblem:${r.code}`, title: r.code, description: r.item.slice(0, 72) })) }],
   }),
-  askSellerProblem: (code: string): Outbound => ({ kind: 'text', text: `🚩 What's wrong with order ${code}? Type it, or send a photo.\n\nA rep reads it and replies right here within 24 hours.` }),
+  askSellerProblem: (code: string): Outbound => ({ kind: 'text', text: `🚩 What's wrong with order ${code}? Type it, or send a photo.\n\nA live rep replies right here within 30 minutes.` }),
   pickDealForProblem: (rows: { code: string; item: string }[]): Outbound => ({
     kind: 'list',
     text: '🚩 Which order has a problem?\n\nWe\'ll freeze its money while we sort it out.',
@@ -159,8 +159,8 @@ export const msg = {
   accountSaved: (bankName: string, last4: string): Outbound => withMenu(`✅ Saved. New orders pay into ${bankName} ••••${last4}.\n\nOrders already running keep their account.`),
 
   // ----- talk to a person -----
-  askHumanMessage: (): Outbound => ({ kind: 'text', text: '🙋 Type your message for the team. A photo works too.\n\nA real person replies right here, within 24 hours.' }),
-  humanLogged: (ref: string): Outbound => withMenu(`✅ Got it. Your message is with the team.\n\nWe'll reply here within 24 hours. (Ref ${ref})`),
+  askHumanMessage: (): Outbound => ({ kind: 'text', text: '🙋 Type your message for the team. A photo works too.\n\nA live rep replies right here, within 30 minutes.' }),
+  humanLogged: (ref: string): Outbound => withMenu(`✅ Got it. Your message is with the team.\n\nA rep will reply here within 30 minutes. (Ref ${ref})`),
 
   testNothingToPay: (): Outbound => ({ kind: 'text', text: 'TEST MODE: there is no payment waiting. Open an order link and tap "Pay now" first.' }),
   voiceSoon: (): Outbound => ({ kind: 'text', text: 'Voice notes are coming soon. For now, please type your answer.' }),
