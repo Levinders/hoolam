@@ -31,13 +31,16 @@ async function paidBuyerOrder(): Promise<{ buyer: string; seller: string; code: 
   return { buyer, seller, code };
 }
 
-const call = (token: string, action: string, data: Record<string, unknown> = {}) =>
-  h.app.orders.handle({ action, flow_token: token, data }) as Promise<{ version: string; screen: string; data: any }>;
+const call = (token: string, action: string, data: Record<string, unknown> = {}, screen?: string) =>
+  h.app.orders.handle({ action, flow_token: token, data, screen }) as Promise<{ version: string; screen: string; data: any }>;
 
 describe('the form itself', () => {
   it('stays within WhatsApp\'s rules', () => {
-    const json = ordersFlowJson() as any;
+   for (const start of ['FILTER', 'ORDER'] as const) {
+    const json = ordersFlowJson(start) as any;
     expect(json.data_api_version).toBe('3.0');
+    // the step name travels as "op" (never "action") in every payload
+    expect(JSON.stringify(json)).not.toMatch(/"action":/);
     const edges = Object.values(json.routing_model as Record<string, string[]>).flat().length;
     expect(edges).toBeLessThanOrEqual(10);
     const ids = json.screens.map((s: any) => s.id);
@@ -50,10 +53,10 @@ describe('the form itself', () => {
     const rm = json.routing_model as Record<string, string[]>;
     for (const [from, to] of Object.entries(rm)) for (const t of to) expect(rm[t] ?? []).not.toContain(from);
     const inbound = new Set(Object.values(rm).flat());
-    expect(ids.filter((id: string) => !inbound.has(id))).toEqual(['FILTER']);
+    expect(ids.filter((id: string) => !inbound.has(id))).toEqual([start]);
     // and no cycles
     const visit = (id: string, seen: string[]): void => { expect(seen).not.toContain(id); for (const n of rm[id] ?? []) visit(n, [...seen, id]); };
-    visit('FILTER', []);
+    visit(start, []);
     for (const s of json.screens) {
       const footers = s.layout.children.filter((c: any) => c.type === 'Footer');
       expect(footers.length).toBe(1);
@@ -64,6 +67,15 @@ describe('the form itself', () => {
       const used = [...JSON.stringify(s.layout).matchAll(/\$\{data\.(\w+)\}/g)].map((m) => m[1]);
       for (const k of used) expect(Object.keys(s.data)).toContain(k);
     }
+   }
+  });
+
+  it('works out the step when WhatsApp sends it without one', async () => {
+    const { seller } = await paidBuyerOrder();
+    const t = signToken(h.app.formSecret, seller, 'seller', 'orders');
+    const r = await call(t, 'data_exchange', { filter: 'completed' }, 'FILTER');
+    expect(r.screen).toBe('ORDERS');
+    expect(r.data.summary).toMatch(/^Completed/);
   });
 
   it('a live form message asks our endpoint for its first screen', () => {
@@ -97,9 +109,16 @@ describe('the encrypted endpoint', () => {
   });
 
   it('an unknown or expired token gets a friendly screen, never an error', async () => {
+    // on opening, the answer must be the form's first screen
     const r = await call('o1.fake', 'INIT');
-    expect(r).toMatchObject({ version: '3.0', screen: 'DONE' });
-    expect(r.data.title).toMatch(/expired/);
+    expect(r).toMatchObject({ version: '3.0', screen: 'FILTER' });
+    expect(r.data.heading).toMatch(/expired/);
+    const one = await call('o1.234800.buyer.order.HL-X.1', 'INIT');
+    expect(one).toMatchObject({ screen: 'ORDER', data: { primary: 'close' } });
+    expect(one.data.heading).toMatch(/expired/);
+    // later steps can end on the done screen
+    const later = await call('o1.fake', 'data_exchange', { op: 'filter', filter: 'all' });
+    expect(later.screen).toBe('DONE');
   });
 
   it('registers the key with Meta and creates the form with our endpoint', async () => {
@@ -165,7 +184,10 @@ describe('my orders, in the form', () => {
 
     // the code, in the form
     const ct = signToken(h.app.formSecret, seller, 'seller', 'code', code);
-    expect((await call(ct, 'INIT')).screen).toBe('CODE');
+    const opened = await call(ct, 'INIT');
+    expect(opened.screen).toBe('ORDER'); // a form can only open on its first screen
+    expect(opened.data).toMatchObject({ primary: 'code', primary_label: 'Enter handover code' });
+    expect((await call(ct, 'data_exchange', { op: 'code', code })).screen).toBe('CODE');
     const wrong = await call(ct, 'data_exchange', { action: 'code', code, digits: d.handover_code === '9999' ? '0000' : '9999' });
     expect(wrong.data.error).toMatch(/4 tries left/);
     const ok = await call(ct, 'data_exchange', { action: 'code', code, digits: d.handover_code });
@@ -194,8 +216,9 @@ describe('my orders, in the form', () => {
     const stranger = phone();
     await h.say(stranger, 'hi');
     const r = await call(signToken(h.app.formSecret, stranger, 'buyer', 'order', code), 'INIT');
-    expect(r.screen).toBe('DONE');
-    expect(r.data.message).toMatch(/couldn't find that order/);
+    expect(r.screen).toBe('ORDER');
+    expect(r.data).toMatchObject({ primary: 'close', has_photo1: false });
+    expect(r.data.details).toMatch(/couldn't find that order/);
   });
 
   it('pages of 20, newest first, with next and previous', async () => {

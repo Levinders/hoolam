@@ -6,7 +6,7 @@ import { DealError, DealService } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { ALL_TEMPLATES, ensureBuyFlow, ensureOrdersFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureBuyFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { Media } from './whatsapp/media.js';
@@ -54,6 +54,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   let sellForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   // ---------- "My orders": the live form and its encrypted endpoint ----------
   let ordersForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
+  let orderForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // one order on its own
   let keys: FlowKeys | null = null;
   const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
   const setChatState = async (phone: string, state: string, data: Record<string, unknown>) => {
@@ -61,7 +62,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   };
   const orders = new OrdersFlow({ db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log });
   const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller' }): Promise<boolean> => {
-    if (!ordersForm || !settings.formsEnabled()) return false;
+    const form = at.screen === 'orders' ? ordersForm : orderForm;
+    if (!form || !settings.formsEnabled()) return false;
     const mode = at.mode ?? (at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer');
     const titles: Record<Entry, [string, string]> = {
       orders: ['📋 My orders', mode === 'seller' ? 'Everything you\'re selling: what needs you first, then the rest.' : 'Everything you\'re buying, and where your money is.'],
@@ -72,7 +74,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const [header, text] = titles[at.screen];
     const status = await messenger.send(phone, {
       kind: 'form', header, text, cta: at.screen === 'dispatch' ? 'Dispatch now' : at.screen === 'code' ? 'Enter code' : at.screen === 'order' ? 'View order' : 'Open my orders',
-      flowId: ordersForm.flowId, mode: ordersForm.mode, screen: 'FILTER', live: true,
+      flowId: form.flowId, mode: form.mode, screen: at.screen === 'orders' ? 'FILTER' : 'ORDER', live: true,
       flowToken: signToken(formSecret, phone, mode, at.screen, at.code ?? '-'),
     });
     return status !== 'FAILED';
@@ -491,8 +493,11 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
         log(`forms key: ${keys.source === 'env' ? 'from FLOWS_PRIVATE_KEY' : keys.source === 'new' ? 'made a new one (kept in the database)' : 'loaded from the database'}`);
         if (await registerFlowsKey(o, keys.publicKeyPem)) {
-          const id = await ensureOrdersFlow(o, `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/flows/endpoint`);
+          const endpoint = `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/flows/endpoint`;
+          const id = await ensureOrdersFlow(o, endpoint);
           ordersForm = id ? { flowId: id, mode: c.WHATSAPP_FORM_MODE } : null;
+          const one = await ensureOrderFlow(o, endpoint);
+          orderForm = one ? { flowId: one, mode: c.WHATSAPP_FORM_MODE } : null;
         }
       }
     } catch (e) {
@@ -523,7 +528,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   app.addHook('onClose', async () => siteSync.stop());
   return {
     app, load, deals, chat, messenger, trust, settings, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
-    setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; }, setOrdersForm: (f: typeof ordersForm) => { ordersForm = f; },
+    setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; }, setOrdersForm: (f: typeof ordersForm) => { ordersForm = f; }, setOrderForm: (f: typeof orderForm) => { orderForm = f; },
   };
 }
 

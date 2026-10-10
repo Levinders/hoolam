@@ -284,9 +284,15 @@ export async function ensureSellFlow(o: MetaSetupOptions, json = sellFlowJson())
 }
 
 /** The live "My orders" form: talks to our encrypted endpoint. */
-export async function ensureOrdersFlow(o: MetaSetupOptions, endpointUri: string, json = ordersFlowJson()): Promise<string | null> {
+export async function ensureOrdersFlow(o: MetaSetupOptions, endpointUri: string, json: object = ordersFlowJson()): Promise<string | null> {
   const name = 'hoolam_orders_' + createHash('sha256').update(JSON.stringify(json) + endpointUri).digest('hex').slice(0, 8);
   return ensureFlow(o, json, name, 'orders form', endpointUri);
+}
+
+/** The live single-order form (opened from alerts: a new order, dispatch now, enter the code). */
+export async function ensureOrderFlow(o: MetaSetupOptions, endpointUri: string, json: object = ordersFlowJson('ORDER')): Promise<string | null> {
+  const name = 'hoolam_order_' + createHash('sha256').update(JSON.stringify(json) + endpointUri).digest('hex').slice(0, 8);
+  return ensureFlow(o, json, name, 'order form', endpointUri);
 }
 
 /** Tells Meta the public half of our forms key (needed before live forms can be published). Never throws. */

@@ -53,11 +53,28 @@ const exList = (v: Record<string, string>[]) => ({
 const plain = (t: string) => t.replace(/\*([^*\n]+)\*/g, '$1').replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,])/g, '$1$2');
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
-export function ordersFlowJson() {
+/**
+ * Two forms from one definition. WhatsApp only lets a form open on a screen nothing routes into, so:
+ *  - 'FILTER': My orders (FILTER → ORDERS → ORDER → …)
+ *  - 'ORDER':  one order on its own (opened from an alert: new order, dispatch now, enter code)
+ */
+export type FormStart = 'FILTER' | 'ORDER';
+export function ordersFlowJson(start: FormStart = 'FILTER') {
+  const full = fullOrdersFlowJson();
+  if (start === 'FILTER') return full;
+  const drop = new Set(['FILTER', 'ORDERS']);
+  return {
+    ...full,
+    routing_model: Object.fromEntries(Object.entries(full.routing_model).filter(([k]) => !drop.has(k))),
+    screens: full.screens.filter((x) => !drop.has(x.id)),
+  };
+}
+
+function fullOrdersFlowJson() {
   return {
     version: '7.3',
     data_api_version: '3.0',
-    routing_model: {
+    routing_model: <Record<string, string[]>>{
       FILTER: ['ORDERS', 'DONE'],
       ORDERS: ['ORDER'],
       ORDER: ['DISPATCH', 'CODE', 'DONE'],
@@ -75,9 +92,9 @@ export function ordersFlowJson() {
             { type: 'TextSubheading', text: '${data.heading}' },
             {
               type: 'RadioButtonsGroup', name: 'filter', label: 'Which orders?', required: true, 'data-source': '${data.filters}',
-              'on-select-action': { name: 'data_exchange', payload: { action: 'filter', filter: '${form.filter}' } },
+              'on-select-action': { name: 'data_exchange', payload: { op: 'filter', filter: '${form.filter}' } },
             },
-            { type: 'Footer', label: 'Show orders', 'on-click-action': { name: 'data_exchange', payload: { action: 'filter', filter: '${form.filter}' } } },
+            { type: 'Footer', label: 'Show orders', 'on-click-action': { name: 'data_exchange', payload: { op: 'filter', filter: '${form.filter}' } } },
           ],
         },
       },
@@ -94,13 +111,13 @@ export function ordersFlowJson() {
             { type: 'TextSubheading', text: '${data.summary}' },
             {
               type: 'RadioButtonsGroup', name: 'order', label: 'Tap an order to open it', required: false, 'data-source': '${data.orders}',
-              'on-select-action': { name: 'data_exchange', payload: { action: 'open', code: '${form.order}', filter: '${data.filter}', page: '${data.page}' } },
+              'on-select-action': { name: 'data_exchange', payload: { op: 'open', code: '${form.order}', filter: '${data.filter}', page: '${data.page}' } },
             },
             {
               type: 'RadioButtonsGroup', name: 'nav', label: 'More', required: false, 'data-source': '${data.nav}',
-              'on-select-action': { name: 'data_exchange', payload: { action: 'nav', to: '${form.nav}', filter: '${data.filter}', page: '${data.page}' } },
+              'on-select-action': { name: 'data_exchange', payload: { op: 'nav', to: '${form.nav}', filter: '${data.filter}', page: '${data.page}' } },
             },
-            { type: 'Footer', label: 'Open order', 'on-click-action': { name: 'data_exchange', payload: { action: 'open', code: '${form.order}', filter: '${data.filter}', page: '${data.page}' } } },
+            { type: 'Footer', label: 'Open order', 'on-click-action': { name: 'data_exchange', payload: { op: 'open', code: '${form.order}', filter: '${data.filter}', page: '${data.page}' } } },
           ],
         },
       },
@@ -122,9 +139,9 @@ export function ordersFlowJson() {
             { type: 'TextBody', text: '${data.details}' },
             { type: 'TextCaption', text: '${data.hint}' },
             { type: 'TextInput', name: 'new_price', label: 'Your price (₦)', 'input-type': 'text', required: false, visible: '${data.show_price}', 'max-chars': 20, 'helper-text': 'Total, delivery included. e.g. 18000 or 18k' },
-            { type: 'EmbeddedLink', text: '${data.secondary_label}', visible: '${data.has_secondary}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.secondary}', code: '${data.code}' } } },
-            { type: 'EmbeddedLink', text: '${data.tertiary_label}', visible: '${data.has_tertiary}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.tertiary}', code: '${data.code}' } } },
-            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.primary}', code: '${data.code}', new_price: '${form.new_price}' } } },
+            { type: 'EmbeddedLink', text: '${data.secondary_label}', visible: '${data.has_secondary}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.secondary}', code: '${data.code}' } } },
+            { type: 'EmbeddedLink', text: '${data.tertiary_label}', visible: '${data.has_tertiary}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.tertiary}', code: '${data.code}' } } },
+            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.primary}', code: '${data.code}', new_price: '${form.new_price}' } } },
           ],
         },
       },
@@ -142,13 +159,13 @@ export function ordersFlowJson() {
                 { id: 'rider', title: '🛵 Dispatch rider', description: 'A rider delivers it' },
                 { id: 'waybill', title: '🚌 Waybill', description: 'A driver takes it to another city' },
               ],
-              'on-select-action': { name: 'data_exchange', payload: { action: 'method', code: '${data.code}', method: '${form.method}' } },
+              'on-select-action': { name: 'data_exchange', payload: { op: 'method', code: '${data.code}', method: '${form.method}' } },
             },
             { type: 'TextArea', name: 'pickup_address', label: 'Pickup address', required: false, 'max-length': 300, visible: '${data.show_pickup}', 'init-value': '${data.pickup_address}', 'helper-text': 'Where the buyer collects it' },
             { type: 'TextCaption', text: '${data.error}', visible: '${data.has_error}' },
             {
               type: 'Footer', label: 'Continue',
-              'on-click-action': { name: 'data_exchange', payload: { action: 'dispatch_submit', code: '${data.code}', method: '${form.method}', pickup_address: '${form.pickup_address}' } },
+              'on-click-action': { name: 'data_exchange', payload: { op: 'dispatch_submit', code: '${data.code}', method: '${form.method}', pickup_address: '${form.pickup_address}' } },
             },
           ],
         },
@@ -179,7 +196,7 @@ export function ordersFlowJson() {
               'on-click-action': {
                 name: 'data_exchange',
                 payload: {
-                  action: 'courier', code: '${data.code}', method: '${data.method}', name: '${form.name}', phone: '${form.phone}', fee: '${form.fee}',
+                  op: 'courier', code: '${data.code}', method: '${data.method}', name: '${form.name}', phone: '${form.phone}', fee: '${form.fee}',
                   location: '${form.location}', account_number: '${form.account_number}', bank: '${form.bank}', confirm: '${form.confirm}',
                 },
               },
@@ -197,7 +214,7 @@ export function ordersFlowJson() {
             { type: 'TextBody', text: 'Type the 4-digit code the receiver gave you. Only hand over the item to the person with the right code.' },
             { type: 'TextInput', name: 'digits', label: 'Handover code', 'input-type': 'passcode', required: true, 'max-chars': 4, 'min-chars': 4 },
             { type: 'TextCaption', text: '${data.error}', visible: '${data.has_error}' },
-            { type: 'Footer', label: 'Confirm handover', 'on-click-action': { name: 'data_exchange', payload: { action: 'code', code: '${data.code}', digits: '${form.digits}' } } },
+            { type: 'Footer', label: 'Confirm handover', 'on-click-action': { name: 'data_exchange', payload: { op: 'code', code: '${data.code}', digits: '${form.digits}' } } },
           ],
         },
       },
@@ -248,7 +265,9 @@ export class OrdersFlow {
     const out = await this.answer(req);
     const r = out as { screen?: string; data?: Record<string, unknown> };
     // one line per request, so a problem on a phone can be matched to what the server answered
-    this.o.log?.(`orders form: ${req.action ?? '?'}${req.data?.action ? ':' + req.data.action : ''} on ${req.screen ?? '-'} → ${r.screen ?? JSON.stringify(r.data).slice(0, 60)} (${Date.now() - started} ms, ${JSON.stringify(out).length} bytes)`);
+    const op = req.data?.op ?? req.data?.action;
+    const keys = Object.keys(req.data ?? {}).join(',');
+    this.o.log?.(`orders form: ${req.action ?? '?'}${op ? ':' + op : ''} on ${req.screen || '-'}${keys ? ` [${keys}]` : ''} → ${r.screen ?? JSON.stringify(r.data).slice(0, 60)} (${Date.now() - started} ms, ${JSON.stringify(out).length} bytes)`);
     return out;
   }
 
@@ -261,17 +280,22 @@ export class OrdersFlow {
     }
     const t = readToken(this.o.secret, req.flow_token ?? '');
     const user = t ? await this.user(t.phone) : null;
+    // the first answer must be the form's own first screen (WhatsApp rejects anything else)
+    const entry = t?.entry ?? String(req.flow_token ?? '').split('.')[3];
+    const start: FormStart = !entry || entry === 'orders' ? 'FILTER' : 'ORDER';
+    const init = req.action === 'INIT';
     if (!t || !user) {
       this.o.log?.(`orders form: token not accepted (${String(req.flow_token ?? '').slice(0, 12)}…)`);
-      return this.wrap(this.done('⌛ This has expired', 'Open *My orders* again from the menu.'));
+      return this.wrap(init ? this.notice(start, '⌛ This has expired', 'Open My orders again from the menu.') : this.done('⌛ This has expired', 'Open *My orders* again from the menu.'));
     }
     try {
-      if (req.action === 'INIT') return this.wrap(await this.init(user, t));
+      if (init) return this.wrap(await this.init(user, t));
       if (req.action === 'BACK') return this.wrap(await this.filterScreen(user, t.mode));
-      return this.wrap(await this.exchange(user, t.mode, req.data ?? {}));
+      return this.wrap(await this.exchange(user, t.mode, req.data ?? {}, req.screen ?? ''));
     } catch (e) {
       const why = e instanceof DealError ? (e.message !== e.reason ? e.message : 'That step isn\'t available for this order any more.') : 'Something went wrong on our side. Please try again.';
       if (!(e instanceof DealError)) this.o.log?.(`orders form error: ${(e as Error).stack ?? e}`);
+      if (init) return this.wrap(this.notice(start, '😕 Can\'t open this', why));
       // stay on a screen WhatsApp allows us to go to from here
       if (req.screen === 'ORDERS') {
         try { const r = await this.ordersScreen(user, t.mode, 'pending', 1); r.data.summary = `⚠️ ${why}`.slice(0, 80); return this.wrap(r); } catch { /* fall through */ }
@@ -288,11 +312,24 @@ export class OrdersFlow {
   }
 
   private async init(user: User, t: { mode: Mode; entry: Entry; code: string | null }): Promise<Res> {
-    if (t.entry === 'orders' || !t.code) return this.filterScreen(user, t.mode);
-    const deal = await this.mine(user, t.code);
-    if (t.entry === 'dispatch') return this.dispatchScreen(deal, null, {});
-    if (t.entry === 'code') return this.codeScreen(deal, null);
-    return this.orderScreen(user, deal);
+    if (t.entry === 'orders') return this.filterScreen(user, t.mode);
+    if (!t.code) return this.notice('ORDER', '😕 Can\'t open this', 'Open My orders from the menu.');
+    // dispatch / code alerts open the order itself: its main button is the step they came for
+    return this.orderScreen(user, await this.mine(user, t.code));
+  }
+
+  /** A message shown on the form's first screen (the only screen a form may open on). */
+  private notice(start: FormStart, title: string, message: string): Res {
+    if (start === 'FILTER') return { screen: 'FILTER', data: { heading: `${title}. ${message}`.slice(0, 80), filters: [{ id: 'pending', title: '⏳ Pending', description: 'Try again' }] } };
+    return {
+      screen: 'ORDER',
+      data: {
+        code: '-', heading: title.slice(0, 80), details: plain(message), hint: ' ',
+        photo1: PIXEL, photo2: PIXEL, photo3: PIXEL, has_photo1: false, has_photo2: false, has_photo3: false,
+        primary: 'close', primary_label: 'Back to the chat',
+        secondary: 'none', secondary_label: ' ', has_secondary: false, tertiary: 'none', tertiary_label: ' ', has_tertiary: false, show_price: false,
+      },
+    };
   }
 
   // ----- the list -----
@@ -453,8 +490,16 @@ export class OrdersFlow {
   }
 
   // ----- actions -----
-  private async exchange(user: User, mode: Mode, p: Record<string, any>): Promise<Res> {
-    const action = String(p.action ?? '');
+  private async exchange(user: User, mode: Mode, p: Record<string, any>, screen = ''): Promise<Res> {
+    let action = String(p.op ?? p.action ?? '');
+    if (!action) {
+      // the step name didn't come through: work it out from the screen and what was sent
+      if (screen === 'FILTER') action = 'filter';
+      else if (screen === 'ORDERS') action = p.to ? 'nav' : 'open';
+      else if (screen === 'CODE') action = 'code';
+      else if (screen === 'COURIER') action = 'courier';
+      else if (screen === 'DISPATCH') action = p.pickup_address !== undefined ? 'dispatch_submit' : 'method';
+    }
     if (action === 'filter') return this.ordersScreen(user, mode, ['pending', 'completed', 'all'].includes(p.filter) ? p.filter : 'pending', 1);
     if (action === 'nav') {
       const f = String(p.to ?? '').match(/^f-(pending|completed|all)$/);
