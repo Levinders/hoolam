@@ -19,6 +19,8 @@ import { registerConsoleStatic } from './console/static.js';
 import { StaffAuth } from './console/staff.js';
 import { audit, type Actor } from './console/audit.js';
 import { notFoundPage, sellerPage } from './public-page.js';
+import { orderPage } from './order-page.js';
+import sharp from 'sharp';
 import { sellerShareImage } from './share-image.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -124,7 +126,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       fees: { rate: p.ratePercent, min: p.min, max: p.max, roundTo: p.roundTo },
       maxDeal: settings.maxDealMinor() / unit,
       contact: settings.contact(),
-      timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: 72 },
+      timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: 72, autoReleaseMinutes: settings.autoReleaseMinutes() },
       // logo and pictures set in Console → Settings: slot → { url, v }. Missing slots keep the website's drawings.
       images: Object.fromEntries(Object.entries(siteMedia.current()).map(([k, v]) => [k, { url: siteMedia.url(c.PUBLIC_BASE_URL, k), v }])),
     });
@@ -170,6 +172,37 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     if (!CODE.test(code)) return reply.code(404).type('text/html').send(notFoundPage());
     return reply.header('cache-control', 'no-store').redirect(toChat(`View ${code.toUpperCase()}`));
   });
+  // ---------- the private order page (link sent only to the buyer and the seller) ----------
+  const orderFor = async (code: string, key: unknown) => {
+    if (!CODE.test(code) || typeof key !== 'string' || key.length < 10) return null;
+    const d = await deals.findByCode(code.toUpperCase());
+    if (!d?.view_token) return null;
+    const a = Buffer.from(d.view_token), b = Buffer.from(key);
+    return a.length === b.length && timingSafeEqual(a, b) ? d : null;
+  };
+  app.get('/o/:code', async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const k = (req.query as { k?: string }).k;
+    const d = await orderFor(code, k);
+    if (!d) return reply.code(404).type('text/html').send(notFoundPage());
+    const photos = await db.query(`SELECT id FROM deal_photos WHERE deal_id=$1 AND kind='ITEM' AND bytes IS NOT NULL ORDER BY id LIMIT 3`, [d.id]);
+    const name = async (id: string | null) => id ? (await db.query('SELECT COALESCE(business_name, display_name) AS n FROM users WHERE id=$1', [id])).rows[0]?.n ?? null : null;
+    return reply.type('text/html').header('cache-control', 'private, no-store').header('x-robots-tag', 'noindex').send(orderPage(d, {
+      photoIds: photos.rows.map((r) => r.id), photoUrl: (id) => `/o/${d.code}/p/${id}.jpg?k=${encodeURIComponent(String(k))}`,
+      chatUrl: toChat('menu'), markUrl: siteMedia.url(base, 'mark'), sellerName: await name(d.seller_id), buyerName: await name(d.buyer_id),
+    }));
+  });
+  app.get('/o/:code/p/:id', async (req, reply) => {
+    const { code, id } = req.params as { code: string; id: string };
+    const d = await orderFor(code, (req.query as { k?: string }).k);
+    const pid = Number(String(id).replace(/\.jpg$/, ''));
+    if (!d || !Number.isInteger(pid)) return reply.code(404).type('text/plain').send('Not found');
+    const r = await db.query(`SELECT bytes FROM deal_photos WHERE id=$1 AND deal_id=$2 AND bytes IS NOT NULL`, [pid, d.id]);
+    if (!r.rows[0]) return reply.code(404).type('text/plain').send('Not found');
+    const jpg = await sharp(r.rows[0].bytes).rotate().resize(1200, 1200, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+    return reply.type('image/jpeg').header('cache-control', 'private, max-age=3600').header('x-content-type-options', 'nosniff').send(jpg);
+  });
+
   app.get('/', async (req, reply) => {
     if (isConsoleHost(String(req.hostname ?? '').split(':')[0]!)) return reply.redirect('/console/');
     return c.SITE_URL ? reply.redirect(c.SITE_URL) : reply.type('text/plain').send('Hoolam is running.');

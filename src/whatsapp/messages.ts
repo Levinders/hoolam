@@ -346,7 +346,7 @@ export const msg = {
   }),
   askDeliveryAddress: (): Outbound => ({ kind: 'text', text: '📍 What\'s the delivery address?\n\nStreet, area and city. For example: _12 Woji Road, Port Harcourt_' }),
 
-  buyDealReady: (code: string, link: string, alert: 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed', hours: number): Outbound => ({
+  buyDealReady: (code: string, link: string, alert: 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed', hours: number, page: string | null = null): Outbound => ({
     kind: 'buttons',
     text:
       `✅ Order *${code}* is ready.\n\n` +
@@ -354,7 +354,7 @@ export const msg = {
         : alert === 'own-number' ? '📨 That\'s your own number, so we didn\'t alert it. Send this link to the seller:\n'
         : alert === 'opted-out' ? '📨 That number asked us not to message it. Send this link to the seller yourself:\n'
         : 'Send this link to the seller:\n') +
-      `${link}\n\n⏳ They have ${hours} hours to accept. We'll tell you the moment they do.`,
+      `${link}\n\n⏳ They have ${hours} hours to accept. We'll tell you the moment they do.` + (page ? `\n\n🔗 Your order: ${page}` : ''),
     buttons: [{ id: `cancel:${code}`, title: 'Cancel order' }, { id: 'menu:open', title: 'Main menu' }],
   }),
   buyerAlertFailed: (): Outbound => ({ kind: 'text', text: '📵 We couldn\'t reach that WhatsApp number. Please send the seller the link above.' }),
@@ -553,9 +553,9 @@ export const msg = {
 
   // ===== DISPATCH (buyer orders) =====
   /** The buyer paid: the seller dispatches (or says they can't fulfil it). */
-  sellerFundedDispatch: (code: string, yours: Money): Outbound => ({
+  sellerFundedDispatch: (code: string, yours: Money, page: string | null = null): Outbound => ({
     kind: 'buttons',
-    text: `💰 The buyer has paid for order ${code}. Your ${m(yours)} is held safely by Hoolam.\n\nDispatch it now: tell us if it's a pickup, a rider or a waybill.`,
+    text: `💰 The buyer has paid for order ${code}. Your ${m(yours)} is held safely by Hoolam.\n\nDispatch it now: tell us if it's a pickup, a rider or a waybill.` + (page ? `\n\n🔗 Order details: ${page}` : ''),
     buttons: [{ id: `dispatch:${code}`, title: '🚚 Dispatch now' }, { id: `srefund:${code}`, title: '❌ Can\'t fulfil' }],
   }),
   askDispatchMethod: (code: string): Outbound => ({
@@ -579,16 +579,17 @@ export const msg = {
     text: `Is this the ${role}'s account?\n\n*${accountName}*\n${bankName} ••••${last4}\n\n⚠️ The delivery fee goes to this account. Wrong details are the seller's responsibility.`,
     buttons: [{ id: 'dacct:yes', title: 'Yes, that\'s right' }, { id: 'dacct:no', title: 'No, change it' }],
   }),
-  sellerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; fee: Money | null }): Outbound => ({
+  sellerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; fee: Money | null; page?: string | null }): Outbound => ({
     kind: 'buttons',
-    text: d.method === 'PICKUP'
+    text: (d.method === 'PICKUP'
       ? `✅ Order ${d.code} is ready for pickup at:\n_${d.pickupAddress ?? ''}_\n\n🔑 *When the buyer comes, ask them for their 4-digit handover code before you give them the item.* Then tap *Enter code*.`
       : `✅ Order ${d.code} is dispatched${d.method === 'RIDER' && d.courierName ? ` with ${d.courierName}` : ' by waybill'}.\n` +
         (d.fee ? `💸 ${d.method === 'RIDER' ? 'Rider' : 'Driver'}'s fee: ${m(d.fee)}, paid by Hoolam once the code is right.\n` : '') +
-        `\n🔑 *Tell your ${d.method === 'RIDER' ? 'rider' : 'driver'}: ask the receiver for their 4-digit handover code, then send it to you.* Only hand over the item to the person with the right code.\n\nWhen you have it, tap *Enter code*.`,
+        `\n🔑 *Tell your ${d.method === 'RIDER' ? 'rider' : 'driver'}: ask the receiver for their 4-digit handover code, then send it to you.* Only hand over the item to the person with the right code.\n\nWhen you have it, tap *Enter code*.`)
+      + (d.page ? `\n\n🔗 Order details: ${d.page}` : ''),
     buttons: [{ id: `hcode:${d.code}`, title: '🔑 Enter code' }, { id: 'menu:open', title: 'Main menu' }],
   }),
-  buyerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; handover: string }): Outbound => ({
+  buyerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; handover: string; page?: string | null }): Outbound => ({
     kind: 'buttons',
     text:
       (d.method === 'PICKUP'
@@ -596,7 +597,8 @@ export const msg = {
         : d.method === 'RIDER'
           ? `🛵 Order ${d.code} is on its way with a rider.\n${d.courierName ? `Rider: *${d.courierName}*\n` : ''}${d.courierPhone ? `📞 ${d.courierPhone}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`
           : `🚌 Order ${d.code} is on its way by waybill.\n${d.courierPhone ? `Driver: 📞 ${d.courierPhone}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`) +
-      `\n🔑 Your handover code: *${d.handover}*\n\nGive it only to the ${d.method === 'PICKUP' ? 'seller' : d.method === 'RIDER' ? 'rider' : 'driver'} when the item is in your hands. It confirms you got it. Your money stays with Hoolam until you're happy.`,
+      `\n🔑 Your handover code: *${d.handover}*\n\nGive it only to the ${d.method === 'PICKUP' ? 'seller' : d.method === 'RIDER' ? 'rider' : 'driver'} when the item is in your hands. It confirms you got it. Your money stays with Hoolam until you're happy.` +
+      (d.page ? `\n\n🔗 Order details: ${d.page}` : ''),
     buttons: [{ id: `hcodeshow:${d.code}`, title: '🔑 Show my code' }, { id: `problem:${d.code}`, title: '🚩 Problem' }],
   }),
   handoverCode: (code: string, handover: string, method: string | null): Outbound => ({

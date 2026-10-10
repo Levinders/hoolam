@@ -216,3 +216,23 @@ describe('my orders, in the form', () => {
     expect((await call(t, 'data_exchange', { action: 'nav', to: 'filter' })).screen).toBe('FILTER');
   });
 });
+
+describe('the private order page', () => {
+  it('opens only with the right key, shows the order like a receipt, and never shows the handover code', async () => {
+    const { seller, code } = await paidBuyerOrder();
+    await h.tap(seller, `dispatch:${code}`); await h.tap(seller, 'dm:pickup'); await h.say(seller, 'Shop 4, Rumuola Plaza');
+    const d = await deal(code);
+    const ok = await h.app.app.inject({ method: 'GET', url: `/o/${code}?k=${d.view_token}` });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers['x-robots-tag']).toBe('noindex');
+    expect(ok.body).toMatch(/Leather bag/);
+    expect(ok.body).toMatch(/Brown, medium/);
+    expect(ok.body).toMatch(/Bags &amp; accessories/);
+    expect(ok.body).toMatch(/Paid, money held by Hoolam/);
+    expect(ok.body).toMatch(/Pickup at<\/b>Shop 4, Rumuola Plaza/);
+    expect(ok.body).toMatch(/₦20,500/);
+    expect(ok.body).not.toMatch(/handover code/i); // the page is for both sides; only the buyer may know the code
+    expect((await h.app.app.inject({ method: 'GET', url: `/o/${code}?k=wrongwrongwrong` })).statusCode).toBe(404);
+    expect((await h.app.app.inject({ method: 'GET', url: `/o/${code}` })).statusCode).toBe(404);
+  });
+});

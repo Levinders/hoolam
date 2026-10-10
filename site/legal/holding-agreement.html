@@ -56,7 +56,10 @@
   <p>The fee is shown in the order summary before anyone pays. There is no sign-up fee, monthly fee or other charge from Hoolam. Your own bank may charge you for making a transfer; that is between you and your bank. If we change our fees, the change applies to new orders only: an order keeps the fee it started with.</p>
   <p>We take our fee only when the money is released to the seller. If the buyer is refunded, we take no fee.</p>
   <h3>Delivery</h3>
-  <p>When the buyer starts an order, they choose delivery with a fee, free delivery or pickup. A delivery fee is paid with the order and held with the price. <strong>Our fee is worked out on the item price only, never on delivery.</strong> The seller arranges the delivery, so the delivery fee is paid to the seller together with the price.</p>
+  <p>When the buyer starts an order, the price they give is the total agreed with the seller, delivery included if there is any, and our fee is worked out on that total. The fee is shown to the buyer once the seller accepts, because the seller may suggest a different price.</p>
+  <p>After the buyer pays, the seller says how the item will travel: <strong>pickup</strong>, a <strong>dispatch rider</strong> or a <strong>waybill</strong> driver. For a rider or driver, the seller gives their delivery fee and bank account. We pay that fee to the rider or driver from the held money as soon as the handover code is confirmed (see below), and it comes out of what the seller receives. We pay exactly the account the seller gives; we show the account name before it is saved, and we are not responsible for a payment to an account the seller entered wrongly.</p>
+  <h3>The handover code</h3>
+  <p>When the order is dispatched, the buyer receives a 4-digit handover code. The buyer gives it to the rider, driver or seller only when the item is in their hands, and the seller enters it in the chat. A correct code confirms the item reached the right person. It does not pay the seller.</p>
 </section>
 
 <section>
@@ -83,12 +86,13 @@
   <p>We release the held money to the seller when either of these happens:</p>
   <ol class="list alpha">
     <li><strong>The buyer taps “I’m happy”</strong> in the chat. The buyer can do this at any time after paying, even before the seller marks the item as sent.</li>
-    <li><strong>Our team decides a problem in the seller’s favour</strong> (see section 9), or, where the buyer has gone quiet, our team is satisfied from the evidence that the item was delivered as agreed (see below).</li>
+    <li><strong>The item was handed over and the buyer said nothing.</strong> Once the handover code is confirmed, the buyer has {{AUTO_RELEASE}} to tap “I’m happy” or report a problem. If they do neither, we release the money to the seller. We tell the buyer how long they have at the moment of handover.</li>
+    <li><strong>Our team decides a problem in the seller’s favour</strong> (see section 9), or, where the buyer has gone quiet without a handover code, our team is satisfied from the evidence that the item was delivered as agreed (see below).</li>
   </ol>
   <h3>If the buyer goes quiet</h3>
-  <p>Held money is never released just because time has passed. {{NUDGE_HOURS}} after the seller marks the item as sent, we remind the buyer to confirm. If there is still no answer {{FLAG_HOURS}} after it was sent, our team contacts both sides. If the buyer doesn’t respond and the seller shows that the item was delivered (for example with proof of delivery or the conversation with the buyer), our team may release the money to the seller. We tell the buyer before we do.</p>
+  <p>Without a confirmed handover code, held money is never released just because time has passed. {{NUDGE_HOURS}} after the seller marks the item as sent, we remind the buyer to confirm. If there is still no answer {{FLAG_HOURS}} after it was sent, our team contacts both sides. If the buyer doesn’t respond and the seller shows that the item was delivered (for example with proof of delivery or the conversation with the buyer), our team may release the money to the seller. We tell the buyer before we do.</p>
   <h3>How the seller is paid</h3>
-  <p>We send the seller the price, plus any delivery fee, minus our fee if the seller started the order, by bank transfer to the Nigerian bank account the seller gave us. The account must be in the seller’s own name. Most transfers arrive within minutes. If a transfer fails or is delayed by a bank, we tell the seller and try again; the money stays held until it arrives.</p>
+  <p>We send the seller what is held for the order, minus our fee, and minus any delivery fee already paid to their rider or driver, by bank transfer to the Nigerian bank account the seller gave us. The account must be in the seller’s own name. Most transfers arrive within minutes. If a transfer fails or is delayed by a bank, we tell the seller and try again; the money stays held until it arrives.</p>
 </section>
 
 <section>
@@ -96,11 +100,12 @@
   <p>We return the held money to the buyer when:</p>
   <ol class="list alpha">
     <li>our team decides a problem in the buyer’s favour; or</li>
-    <li>the seller can’t or won’t send the item after the buyer paid, and the order is cancelled.</li>
+    <li>the seller can’t or won’t send the item after the buyer paid, and the order is cancelled; or</li>
+    <li>the order wasn’t dispatched by the date the buyer said they expected it, and the buyer asks for a refund.</li>
   </ol>
-  <div class="note gold"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><p><b>A refund is everything the buyer paid, our fee and any delivery fee included.</b> We send it to the bank account the buyer gives us in the chat, which must be in the buyer’s own name. We can only send a refund once the buyer has given us that account.</p></div>
+  <div class="note gold"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><p><b>A refund is everything still held for the order, our fee included.</b> If a rider or driver was already paid their delivery fee at handover, that part can’t be refunded. We send it to the bank account the buyer gives us in the chat, which must be in the buyer’s own name. We can only send a refund once the buyer has given us that account.</p></div>
   <p>Where the buyer is to send the item back, our team will say so in the chat and may hold the refund until the seller confirms it was returned.</p>
-  <p>At present, the held money in an order goes wholly to one side: all to the seller, or all back to the buyer. We don’t split it.</p>
+  <p>Apart from a delivery fee paid at handover, the held money goes wholly to one side: all to the seller, or all back to the buyer. We don’t split it further.</p>
 </section>
 
 <section>

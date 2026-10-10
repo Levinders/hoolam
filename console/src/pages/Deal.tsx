@@ -189,7 +189,7 @@ export function Deal() {
                     {data.payouts.length === 0 ? <p className="muted">Nothing paid out yet.</p> : (
                       <table className="t"><thead><tr><th>To</th><th>Status</th><th className="r">Amount</th><th>Account</th><th>Updated</th></tr></thead>
                         <tbody>{data.payouts.map((p: any) => (
-                          <tr key={p.reference}><td>{p.kind === 'REFUND' ? 'Buyer (refund)' : 'Seller'}</td><td><PayoutPill status={p.status} /></td><td className="r money">{money(p.amount_minor, cur)}</td>
+                          <tr key={p.reference}><td>{p.kind === 'REFUND' ? 'Buyer (refund)' : p.kind === 'DELIVERY' ? (d.dispatch_method === 'WAYBILL' ? 'Driver (delivery fee)' : 'Rider (delivery fee)') : 'Seller'}</td><td><PayoutPill status={p.status} /></td><td className="r money">{money(p.amount_minor, cur)}</td>
                             <td>{p.account_name}<div className="cell-sub">{p.bank_name} ••••{p.last4}</div></td><td className="muted">{dateTime(p.updated_at)}</td></tr>
                         ))}</tbody></table>
                     )}
@@ -223,6 +223,12 @@ export function Deal() {
                 {d.counter_price_minor && <><dt>New price asked</dt><dd className="money">{money(d.counter_price_minor, cur)} <span className="pill gold plain">Waiting for buyer</span></dd></>}
                 {d.accept_by && d.status === 'AWAITING_SELLER' && <><dt>Seller must accept</dt><dd>{ago(d.accept_by)} <span className="muted small">({dateTime(d.accept_by)})</span></dd></>}
                 {d.arrive_by && <><dt>Expected by</dt><dd>{d.arrive_by}</dd></>}
+                {d.dispatch_method && <><dt>Dispatch</dt><dd>
+                  {d.dispatch_method === 'PICKUP' ? <>Pickup<div className="cell-sub">{d.pickup_address}</div></>
+                    : <>{d.dispatch_method === 'RIDER' ? `Rider${d.courier_name ? ': ' + d.courier_name : ''}` : 'Waybill'}<div className="cell-sub">{[d.courier_phone, d.courier_location].filter(Boolean).join(' · ')}</div></>}
+                </dd></>}
+                {Number(d.delivery_fee_minor) > 0 && <><dt>Delivery fee</dt><dd className="money">{money(d.delivery_fee_minor, cur)} <span className="muted small">{d.courier_paid_at ? 'paid to the ' + (d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider') : 'paid when the code is right'}</span></dd></>}
+                {d.dispatched_at && <><dt>Handover code</dt><dd>{d.handed_over_at ? <>Confirmed <span className="muted small">{dateTime(d.handed_over_at)}</span></> : <span className="muted">Not entered yet{d.handover_tries ? ` · ${d.handover_tries} wrong ${d.handover_tries === 1 ? 'try' : 'tries'}` : ''}</span>}</dd></>}
                 {data.sellerAccount && <><dt>Pays out to</dt><dd>{data.sellerAccount.account_name}<div className="cell-sub">{data.sellerAccount.bank_name} ••••{data.sellerAccount.last4}</div></dd></>}
               </dl>
             </div>

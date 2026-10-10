@@ -60,7 +60,7 @@ export function Money() {
                         {payouts.data.rows.map((r: any) => (
                           <tr key={r.reference} style={sp.get('payout') === r.reference ? { background: 'var(--gold-50)' } : undefined}>
                             <td><Link to={`/deals/${r.code}`} className="cell-main">{r.code}</Link><div className="cell-sub mono">{r.reference}</div></td>
-                            <td>{r.account_name}<div className="cell-sub">{r.kind === 'REFUND' ? 'Refund · ' : ''}{r.bank_name} ••••{r.last4}</div></td>
+                            <td>{r.account_name}<div className="cell-sub">{r.kind === 'REFUND' ? 'Refund · ' : r.kind === 'DELIVERY' ? 'Delivery fee · ' : ''}{r.bank_name} ••••{r.last4}</div></td>
                             <td><PayoutPill status={r.status} />{r.provider_message && <div className="cell-sub" style={{ maxWidth: 220 }}>{r.provider_message}</div>}</td>
                             <td className="r money">{money(r.amount_minor, r.currency)}</td>
                             <td className="muted nowrap" title={dateTime(r.updated_at)}>{ago(r.updated_at)}</td>

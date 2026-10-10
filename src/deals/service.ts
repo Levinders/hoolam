@@ -409,7 +409,7 @@ export class DealService {
 
     const link = this.sellerLink(deal.code);
     const alert = await this.alertSeller(deal, buyer);
-    await this.o.messenger.send(buyer.phone, msg.buyDealReady(deal.code, link, alert, this.acceptHours()));
+    await this.o.messenger.send(buyer.phone, msg.buyDealReady(deal.code, link, alert, this.acceptHours(), this.orderPageUrl(deal)));
     if (alert === 'failed') await this.o.messenger.send(buyer.phone, msg.buyerAlertFailed());
     return { deal, link, alert };
   }
@@ -702,7 +702,7 @@ export class DealService {
       await this.move(tx, deal, 'FUNDED', 'provider', extra > 0 ? `NEEDS_ATTENTION: overpaid by ${extra}` : undefined);
       if (buyer) out.push({ phone: buyer.phone, message: msg.buyerFunded(this.money(deal.buyer_pays_minor), deal.code) });
       if (deal.started_by === 'BUYER') {
-        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor)), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
+        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal)), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
       } else {
         out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
       }
@@ -781,7 +781,7 @@ export class DealService {
           courier ? d.courierPhone ?? null : null, courier ? d.location?.slice(0, 300) ?? null : null, fee, accountId, handover]);
       await this.move(tx, deal, 'SHIPPED', 'seller', `Dispatched: ${d.method}${fee ? `, delivery fee ${fee}` : ''}`);
       const buyer = await this.userById(tx, deal.buyer_id!);
-      const info = { code: deal.code, method: d.method, pickupAddress: d.pickupAddress ?? null, courierName: d.courierName ?? null, courierPhone: d.courierPhone ?? null, location: d.location ?? null };
+      const info = { code: deal.code, method: d.method, pickupAddress: d.pickupAddress ?? null, courierName: d.courierName ?? null, courierPhone: d.courierPhone ?? null, location: d.location ?? null, page: this.orderPageUrl(deal) };
       out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, fee: fee ? this.money(fee) : null }) });
       out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, handover }), fallback: dealTemplate('orderDispatched', [deal.code, handover], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
     });

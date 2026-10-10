@@ -100,6 +100,44 @@ Form: `src/whatsapp/buy-flow.ts` (banner: `assets/buy-banner.png`). Template wor
 `src/whatsapp/automation.ts`. Both are created on Meta at startup when `WHATSAPP_WABA_ID` is set; see
 [docs/WHATSAPP-TEST-SETUP.md](docs/WHATSAPP-TEST-SETUP.md) section F. Photos: `GET /admin/deals/HL-XXXXX` lists them.
 
+## After the buyer pays: dispatch, handover code, rider paid
+
+For orders a buyer starts (`started_by='BUYER'`):
+
+1. **Paid** → the seller gets **Dispatch now** / **Can't fulfil** (template `hoolam_order_paid_dispatch`).
+2. **Dispatch** (in the My orders form, or the chat): **pickup** (address), **rider** (name, phone, fee, drop-off,
+   account) or **waybill** (driver's phone, fee, location, account). The account name is looked up with the bank and
+   shown back before anything is saved (`bank_accounts.holder='COURIER'`, never anyone's default account).
+3. The buyer gets the rider/driver details and a **4-digit handover code** (`deals.handover_code`). The seller is told:
+   ask the receiver for the code. Five wrong tries lock it (Needs action).
+4. **Correct code** → `handed_over_at`; the delivery fee moves `held:deal → payable:courier` and is paid out at once
+   (payout kind `DELIVERY`). The buyer gets **I'm happy / Problem** and a window (Console → Settings → Timing →
+   *Pay the seller automatically after*, `auto_release_minutes`, default 24 h). Silence → the sweep releases.
+5. **Release** pays the seller everything still held minus Hoolam's fee (so minus the delivery fee already paid).
+   If no code was entered but the buyer taps I'm happy, the rider is paid first, then the seller.
+   **Refunds** return everything still held (a delivery fee already paid can't come back).
+6. **Reminders** (sweep): the seller after `dispatch_remind_hours` (default 12) if not dispatched; the buyer once the
+   expected date passes, with **Send reminder** / **Refund me** (template `hoolam_order_overdue`).
+
+## My orders: a live WhatsApp form
+
+"My orders" (menu, `/orders`) opens a form that loads live data from `POST /flows/endpoint`
+(`src/whatsapp/orders-flow.ts`): **Pending / Completed / All**, 20 per page newest first, each order with its photos
+and only the next step for that person (accept, dispatch, enter code, pay, show code, I'm happy, refund…). Dispatch
+and the handover code also open straight into this form. Every action is the same code as the chat buttons.
+
+- **Encryption:** WhatsApp encrypts every request. The server makes an RSA key once and keeps it in the database
+  (`app_secrets`), registers the public half with Meta on start (log: `forms key: registered with Meta`), and creates
+  the form with `endpoint_uri = PUBLIC_BASE_URL/flows/endpoint`. Optional: `FLOWS_PRIVATE_KEY` (PEM) on Render overrides
+  the stored key. `WHATSAPP_ORDERS_FORM=false` turns the form off; the chat list and questions are used instead.
+- **Who's who:** the form carries a signed token (`o1.<phone>.<mode>.<entry>.<code>.<exp>.<sig>`, 72 h).
+
+## Private order page
+
+`/o/HL-XXXXX?k=<view_token>`: a receipt-style page (photos, details, money, delivery, progress). The link is sent only
+to the buyer and seller (order ready, paid, dispatched, and in the My orders form). Not indexed; never shows the
+handover code.
+
 ## Seller starts the deal
 
 **Whoever starts the deal pays Hoolam's fee.** A seller's deal: the buyer pays just the price, the seller receives

@@ -15,7 +15,7 @@ describe('landing page ↔ server', () => {
     expect(r.json()).toEqual({
       currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, images: {},
       contact: { email: 'hello@hoolam.com', phone: '', whatsapp: '2348012345678', socials: [] },
-      timing: { acceptHours: 48, nudgeHours: 24, flagHours: 72, unpaidHours: 72 },
+      timing: { acceptHours: 48, nudgeHours: 24, flagHours: 72, unpaidHours: 72, autoReleaseMinutes: 1440 },
     });
   });
 

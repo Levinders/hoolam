@@ -46,7 +46,7 @@ const LEGAL_EFFECTIVE = '8 October 2026';
 // What the console has, or these if the server can't be reached. Keep in step with src/pricing.ts and src/config.ts.
 const DEFAULTS = {
   fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000,
-  timing: { acceptHours: 48, nudgeHours: 24, flagHours: 72, unpaidHours: 72 },
+  timing: { acceptHours: 48, nudgeHours: 24, flagHours: 72, unpaidHours: 72, autoReleaseMinutes: 1440 },
   contact: { email: 'hello@hoolam.com', phone: '', socials: [] },
 };
 
@@ -123,6 +123,7 @@ const contactItems = [
     `<a href="${esc(s.url)}" target="_blank" rel="noopener" aria-label="Hoolam on ${esc(s.name)}: ${esc(s.label)}"><svg class="ic" aria-hidden="true"><use href="#sf-${esc(s.kind)}"/></svg>${esc(s.label)}</a>`).join('')}</li>`,
 ].filter(Boolean).join('');
 
+const minutesText = (n) => n < 60 ? `${n} minutes` : n % 1440 === 0 && n >= 2880 ? `${n / 1440} days` : `${Math.round(n / 60)} hour${Math.round(n / 60) === 1 ? '' : 's'}`;
 const fill = (s, vars) => s.replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
 const shared = {
   LEGAL_NAME: COMPANY.legalName, RC: COMPANY.rc, ADDRESS: esc(COMPANY.address), BANK_PARTNER: COMPANY.bankPartner, PAY_SERVICE: COMPANY.payService,
@@ -130,7 +131,7 @@ const shared = {
   EMAIL: esc(contact.email), EMAIL_LINK: `<a href="mailto:${esc(contact.email)}">${esc(contact.email)}</a>`,
   WHATSAPP: esc(phoneText(wa)), WA_LINK: `<a data-wa href="${esc(waLink)}" target="_blank" rel="noopener">${wa ? `WhatsApp on ${esc(phoneText(wa))}` : 'WhatsApp'}</a>`,
   FEE_RATE: `${String(fees.rate).replace(/\.0+$/, '')}%`, FEE_MIN: naira(fees.min), FEE_MAX: naira(fees.max), FEE_ROUND: naira(fees.roundTo || 1), MAX_DEAL: naira(maxDeal),
-  ACCEPT_HOURS: hours(timing.acceptHours), NUDGE_HOURS: hours(timing.nudgeHours), FLAG_HOURS: hours(timing.flagHours), UNPAID_HOURS: hours(timing.unpaidHours),
+  ACCEPT_HOURS: hours(timing.acceptHours), NUDGE_HOURS: hours(timing.nudgeHours), FLAG_HOURS: hours(timing.flagHours), UNPAID_HOURS: hours(timing.unpaidHours), AUTO_RELEASE: minutesText(timing.autoReleaseMinutes ?? 1440),
 };
 const footer = fill(read('partials/footer.html'), { ...shared, CONTACT_ITEMS: contactItems });
 const footerCss = read('partials/footer.css');
