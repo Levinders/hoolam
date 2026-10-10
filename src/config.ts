@@ -26,6 +26,8 @@ const schema = z.object({
   WHATSAPP_WABA_ID: z.string().default(''),           // WhatsApp Business Account ID: needed to create the buyer form and seller alert
   WHATSAPP_BUY_FORM: bool.default(true),              // offer buyers the WhatsApp form (falls back to chat questions if unavailable)
   WHATSAPP_FORM_MODE: z.enum(['draft', 'published']).default('draft'), // 'published' once your business is verified by Meta
+  WHATSAPP_ORDERS_FORM: bool.default(true),           // "My orders" as a live WhatsApp form (needs the encrypted forms endpoint)
+  FLOWS_PRIVATE_KEY: z.string().optional(),           // optional: the forms endpoint's private key (PEM). If unset, the server makes one and keeps it in the database
 
   // Payments
   PAYMENT_PROVIDER: z.enum(['monnify', 'fake']).default('fake'),

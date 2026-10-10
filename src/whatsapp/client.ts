@@ -8,7 +8,7 @@ export type Outbound =
   | { kind: 'buttons'; text: string; buttons: Button[] }
   | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string } // max 10 rows; header/footer max 60
   | { kind: 'image'; mediaId: string; caption?: string }                                                      // caption max 1024
-  | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string };
+  | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string; live?: boolean }; // live: the form asks our endpoint for its first screen
 
 /** A pre-approved template: the only way to message someone who hasn't written to us in the last 24 hours. */
 export interface Template {
@@ -171,7 +171,7 @@ export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
           name: 'flow',
           parameters: {
             flow_message_version: '3', flow_id: msg.flowId, flow_token: msg.flowToken, flow_cta: msg.cta, mode: msg.mode,
-            flow_action: 'navigate', flow_action_payload: { screen: msg.screen },
+            ...(msg.live ? { flow_action: 'data_exchange' } : { flow_action: 'navigate', flow_action_payload: { screen: msg.screen } }),
           },
         },
       },

@@ -6,7 +6,9 @@ import { DealError, DealService } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { ALL_TEMPLATES, ensureBuyFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureBuyFlow, ensureOrdersFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
+import { OrdersFlow, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
 import { Settings } from './settings.js';
@@ -48,10 +50,37 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
   let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   let sellForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
+  // ---------- "My orders": the live form and its encrypted endpoint ----------
+  let ordersForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
+  let keys: FlowKeys | null = null;
+  const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
+  const setChatState = async (phone: string, state: string, data: Record<string, unknown>) => {
+    await db.query(`INSERT INTO chat_sessions (phone, state, data) VALUES ($1,$2,$3) ON CONFLICT (phone) DO UPDATE SET state=$2, data=$3, updated_at=now()`, [phone, state, JSON.stringify(data)]);
+  };
+  const orders = new OrdersFlow({ db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log });
+  const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string }): Promise<boolean> => {
+    if (!ordersForm || !settings.formsEnabled()) return false;
+    const mode = at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer';
+    const titles: Record<Entry, [string, string]> = {
+      orders: ['📋 My orders', mode === 'seller' ? 'Everything you\'re selling: what needs you first, then the rest.' : 'Everything you\'re buying, and where your money is.'],
+      order: ['📋 Your order', `Order ${at.code}: details, photos and the next step.`],
+      dispatch: ['🚚 Dispatch', `Order ${at.code}: pickup, rider or waybill. It takes a minute.`],
+      code: ['🔑 Handover code', `Order ${at.code}: enter the receiver's 4-digit code.`],
+    };
+    const [header, text] = titles[at.screen];
+    const status = await messenger.send(phone, {
+      kind: 'form', header, text, cta: at.screen === 'dispatch' ? 'Dispatch now' : at.screen === 'code' ? 'Enter code' : 'Open my orders',
+      flowId: ordersForm.flowId, mode: ordersForm.mode, screen: 'FILTER', live: true,
+      flowToken: signToken(formSecret, phone, mode, at.screen, at.code ?? '-'),
+    });
+    return status !== 'FAILED';
+  };
+
   const chat = new Conversation({
     db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL, media,
     buyForm: () => (settings.formsEnabled() ? buyForm : null), sellForm: () => (settings.formsEnabled() ? sellForm : null),
     onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
+    ordersForm: { open: openOrders },
   });
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
@@ -208,6 +237,23 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (id) runSoon('whatsapp', id);
     }
     return reply.code(200).send('ok'); // answer fast; work happens after
+  });
+
+  // ---------- the live forms' endpoint (encrypted by WhatsApp; see whatsapp/flow-crypto.ts) ----------
+  app.post('/flows/endpoint', async (req, reply) => {
+    if (c.WHATSAPP_APP_SECRET && !verifyMetaSignature(req.rawBody ?? '', header(req, 'x-hub-signature-256'), c.WHATSAPP_APP_SECRET)) {
+      log('forms endpoint REJECTED: bad signature');
+      return reply.code(432).send('bad signature');
+    }
+    keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
+    let dec;
+    try { dec = decryptRequest(req.body as Record<string, string>, keys.privateKeyPem); }
+    catch (e) {
+      log(`forms endpoint: can't decrypt (${(e as Error).message}). Meta will refresh the key.`);
+      return reply.code(e instanceof FlowDecryptError ? 421 : 400).send('cannot decrypt');
+    }
+    const answer = await orders.handle(dec.body);
+    return reply.type('text/plain').send(encryptResponse(answer, dec.aesKey, dec.iv));
   });
 
   // ---------- payment provider ----------
@@ -408,6 +454,14 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         const sellId = await ensureSellFlow(o);
         sellForm = sellId ? { flowId: sellId, mode: c.WHATSAPP_FORM_MODE } : null;
       }
+      if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {
+        keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
+        log(`forms key: ${keys.source === 'env' ? 'from FLOWS_PRIVATE_KEY' : keys.source === 'new' ? 'made a new one (kept in the database)' : 'loaded from the database'}`);
+        if (await registerFlowsKey(o, keys.publicKeyPem)) {
+          const id = await ensureOrdersFlow(o, `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/flows/endpoint`);
+          ordersForm = id ? { flowId: id, mode: c.WHATSAPP_FORM_MODE } : null;
+        }
+      }
     } catch (e) {
       log(`WhatsApp setup failed: ${(e as Error).message}`);
     }
@@ -434,7 +488,10 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   const load = async () => { await settings.load(); await siteMedia.load(); };
   app.addHook('onClose', async () => siteSync.stop());
-  return { app, load, deals, chat, messenger, trust, settings, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; } };
+  return {
+    app, load, deals, chat, messenger, trust, settings, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
+    setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; }, setOrdersForm: (f: typeof ordersForm) => { ordersForm = f; },
+  };
 }
 
 function header(req: FastifyRequest, name: string): string | undefined {

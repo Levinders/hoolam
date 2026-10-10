@@ -3,7 +3,7 @@ import type { Db } from '../db.js';
 import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { PRICING, quote } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
-import type { Bank, PaymentProvider } from '../payments/provider.js';
+import type { PaymentProvider } from '../payments/provider.js';
 import { DealError, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
 import { CATEGORIES, categoryTitle, isCategory } from '../deals/categories.js';
 import type { Messenger, Outbound } from './client.js';
@@ -12,6 +12,7 @@ import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
 import { msg, STATUS_WORDS } from './messages.js';
 import { readBuyForm } from './buy-flow.js';
 import { normalizePhone } from './inbound.js';
+import { matchBank, parseBankInput } from './banks.js';
 import { dayText } from '../deals/service.js';
 import type { Trust } from '../trust.js';
 
@@ -238,6 +239,7 @@ export class Conversation {
     // ----- a submitted WhatsApp form -----
     if (m.type === 'form') {
       const token = String(m.form?.flow_token ?? '');
+      if (token.startsWith('o1.')) return; // "My orders" closed: everything it did was already sent in the chat
       return token.startsWith('sell') ? this.sellFormSubmitted(m.phone, user, m.form ?? {}) : this.buyFormSubmitted(m.phone, user, m.form ?? {});
     }
 
@@ -525,7 +527,10 @@ export class Conversation {
       }
     }
     await this.save(phone, 'IDLE');
-    if (item === 'orders' || item === 'deals') return this.listOrders(phone, user);
+    if (item === 'orders' || item === 'deals') {
+      if (this.o.ordersForm && (await this.o.ordersForm.open(phone, user, { screen: 'orders' }))) return;
+      return this.listOrders(phone, user);
+    }
     if (item === 'how') return this.send(phone, msg.help());
     if (item === 'fees') return this.send(phone, this.feesMessage());
     return this.send(phone, msg.menu(user.display_name, modeOf(user)));
@@ -1017,37 +1022,4 @@ function caseRef(disputeId: string): string {
   return disputeId ? 'C-' + disputeId.replace(/-/g, '').slice(0, 6).toUpperCase() : 'C-NEW';
 }
 
-/** "0123456789 GTBank", "GTBank 0123456789", "0123456789 - opay" */
-export function parseBankInput(text: string): { accountNumber: string; bankText: string } | null {
-  const num = text.match(/\b(\d{10})\b/);
-  if (!num) return null;
-  const bankText = text.replace(num[1]!, ' ').replace(/[^a-zA-Z0-9&\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!bankText) return null;
-  return { accountNumber: num[1]!, bankText };
-}
-
-const ALIASES: Record<string, string[]> = {
-  gtb: ['guaranty', 'gtbank'], gtbank: ['guaranty', 'gtbank'], gtco: ['guaranty', 'gtbank'], guaranty: ['guaranty'],
-  opay: ['opay', 'paycom'], paycom: ['paycom', 'opay'], palmpay: ['palmpay'], moniepoint: ['moniepoint'], kuda: ['kuda'],
-  uba: ['united bank for africa', 'uba'], firstbank: ['first bank'], fbn: ['first bank'], first: ['first bank'],
-  zenith: ['zenith'], access: ['access'], diamond: ['access'], wema: ['wema'], alat: ['wema'], fcmb: ['first city', 'fcmb'],
-  fidelity: ['fidelity'], sterling: ['sterling'], stanbic: ['stanbic'], union: ['union bank'], polaris: ['polaris'],
-  keystone: ['keystone'], ecobank: ['ecobank'], providus: ['providus'], jaiz: ['jaiz'], unity: ['unity'], heritage: ['heritage'],
-  globus: ['globus'], titan: ['titan'], taj: ['taj'], vfd: ['vfd'], carbon: ['carbon'], fairmoney: ['fairmoney'],
-};
-
-/** Finds the bank someone means from how they typed it. */
-export function matchBank(input: string, banks: Bank[]): Bank | null {
-  const clean = (s: string) => s.toLowerCase().replace(/\b(bank|plc|mfb|microfinance|limited|ltd|nigeria|of)\b/g, ' ').replace(/[^a-z0-9& ]/g, ' ').replace(/\s+/g, ' ').trim();
-  const q = clean(input);
-  if (!q) return null;
-  const key = q.replace(/\s/g, '');
-  const targets = ALIASES[key] ?? ALIASES[q.split(' ')[0]!] ?? [q];
-  const hits = banks.filter((b) => {
-    const n = b.name.toLowerCase();
-    return targets.some((t) => n.includes(t)) || clean(b.name) === q;
-  });
-  if (!hits.length) return null;
-  // Prefer the shortest name ("Kuda" over "Kuda Microfinance Bank Ltd Lagos branch").
-  return hits.sort((a, b) => a.name.length - b.name.length)[0]!;
-}
+export { matchBank, parseBankInput } from './banks.js';

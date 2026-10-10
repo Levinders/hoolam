@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { buyFlowJson, buyFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
+import { ordersFlowJson } from './orders-flow.js';
 import type { Template } from './client.js';
 
 /**
@@ -280,7 +282,38 @@ export async function ensureSellFlow(o: MetaSetupOptions, json = sellFlowJson())
   return ensureFlow(o, json, sellFlowName(json), 'seller form');
 }
 
-async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label: string): Promise<string | null> {
+/** The live "My orders" form: talks to our encrypted endpoint. */
+export async function ensureOrdersFlow(o: MetaSetupOptions, endpointUri: string, json = ordersFlowJson()): Promise<string | null> {
+  const name = 'hoolam_orders_' + createHash('sha256').update(JSON.stringify(json) + endpointUri).digest('hex').slice(0, 8);
+  return ensureFlow(o, json, name, 'orders form', endpointUri);
+}
+
+/** Tells Meta the public half of our forms key (needed before live forms can be published). Never throws. */
+export async function registerFlowsKey(o: AutomationOptions, publicKeyPem: string): Promise<boolean> {
+  const f = o.fetchImpl ?? fetch;
+  try {
+    const current = await graph(o, 'GET', `${o.phoneNumberId}/whatsapp_business_encryption`);
+    const have = current.json?.data?.[0]?.business_public_key as string | undefined;
+    const norm = (k: string) => k.replace(/\s+/g, '');
+    if (have && norm(have) === norm(publicKeyPem) && current.json?.data?.[0]?.business_public_key_signature_status === 'VALID') {
+      o.log?.('forms key: already registered with Meta');
+      return true;
+    }
+    const res = await f(`https://graph.facebook.com/${o.graphVersion}/${o.phoneNumberId}/whatsapp_business_encryption`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${o.token}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ business_public_key: publicKeyPem }).toString(),
+    });
+    const text = (await res.text()).slice(0, 300);
+    o.log?.(res.ok ? 'forms key: registered with Meta' : `forms key FAILED to register (HTTP ${res.status}): ${text}`);
+    return res.ok;
+  } catch (e) {
+    o.log?.(`forms key FAILED to register: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label: string, endpointUri?: string): Promise<string | null> {
   const list = await graph(o, 'GET', `${o.wabaId}/flows?fields=id,name,status,validation_errors&limit=100`);
   if (!list.ok) { o.log?.(`${label}: can't list forms (HTTP ${list.status}): ${list.text}`); return null; }
   const existing = (list.json?.data ?? []).find((x: { name: string }) => x.name === name);
@@ -305,6 +338,7 @@ async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label
   }
   const created = await graph(o, 'POST', `${o.wabaId}/flows`, {
     name, categories: ['OTHER'], flow_json: JSON.stringify(json), publish: o.formMode === 'published',
+    ...(endpointUri ? { endpoint_uri: endpointUri } : {}),
   });
   if (!created.ok || !created.json?.id) {
     o.log?.(`${label} FAILED to create (HTTP ${created.status}): ${created.text}`);
