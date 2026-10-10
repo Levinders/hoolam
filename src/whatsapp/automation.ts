@@ -175,6 +175,31 @@ export const DEAL_TEMPLATES = {
     body: 'The seller declined order {{1}}. No money was taken.\n\nYou can start a new order any time.',
     example: ['HL-7K2QF'], buttons: ['Start another'],
   },
+  paidDispatch: {
+    name: 'hoolam_order_paid_dispatch', label: 'Buyer paid, dispatch now (to the seller)',
+    body: 'The buyer has paid for order {{1}}. Your {{2}} is held safely by Hoolam.\n\nDispatch it now: tell us if it is a pickup, a rider or a waybill.',
+    example: ['HL-7K2QF', '₦15,000'], buttons: ['Dispatch now'],
+  },
+  orderDispatched: {
+    name: 'hoolam_order_dispatched', label: 'Order dispatched, with handover code (to the buyer)',
+    body: 'Order {{1}} has been dispatched. Your handover code is {{2}}.\n\nGive it only to the rider, driver or seller when the item is in your hands. Your money stays with Hoolam until you are happy.',
+    example: ['HL-7K2QF', '4821'], buttons: ['Show my code', 'Problem'],
+  },
+  handedOver: {
+    name: 'hoolam_order_handed_over', label: 'Handed over, check it now (to the buyer)',
+    body: 'Order {{1}} has been handed over to you. Check it now, then tell us below.\n\nIf we do not hear from you within {{2}}, the seller is paid.',
+    example: ['HL-7K2QF', '24 hours'], buttons: ["I'm happy", 'Problem'],
+  },
+  dispatchReminder: {
+    name: 'hoolam_dispatch_reminder', label: 'Waiting to be dispatched (to the seller)',
+    body: 'Order {{1}} is paid and waiting to be dispatched. The buyer is expecting it.\n\nTap below to dispatch it.',
+    example: ['HL-7K2QF'], buttons: ['Dispatch now'],
+  },
+  overdue: {
+    name: 'hoolam_order_overdue', label: 'Not dispatched by the expected date (to the buyer)',
+    body: 'Order {{1}} has not been dispatched yet, and the date you expected it has passed. Your money is still held by Hoolam.\n\nWhat would you like to do?',
+    example: ['HL-7K2QF'], buttons: ['Send reminder', 'Refund me'],
+  },
 } satisfies Record<string, TemplateDef & { label: string }>;
 export type DealTemplateKey = keyof typeof DEAL_TEMPLATES;
 

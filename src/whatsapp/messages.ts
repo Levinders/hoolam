@@ -551,6 +551,106 @@ export const msg = {
     buttons: [{ id: `happy:${code}`, title: 'I\'m happy' }, { id: `problem:${code}`, title: 'Problem' }],
   }),
 
+  // ===== DISPATCH (buyer orders) =====
+  /** The buyer paid: the seller dispatches (or says they can't fulfil it). */
+  sellerFundedDispatch: (code: string, yours: Money): Outbound => ({
+    kind: 'buttons',
+    text: `💰 The buyer has paid for order ${code}. Your ${m(yours)} is held safely by Hoolam.\n\nDispatch it now: tell us if it's a pickup, a rider or a waybill.`,
+    buttons: [{ id: `dispatch:${code}`, title: '🚚 Dispatch now' }, { id: `srefund:${code}`, title: '❌ Can\'t fulfil' }],
+  }),
+  askDispatchMethod: (code: string): Outbound => ({
+    kind: 'buttons',
+    text: `🚚 How is order ${code} getting to the buyer?`,
+    buttons: [{ id: 'dm:pickup', title: '📍 Pickup' }, { id: 'dm:rider', title: '🛵 Dispatch rider' }, { id: 'dm:waybill', title: '🚌 Waybill' }],
+  }),
+  askPickupAddress: (): Outbound => ({ kind: 'text', text: '📍 Where will the buyer pick it up?\n\nFor example: _Shop 4, Rumuola Plaza, Port Harcourt_' }),
+  askRiderName: (): Outbound => ({ kind: 'text', text: '🛵 What\'s the rider\'s name?' }),
+  askCourierPhone: (role: 'rider' | 'driver'): Outbound => ({ kind: 'text', text: `📞 What's the ${role}'s phone number?\n\nWe show it to the buyer so they can reach the ${role}.` }),
+  askCourierFee: (role: 'rider' | 'driver'): Outbound => ({ kind: 'text', text: `💸 How much is the ${role}'s delivery fee? (in naira)\n\nWe pay it to the ${role} from the order money once the handover code is right. It comes out of what you receive.\n\nFor example: _2000_` }),
+  askCourierLocation: (role: 'rider' | 'driver', buyerAddress: string | null): Outbound => buyerAddress
+    ? { kind: 'buttons', text: `📍 Where is the ${role} delivering to?\n\nThe buyer gave: _${buyerAddress.slice(0, 200)}_\n\nTap below to use it, or type another place${role === 'driver' ? ' (e.g. the park)' : ''}.`, buttons: [{ id: 'dloc:buyer', title: 'Use this address' }] }
+    : { kind: 'text', text: `📍 Where is the ${role} delivering to?` },
+  askCourierAccount: (role: 'rider' | 'driver'): Outbound => ({
+    kind: 'text',
+    text: `🏦 The ${role}'s account number and bank, for their delivery fee.\n\nFor example: _0123456789 Opay_\n\n⚠️ Please check it carefully. We pay exactly the account you give, and Hoolam can't recover money sent to a wrong account.`,
+  }),
+  confirmCourierAccount: (role: 'rider' | 'driver', accountName: string, bankName: string, last4: string): Outbound => ({
+    kind: 'buttons',
+    text: `Is this the ${role}'s account?\n\n*${accountName}*\n${bankName} ••••${last4}\n\n⚠️ The delivery fee goes to this account. Wrong details are the seller's responsibility.`,
+    buttons: [{ id: 'dacct:yes', title: 'Yes, that\'s right' }, { id: 'dacct:no', title: 'No, change it' }],
+  }),
+  sellerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; fee: Money | null }): Outbound => ({
+    kind: 'buttons',
+    text: d.method === 'PICKUP'
+      ? `✅ Order ${d.code} is ready for pickup at:\n_${d.pickupAddress ?? ''}_\n\n🔑 *When the buyer comes, ask them for their 4-digit handover code before you give them the item.* Then tap *Enter code*.`
+      : `✅ Order ${d.code} is dispatched${d.method === 'RIDER' && d.courierName ? ` with ${d.courierName}` : ' by waybill'}.\n` +
+        (d.fee ? `💸 ${d.method === 'RIDER' ? 'Rider' : 'Driver'}'s fee: ${m(d.fee)}, paid by Hoolam once the code is right.\n` : '') +
+        `\n🔑 *Tell your ${d.method === 'RIDER' ? 'rider' : 'driver'}: ask the receiver for their 4-digit handover code, then send it to you.* Only hand over the item to the person with the right code.\n\nWhen you have it, tap *Enter code*.`,
+    buttons: [{ id: `hcode:${d.code}`, title: '🔑 Enter code' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  buyerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; handover: string }): Outbound => ({
+    kind: 'buttons',
+    text:
+      (d.method === 'PICKUP'
+        ? `📍 Order ${d.code} is ready for pickup at:\n_${d.pickupAddress ?? ''}_\n`
+        : d.method === 'RIDER'
+          ? `🛵 Order ${d.code} is on its way with a rider.\n${d.courierName ? `Rider: *${d.courierName}*\n` : ''}${d.courierPhone ? `📞 ${d.courierPhone}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`
+          : `🚌 Order ${d.code} is on its way by waybill.\n${d.courierPhone ? `Driver: 📞 ${d.courierPhone}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`) +
+      `\n🔑 Your handover code: *${d.handover}*\n\nGive it only to the ${d.method === 'PICKUP' ? 'seller' : d.method === 'RIDER' ? 'rider' : 'driver'} when the item is in your hands. It confirms you got it. Your money stays with Hoolam until you're happy.`,
+    buttons: [{ id: `hcodeshow:${d.code}`, title: '🔑 Show my code' }, { id: `problem:${d.code}`, title: '🚩 Problem' }],
+  }),
+  handoverCode: (code: string, handover: string, method: string | null): Outbound => ({
+    kind: 'text',
+    text: `🔑 Handover code for order ${code}: *${handover}*\n\nGive it only to the ${method === 'PICKUP' ? 'seller' : method === 'WAYBILL' ? 'driver' : 'rider'} when the item is in your hands.`,
+  }),
+  feeTooHigh: (max: Money): Outbound => ({ kind: 'text', text: `The delivery fee has to be less than what you receive (${m(max)}). Please type a smaller amount.` }),
+  askHandoverCode: (code: string): Outbound => ({ kind: 'text', text: `🔑 Type the 4-digit handover code the receiver gave you. (Order ${code})` }),
+  handoverWrong: (code: string, left: number): Outbound => ({
+    kind: 'buttons',
+    text: `❌ That code doesn't match order ${code}. ${left} ${left === 1 ? 'try' : 'tries'} left.\n\nCheck with the receiver and try again. Don't hand over the item until it's right.`,
+    buttons: [{ id: `hcode:${code}`, title: '🔑 Try again' }],
+  }),
+  handoverLocked: (code: string): Outbound => ({
+    kind: 'buttons',
+    text: `🔒 Too many wrong codes for order ${code}, so we've paused it. A rep will help you finish the handover.`,
+    buttons: [{ id: 'menu:human', title: '🙋 Talk to a rep' }],
+  }),
+  sellerHandedOver: (code: string, courierFee: Money | null, courierName: string | null, wait: string): Outbound => withMenu(
+    `✅ Code correct. Order ${code} is with the buyer.\n` +
+    (courierFee ? `🛵 We're paying ${courierName ?? 'the rider'} ${m(courierFee)} now.\n` : '') +
+    `\n💸 You'll be paid when the buyer taps "I'm happy", or automatically after ${wait} if they don't report a problem.`,
+  ),
+  buyerHandedOver: (code: string, wait: string): Outbound => ({
+    kind: 'buttons',
+    text: `📦 Order ${code} has been handed over to you.\n\nOpen it and check it now. If it's right, tap *I'm happy*. If something's wrong, tap *Problem* within ${wait}, and your money stays frozen until it's sorted.\n\nIf we don't hear from you in ${wait}, the seller is paid.`,
+    buttons: [{ id: `happy:${code}`, title: '✅ I\'m happy' }, { id: `problem:${code}`, title: '🚩 Problem' }],
+  }),
+  courierPaid: (code: string, amount: Money, name: string, bank: string): Outbound => ({ kind: 'text', text: `🛵 Delivery fee sent: ${m(amount)} to ${name} (${bank}) for order ${code}.` }),
+  sellerDispatchReminder: (code: string, item: string, fromBuyer: boolean): Outbound => ({
+    kind: 'buttons',
+    text: `⏰ Order ${code} (${item.slice(0, 60)}) is paid and waiting to be dispatched.` + (fromBuyer ? '\n\nThe buyer sent you a reminder.' : ''),
+    buttons: [{ id: `dispatch:${code}`, title: '🚚 Dispatch now' }, { id: `srefund:${code}`, title: '❌ Can\'t fulfil' }],
+  }),
+  reminderSent: (code: string): Outbound => withMenu(`🔔 Reminder sent to the seller for order ${code}.`),
+  confirmSellerRefund: (code: string): Outbound => ({
+    kind: 'buttons',
+    text: `❌ Can't fulfil order ${code}?\n\nThe buyer gets all their money back, Hoolam's fee included. This can't be undone.`,
+    buttons: [{ id: `srefundok:${code}`, title: 'Yes, refund buyer' }, { id: 'menu:open', title: 'Keep the order' }],
+  }),
+  askRefundAccountNow: (code: string, by: 'seller' | 'buyer'): Outbound => ({
+    kind: 'text',
+    text: (by === 'seller' ? `😕 The seller can't fulfil order ${code}. You'll get all your money back.` : `💸 Okay, we'll refund order ${code}.`) +
+      '\n\nWhere should we send it? Send your account number and bank, like: _0123456789 Opay_',
+  }),
+  sellerRefundStarted: (code: string, now: boolean): Outbound => withMenu(now
+    ? `Done. The buyer is being refunded for order ${code}.`
+    : `Done. We've asked the buyer where to send their refund for order ${code}. It goes out as soon as they reply.`),
+  sellerBuyerTookRefund: (code: string): Outbound => ({ kind: 'text', text: `💸 Order ${code} wasn't dispatched by the date the buyer expected, so they asked for a refund. The order is closed.` }),
+  buyerRefundStarted: (code: string, by: 'seller' | 'buyer'): Outbound => withMenu(
+    (by === 'seller' ? `😕 The seller can't fulfil order ${code}, so we're refunding you.` : `💸 We're refunding order ${code}.`) + '\n\nYou\'ll get a message the moment it lands.'),
+
+  autoReleased: (code: string): Outbound => withMenu(`✅ We didn't hear of any problem with order ${code}, so we've paid the seller. Thanks for buying safely with Hoolam.`),
+
   // ----- release -----
   buyerReleased: (code: string, sellerName = 'the seller'): Outbound => ({
     kind: 'buttons',
@@ -577,7 +677,7 @@ export const msg = {
     text: `The buyer reported a problem with order ${code}. The money is frozen while a person from Hoolam looks into it. We may contact you.`,
   }),
   buyerRefunded: (code: string, amount: Money, bankName: string): Outbound => withMenu(`Your refund of ${m(amount)} for order ${code} has been sent to your ${bankName} account.`),
-  sellerRefunded: (code: string): Outbound => ({ kind: 'text', text: `Order ${code} was refunded to the buyer after review.` }),
+  sellerRefunded: (code: string): Outbound => ({ kind: 'text', text: `Order ${code} has been refunded to the buyer.` }),
 
   // ----- misc -----
   cancelled: (code: string): Outbound => withMenu(`Order ${code} is cancelled. No money moved.`),

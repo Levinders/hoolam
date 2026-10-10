@@ -9,7 +9,7 @@ import { Button, ConfirmAction, Empty, ErrorBanner, Pager, PayoutPill, Seg, Skel
 import { MoneyStrip } from './Home';
 
 const ACCOUNTS: Record<string, string> = {
-  'held:deal': 'Held for buyers (in the middle)', 'payable:seller': 'Owed to sellers', 'payable:buyer': 'Owed back to buyers', 'revenue:fees': 'Hoolam fees earned',
+  'held:deal': 'Held for buyers (in the middle)', 'payable:seller': 'Owed to sellers', 'payable:buyer': 'Owed back to buyers', 'payable:courier': 'Owed to riders and drivers', 'revenue:fees': 'Hoolam fees earned',
 };
 
 export function Money() {

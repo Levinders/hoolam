@@ -8,7 +8,7 @@ import { COMPANY_SOCIAL_KINDS, COMPANY_SOCIAL_NAMES, companySocialLink, parseCom
  * a type and limits, so a typo can't break the service. Changes apply to NEW deals only: a deal keeps
  * the fee and limits it was created with.
  */
-export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone' | 'email' | 'social';
+export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social';
 
 export interface SettingDef {
   key: string;
@@ -31,6 +31,8 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'max_deal', group: 'Limits', label: 'Largest order', help: 'Most a single order can be (before KYC). You can raise it for one person on their page.', type: 'money', min: 1_000, max: 100_000_000, core: true },
   { key: 'seller_accept_hours', group: 'Timing', label: 'Seller has to accept within', help: 'For orders a buyer starts. After this, the order closes.', type: 'hours', min: 1, max: 336 },
   { key: 'nudge_after_hours', group: 'Timing', label: 'Remind the buyer after', help: 'Hours after shipping before we ask the buyer if the item arrived.', type: 'hours', min: 1, max: 336 },
+  { key: 'auto_release_minutes', group: 'Timing', label: 'Pay the seller automatically after', help: 'Once the handover code is entered, the buyer has this long to tap "I\'m happy" or report a problem. If they do neither, the seller is paid.', type: 'minutes', min: 30, max: 20_160 },
+  { key: 'dispatch_remind_hours', group: 'Timing', label: 'Remind the seller to dispatch after', help: 'Hours after the buyer pays before we remind a seller who hasn\'t dispatched.', type: 'hours', min: 1, max: 336 },
   { key: 'flag_after_hours', group: 'Timing', label: 'Flag for the team after', help: 'Hours after shipping before an unconfirmed order appears in Needs action.', type: 'hours', min: 1, max: 720 },
   { key: 'whatsapp_number', group: 'WhatsApp', label: 'Hoolam\'s WhatsApp number', help: 'The number people message. Used in every "chat with Hoolam" link: the website, seller pages and payment links. Digits only, with the country code.', type: 'phone', core: true },
   { key: 'alerts_enabled', group: 'WhatsApp', label: 'Alert the other side by number', help: 'Send "New order request" / "Payment request" when someone types the other side\'s number.', type: 'boolean' },
@@ -57,6 +59,7 @@ export class Settings {
     return {
       fee_rate_percent: p.ratePercent, fee_min: p.min, fee_max: p.max, fee_round_to: p.roundTo,
       max_deal: this.c.MAX_DEAL_MINOR / this.unit,
+      auto_release_minutes: 1440, dispatch_remind_hours: 12,
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
       whatsapp_number: this.c.WHATSAPP_PUBLIC_NUMBER.replace(/\D/g, ''),
       alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM,
@@ -133,6 +136,8 @@ export class Settings {
   acceptHours(): number { return this.get('seller_accept_hours'); }
   nudgeHours(): number { return this.get('nudge_after_hours'); }
   flagHours(): number { return this.get('flag_after_hours'); }
+  autoReleaseMinutes(): number { return this.get('auto_release_minutes'); }
+  dispatchRemindHours(): number { return this.get('dispatch_remind_hours'); }
   alertsEnabled(): boolean { return this.get('alerts_enabled'); }
   formsEnabled(): boolean { return this.get('forms_enabled'); }
   waNumber(): string { return this.get<string>('whatsapp_number'); }

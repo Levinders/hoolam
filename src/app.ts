@@ -43,7 +43,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const siteSync = new SiteSync(c.SITE_DEPLOY_HOOK, log);
   const deals = new DealService({
     db, provider, messenger, media, trust, settings, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
-    acceptHours: c.SELLER_ACCEPT_HOURS, testMode, log,
+    acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, log,
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
   let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;

@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, AtSign, BellRing, Building2, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, AtSign, BellRing, Building2, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -9,7 +9,7 @@ import { Button, ConfirmAction, ErrorBanner, Pill, Skeleton, Switch, useToast } 
 import { SectionHead, useUnsaved } from '../Settings';
 
 type Val = number | boolean | string;
-export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'boolean' | 'phone' | 'email' | 'social'; min?: number; max?: number; core?: boolean; optional?: boolean; social?: string };
+export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social'; min?: number; max?: number; core?: boolean; optional?: boolean; social?: string };
 interface SettingsData { currency: string; defs: Def[]; values: Record<string, Val>; defaults: Record<string, Val>; updated: Record<string, { at: string; by: string | null }>; history: any[] }
 
 /** +234 801 234 5678, +1 555 138 0045, +229 01 90 00 00 05 */
@@ -21,6 +21,16 @@ export function phoneText(raw: string): string {
   const grouped = rest.length === 10 ? rest.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1 $2 $3') : rest.replace(/(\d{2})(?=\d)/g, '$1 ');
   return `+${cc} ${grouped}`;
 }
+/** 30 → "30 minutes", 1440 → "24 hours", 90 → "1 h 30 min" */
+export function minutesText(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  if (n < 60) return `${n} minute${n === 1 ? '' : 's'}`;
+  const h = Math.floor(n / 60), m = n % 60;
+  if (m) return `${h} h ${m} min`;
+  return h % 24 === 0 && h >= 48 ? `${h / 24} days` : `${h} hour${h === 1 ? '' : 's'}`;
+}
+const MINUTE_PICKS = [30, 120, 720, 1440, 2880];
+
 export function showValue(d: Def | undefined, v: Val, currency = 'NGN'): string {
   if (!d) return String(v);
   if (v === '' || v == null) return 'Not set';
@@ -28,6 +38,7 @@ export function showValue(d: Def | undefined, v: Val, currency = 'NGN'): string 
   if (d.type === 'money') return money(Number(v) * (currency === 'NGN' ? 100 : 1), currency);
   if (d.type === 'percent') return `${v}%`;
   if (d.type === 'hours') return `${v} hour${Number(v) === 1 ? '' : 's'}`;
+  if (d.type === 'minutes') return minutesText(Number(v));
   if (d.type === 'phone') return phoneText(String(v));
   return String(v);
 }
@@ -98,6 +109,14 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
                           value={String(v ?? '')} onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value === '' ? '' : Number(e.target.value) })} />
                         {d.type === 'percent' && <span>%</span>}
                         {d.type === 'hours' && <span>hours</span>}
+                        {d.type === 'minutes' && <span>minutes</span>}
+                      </div>
+                    )}
+                    {d.type === 'minutes' && (
+                      <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
+                        {MINUTE_PICKS.map((n) => (
+                          <button key={n} type="button" className={`chip-btn${Number(v) === n ? ' on' : ''}`} disabled={!editable} onClick={() => s.setDraft({ ...s.draft, [k]: n })}>{minutesText(n)}</button>
+                        ))}
                       </div>
                     )}
                 </div>
@@ -183,7 +202,7 @@ export function LimitsPage() {
 }
 
 export function TimingPage() {
-  return <ValuesPage title="Timing" lede="When Hoolam reminds people, and when an order comes to the team." keys={['seller_accept_hours', 'nudge_after_hours', 'flag_after_hours']}
+  return <ValuesPage title="Timing" lede="When Hoolam reminds people, and when an order comes to the team." keys={['seller_accept_hours', 'dispatch_remind_hours', 'auto_release_minutes', 'nudge_after_hours', 'flag_after_hours']}
     aside={(s) => {
       const h = (k: string) => `${s.draft[k] || '—'} h`;
       return (
@@ -192,10 +211,10 @@ export function TimingPage() {
           <div className="panel-body">
             <ol className="flowline">
               <li><span className="fl-ic"><Hourglass /></span><div><b>Buyer starts an order</b><span>The seller has <em>{h('seller_accept_hours')}</em> to accept, then it closes.</span></div></li>
-              <li><span className="fl-ic"><Truck /></span><div><b>Seller ships</b><span>The money stays held.</span></div></li>
-              <li><span className="fl-ic gold"><BellRing /></span><div><b>After <em>{h('nudge_after_hours')}</em></b><span>We ask the buyer if it arrived.</span></div></li>
-              <li><span className="fl-ic red"><Flag /></span><div><b>After <em>{h('flag_after_hours')}</em></b><span>Still no answer: it shows in Needs action.</span></div></li>
-              <li><span className="fl-ic green"><CircleCheck /></span><div><b>Buyer is happy</b><span>The seller is paid.</span></div></li>
+              <li><span className="fl-ic"><Truck /></span><div><b>Buyer pays, seller dispatches</b><span>Not dispatched after <em>{h('dispatch_remind_hours')}</em>? We remind the seller.</span></div></li>
+              <li><span className="fl-ic gold"><KeyRound /></span><div><b>Handover code entered</b><span>The rider is paid. The buyer checks the item.</span></div></li>
+              <li><span className="fl-ic green"><CircleCheck /></span><div><b>Buyer is happy, or <em>{minutesText(Number(s.draft.auto_release_minutes))}</em> pass</b><span>The seller is paid. A problem freezes the money instead.</span></div></li>
+              <li><span className="fl-ic red"><Flag /></span><div><b>No code, no answer</b><span>We ask the buyer after <em>{h('nudge_after_hours')}</em>; Needs action after <em>{h('flag_after_hours')}</em>.</span></div></li>
             </ol>
           </div>
         </section>

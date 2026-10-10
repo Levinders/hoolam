@@ -28,7 +28,7 @@ type State =
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SHIP_PROOF'
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
-  | 'SETUP_NAME' | 'SETUP_CITY';
+  | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE';
 interface Session { state: State; data: Record<string, any>; isNew: boolean }
 
 export interface FlowOptions {
@@ -42,6 +42,8 @@ export interface FlowOptions {
   buyForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** The seller's WhatsApp form, once it exists on Meta. */
   sellForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
+  /** The live "My orders" form (needs the forms endpoint). Returns false when it can't be sent. */
+  ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code'; code?: string }): Promise<boolean> };
   /** Called when WhatsApp refuses to send a form, so we stop trying until the next restart. */
   onFormRefused?: () => void;
   /** Seller and buyer records. */
@@ -150,9 +152,31 @@ export class Conversation {
         case 'pay': await this.o.deals.setMenuMode(user, 'buyer'); return this.o.deals.requestPayment(code!, user);
         case 'newacct': return this.o.deals.requestPayment(code!, user, true);
         case 'cancel': return this.o.deals.cancelByBuyer(code!, user);
-        case 'shipped':
+        case 'shipped': {
+          const d = await this.o.deals.findByCode(code!);
+          if (d?.started_by === 'BUYER') return this.startDispatch(m.phone, user, code!);
           await this.o.deals.markShipped(code!, user);
           return this.save(m.phone, 'SHIP_PROOF', { code });
+        }
+        // ----- dispatch, handover code, refunds on paid orders -----
+        case 'dispatch': return this.startDispatch(m.phone, user, code!);
+        case 'dm': return this.dispatchMethod(m.phone, user, s, code as 'pickup' | 'rider' | 'waybill');
+        case 'dloc':
+          if (s.state !== 'DISPATCH') return this.send(m.phone, msg.didntUnderstand());
+          return this.dispatchStep(m.phone, user, { ...s.data, location: s.data.buyerAddress ?? '' });
+        case 'dacct': {
+          if (s.state !== 'DISPATCH' || !s.data.pendingAccount) return this.send(m.phone, msg.didntUnderstand());
+          if (code !== 'yes') { const { pendingAccount: _p, ...rest } = s.data; return this.dispatchStep(m.phone, user, { ...rest, account: undefined }); }
+          return this.dispatchStep(m.phone, user, { ...s.data, account: s.data.pendingAccount, pendingAccount: undefined });
+        }
+        case 'hcode':
+          await this.save(m.phone, 'HANDOVER_CODE', { code });
+          return this.send(m.phone, msg.askHandoverCode(code!));
+        case 'hcodeshow': return this.o.deals.showHandoverCode(code!, user);
+        case 'srefund': await this.save(m.phone, 'IDLE'); return this.send(m.phone, msg.confirmSellerRefund(code!));
+        case 'srefundok': await this.save(m.phone, 'IDLE'); await this.o.deals.refundPaidOrder(code!, 'seller', user); return;
+        case 'remind': return this.o.deals.remindSeller(code!, user);
+        case 'refundme': await this.save(m.phone, 'IDLE'); await this.o.deals.refundPaidOrder(code!, 'buyer', user); return;
         case 'noproof':
           await this.save(m.phone, 'IDLE');
           return this.send(m.phone, msg.dealStatusNow(code!, 'SHIPPED'));
@@ -368,6 +392,14 @@ export class Conversation {
         await this.save(m.phone, 'IDLE');
         if (!text) return this.send(m.phone, msg.ratingCommentThanks());
         return this.o.deals.rateComment(s.data.code, user, text);
+      }
+      case 'DISPATCH': return this.dispatchTyped(m.phone, user, s, text);
+      case 'HANDOVER_CODE': {
+        const digits = text.replace(/\D/g, '');
+        if (digits.length !== 4) return this.send(m.phone, msg.askHandoverCode(s.data.code));
+        const r = await this.o.deals.enterHandoverCode(s.data.code, user, digits);
+        if (r !== 'wrong') await this.save(m.phone, 'IDLE');
+        return;
       }
       case 'SETUP_NAME': {
         if (text.length < 2) return this.send(m.phone, msg.setupIntro(await this.shownName(user)));
@@ -897,7 +929,82 @@ export class Conversation {
       return this.send(phone, msg.accountSaved(acct.bank_name, acct.account_number.slice(-4)));
     }
     await this.save(phone, 'IDLE');
+    if (rest.refundNow) { await this.o.deals.refundPaidOrder(rest.code, rest.refundNow, user, true); return; }
     return this.send(phone, msg.problemLogged(rest.code, caseRef(rest.caseId ?? '')));
+  }
+
+  // ===== DISPATCH (chat version; the orders form does the same in one screen) =====
+  private async startDispatch(phone: string, user: User, code: string): Promise<unknown> {
+    const deal = await this.o.deals.findByCode(code);
+    if (!deal || deal.seller_id !== user.id) throw new DealError('NOT_ALLOWED');
+    if (deal.status !== 'FUNDED' || deal.dispatched_at) { await this.save(phone, 'IDLE'); return this.send(phone, msg.dealStatusNow(deal.code, deal.status)); }
+    if (this.o.ordersForm) {
+      const sent = await this.o.ordersForm.open(phone, user, { screen: 'dispatch', code: deal.code });
+      if (sent) return;
+    }
+    await this.save(phone, 'DISPATCH', { code: deal.code, buyerAddress: deal.delivery_address });
+    return this.send(phone, msg.askDispatchMethod(deal.code));
+  }
+
+  private async dispatchMethod(phone: string, user: User, s: Session, method: 'pickup' | 'rider' | 'waybill') {
+    if (s.state !== 'DISPATCH' || !s.data.code) return this.send(phone, msg.didntUnderstand());
+    return this.dispatchStep(phone, user, { code: s.data.code, buyerAddress: s.data.buyerAddress, method });
+  }
+
+  /** Asks for the next missing dispatch detail; when there's nothing left, dispatches. */
+  private async dispatchStep(phone: string, user: User, d: Record<string, any>): Promise<unknown> {
+    const role = d.method === 'waybill' ? 'driver' : 'rider';
+    const ask = async (m: Outbound) => { await this.save(phone, 'DISPATCH', d); return this.send(phone, m); };
+    if (!d.method) return ask(msg.askDispatchMethod(d.code));
+    if (d.method === 'pickup') {
+      if (!d.pickupAddress) return ask(msg.askPickupAddress());
+    } else {
+      if (d.method === 'rider' && !d.name) return ask(msg.askRiderName());
+      if (!d.phone) return ask(msg.askCourierPhone(role));
+      if (d.fee === undefined) return ask(msg.askCourierFee(role));
+      if (!d.location) return ask(msg.askCourierLocation(role, d.buyerAddress ?? null));
+      if (d.fee > 0 && !d.account) return ask(msg.askCourierAccount(role));
+    }
+    await this.save(phone, 'IDLE');
+    return this.o.deals.dispatch(d.code, user, {
+      method: d.method === 'pickup' ? 'PICKUP' : d.method === 'rider' ? 'RIDER' : 'WAYBILL',
+      pickupAddress: d.pickupAddress ?? null, courierName: d.name ?? null, courierPhone: d.phone ?? null,
+      location: d.location ?? null, feeMinor: d.fee ?? 0, account: d.account ?? null,
+    });
+  }
+
+  private async dispatchTyped(phone: string, user: User, s: Session, text: string): Promise<unknown> {
+    const d = { ...s.data };
+    const role = d.method === 'waybill' ? 'driver' : 'rider';
+    if (!d.method) return this.send(phone, msg.askDispatchMethod(d.code));
+    if (d.method === 'pickup') return this.dispatchStep(phone, user, { ...d, pickupAddress: text.length >= 3 ? text.slice(0, 300) : undefined });
+    if (d.method === 'rider' && !d.name) return this.dispatchStep(phone, user, { ...d, name: text.length >= 2 ? text.slice(0, 80) : undefined });
+    if (!d.phone) {
+      const p = normalizePhone(text);
+      if (!p) return this.send(phone, msg.askCourierPhone(role));
+      return this.dispatchStep(phone, user, { ...d, phone: p });
+    }
+    if (d.fee === undefined) {
+      const major = /^(0|free|none|no)$/i.test(text) ? 0 : parseAmount(text);
+      if (major === null || major === undefined) return this.send(phone, msg.badPrice());
+      const deal = await this.o.deals.findByCode(d.code);
+      const fee = toMinor(major, this.o.currency);
+      if (deal && fee >= deal.seller_gets_minor) return this.send(phone, msg.feeTooHigh({ minor: deal.seller_gets_minor, currency: this.o.currency }));
+      return this.dispatchStep(phone, user, { ...d, fee });
+    }
+    if (!d.location) return this.dispatchStep(phone, user, { ...d, location: text.length >= 3 ? text.slice(0, 300) : undefined });
+    if (d.fee > 0 && !d.account) {
+      const parsed = parseBankInput(text);
+      if (!parsed) return this.send(phone, msg.badBank());
+      const bank = matchBank(parsed.bankText, await this.o.provider.listBanks());
+      if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
+      const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
+      if (!name) return this.send(phone, msg.accountNotFound());
+      const pendingAccount = { bank_code: bank.code, bank_name: bank.name, account_number: parsed.accountNumber, account_name: name };
+      await this.save(phone, 'DISPATCH', { ...d, pendingAccount });
+      return this.send(phone, msg.confirmCourierAccount(role, name, bank.name, parsed.accountNumber.slice(-4)));
+    }
+    return this.dispatchStep(phone, user, d);
   }
 }
 

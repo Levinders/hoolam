@@ -1,6 +1,6 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { withTx, type Db, type Queryable, type Tx } from '../db.js';
-import { post } from '../ledger.js';
+import { balance, post } from '../ledger.js';
 import type { Currency } from '../money.js';
 import { quote, type FeePayer } from '../pricing.js';
 import type { PaymentProvider, PayoutResult } from '../payments/provider.js';
@@ -96,8 +96,22 @@ export interface DealServiceOptions {
   trust?: Trust;              // seller and buyer records shown on deals
   settings?: Settings;        // fees, limits and timings the console can change
   acceptHours?: number;       // how long a seller has to accept a buyer's deal (default 48)
+  orderPageBase?: string;     // where the private order pages live, e.g. https://hoolam.onrender.com
   log?: (line: string) => void;
 }
+
+/** What the seller tells us when dispatching a paid order. */
+export interface DispatchInput {
+  method: 'PICKUP' | 'RIDER' | 'WAYBILL';
+  pickupAddress?: string | null;
+  courierName?: string | null;     // rider only
+  courierPhone?: string | null;    // rider or waybill driver
+  location?: string | null;        // drop-off (rider) or delivery location (waybill)
+  feeMinor?: number;               // paid to the rider/driver from the held money once the code is right
+  account?: { bank_code: string; bank_name: string; account_number: string; account_name: string } | null;
+}
+
+export type CodeResult = 'ok' | 'wrong' | 'locked' | 'not-ready';
 
 export class DealService {
   constructor(private readonly o: DealServiceOptions) {}
@@ -687,7 +701,11 @@ export class DealService {
       });
       await this.move(tx, deal, 'FUNDED', 'provider', extra > 0 ? `NEEDS_ATTENTION: overpaid by ${extra}` : undefined);
       if (buyer) out.push({ phone: buyer.phone, message: msg.buyerFunded(this.money(deal.buyer_pays_minor), deal.code) });
-      out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
+      if (deal.started_by === 'BUYER') {
+        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor)), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
+      } else {
+        out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
+      }
       return 'funded';
     });
   }
@@ -726,36 +744,223 @@ export class DealService {
     await this.o.messenger.send(seller.phone, msg.shippingProofSaved(deal.code));
   }
 
+  // ---------- 4b. buyer orders: dispatch, handover code, rider/driver paid ----------
+  /** The private order page (photos, details, status), shared only with the two people in the order. */
+  orderPageUrl(deal: Pick<Deal, 'code' | 'view_token'>): string | null {
+    if (!deal.view_token || !this.o.orderPageBase) return null;
+    return `${this.o.orderPageBase.replace(/\/$/, '')}/o/${deal.code}?k=${deal.view_token}`;
+  }
+
+  autoReleaseMinutes(): number { return this.o.settings?.autoReleaseMinutes() ?? 1440; }
+
+  /** The seller says how the item will reach the buyer. Gives the buyer a 4-digit handover code. */
+  async dispatch(code: string, seller: User, d: DispatchInput): Promise<void> {
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (deal.seller_id !== seller.id) throw new DealError('NOT_ALLOWED');
+      if (deal.status !== 'FUNDED' || deal.dispatched_at) { out.push({ phone: seller.phone, message: msg.dealStatusNow(deal.code, deal.status) }); return; }
+      const courier = d.method !== 'PICKUP';
+      const fee = courier ? Math.max(0, Math.round(d.feeMinor ?? 0)) : 0;
+      if (fee >= deal.seller_gets_minor) throw new DealError('NOT_ALLOWED', 'The delivery fee must be less than what you receive');
+      let accountId: string | null = null;
+      if (courier && fee > 0) {
+        if (!d.account) throw new DealError('NOT_ALLOWED', 'The rider\'s account is missing');
+        const a = await tx.query(
+          `INSERT INTO bank_accounts (user_id, bank_code, bank_name, account_number, account_name, is_default, holder)
+           VALUES ($1,$2,$3,$4,$5,false,'COURIER')
+           ON CONFLICT (user_id, bank_code, account_number) DO UPDATE SET account_name=EXCLUDED.account_name RETURNING id`,
+          [seller.id, d.account.bank_code, d.account.bank_name, d.account.account_number, d.account.account_name]);
+        accountId = a.rows[0].id;
+      }
+      const handover = String(randomInt(0, 10_000)).padStart(4, '0');
+      await tx.query(
+        `UPDATE deals SET dispatch_method=$2, pickup_address=$3, courier_name=$4, courier_phone=$5, courier_location=$6,
+                          delivery_fee_minor=$7, courier_account_id=$8, handover_code=$9, handover_tries=0, dispatched_at=now(), updated_at=now()
+         WHERE id=$1`,
+        [deal.id, d.method, d.method === 'PICKUP' ? d.pickupAddress?.slice(0, 300) ?? null : null, d.method === 'RIDER' ? d.courierName?.slice(0, 80) ?? null : null,
+          courier ? d.courierPhone ?? null : null, courier ? d.location?.slice(0, 300) ?? null : null, fee, accountId, handover]);
+      await this.move(tx, deal, 'SHIPPED', 'seller', `Dispatched: ${d.method}${fee ? `, delivery fee ${fee}` : ''}`);
+      const buyer = await this.userById(tx, deal.buyer_id!);
+      const info = { code: deal.code, method: d.method, pickupAddress: d.pickupAddress ?? null, courierName: d.courierName ?? null, courierPhone: d.courierPhone ?? null, location: d.location ?? null };
+      out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, fee: fee ? this.money(fee) : null }) });
+      out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, handover }), fallback: dealTemplate('orderDispatched', [deal.code, handover], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
+    });
+  }
+
+  /** Shows the buyer their handover code again. */
+  async showHandoverCode(code: string, buyer: User): Promise<void> {
+    const deal = await this.findByCode(code);
+    if (!deal || deal.buyer_id !== buyer.id) throw new DealError('NOT_FOUND');
+    if (!deal.handover_code || deal.handed_over_at || deal.status !== 'SHIPPED') {
+      await this.o.messenger.send(buyer.phone, msg.dealStatusNow(deal.code, deal.status));
+      return;
+    }
+    await this.o.messenger.send(buyer.phone, msg.handoverCode(deal.code, deal.handover_code, deal.dispatch_method));
+  }
+
+  /**
+   * The seller types the 4 digits the receiver gave the rider. Right: the item reached the right person, the
+   * rider/driver is paid their fee, and the buyer gets a set time to say "I'm happy" or report a problem.
+   * Five wrong tries lock it for the team.
+   */
+  async enterHandoverCode(code: string, seller: User, digits: string): Promise<CodeResult> {
+    let payoutId: string | null = null;
+    const result = await this.run(async (tx, out): Promise<CodeResult> => {
+      const deal = await this.lockByCode(tx, code);
+      if (deal.seller_id !== seller.id) throw new DealError('NOT_ALLOWED');
+      if (deal.status !== 'SHIPPED' || !deal.handover_code || deal.handed_over_at) { out.push({ phone: seller.phone, message: msg.dealStatusNow(deal.code, deal.status) }); return 'not-ready'; }
+      if (deal.handover_tries >= 5) { out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) }); return 'locked'; }
+      if (digits.replace(/\D/g, '') !== deal.handover_code) {
+        const tries = deal.handover_tries + 1;
+        await tx.query('UPDATE deals SET handover_tries=$2 WHERE id=$1', [deal.id, tries]);
+        if (tries >= 5) {
+          await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', 'NEEDS_ATTENTION: handover code locked after 5 wrong tries']);
+          out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) });
+          return 'locked';
+        }
+        out.push({ phone: seller.phone, message: msg.handoverWrong(deal.code, 5 - tries) });
+        return 'wrong';
+      }
+      await tx.query('UPDATE deals SET handed_over_at=now(), updated_at=now() WHERE id=$1', [deal.id]);
+      await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', 'Handover code confirmed']);
+      payoutId = await this.payCourier(tx, deal);
+      const buyer = await this.userById(tx, deal.buyer_id!);
+      const minutes = this.autoReleaseMinutes();
+      out.push({ phone: seller.phone, message: msg.sellerHandedOver(deal.code, payoutId ? this.money(Number(deal.delivery_fee_minor)) : null, deal.courier_name, waitText(minutes)) });
+      out.push({ phone: buyer.phone, message: msg.buyerHandedOver(deal.code, waitText(minutes)), fallback: dealTemplate('handedOver', [deal.code, waitText(minutes)], [`happy:${deal.code}`, `problem:${deal.code}`]) });
+      return 'ok';
+    });
+    if (payoutId) await this.submitPayout(payoutId);
+    return result;
+  }
+
+  /** Moves the delivery fee from the held money to the rider/driver (once). Returns the payout to send, if any. */
+  private async payCourier(tx: Tx, deal: Deal): Promise<string | null> {
+    const fee = Number(deal.delivery_fee_minor ?? 0);
+    if (!fee || deal.courier_paid_at || !deal.courier_account_id || deal.dispatch_method === 'PICKUP') return null;
+    await post(tx, {
+      dealId: deal.id, currency: deal.currency, memo: `Delivery fee ${deal.code} to the ${deal.dispatch_method === 'WAYBILL' ? 'driver' : 'rider'}`,
+      lines: [{ account: 'held:deal', amountMinor: fee }, { account: 'payable:courier', amountMinor: -fee }],
+    });
+    await tx.query('UPDATE deals SET courier_paid_at=now() WHERE id=$1', [deal.id]);
+    deal.courier_paid_at = new Date();
+    const r = await tx.query(
+      `INSERT INTO payouts (deal_id, kind, provider, reference, amount_minor, currency, bank_account_id) VALUES ($1,'DELIVERY',$2,$3,$4,$5,$6) RETURNING id`,
+      [deal.id, this.o.provider.name, `${deal.code}-DLV-${randomUUID().slice(0, 6)}`, fee, deal.currency, deal.courier_account_id]);
+    return r.rows[0].id;
+  }
+
+  /** What is still held for this order (after any delivery fee went to the rider). */
+  private async heldFor(tx: Tx, deal: Deal): Promise<number> {
+    return -(await balance(tx, 'held:deal', deal.currency, deal.id));
+  }
+
+  /**
+   * A paid order that won't go ahead: the seller can't fulfil it, or the buyer asks for their money back
+   * because it wasn't dispatched in time. Refunds everything still held. If we don't have the buyer's
+   * account yet, we ask them for it and refund the moment they give it.
+   */
+  async refundPaidOrder(code: string, by: 'seller' | 'buyer', user: User, buyerGaveAccount = false): Promise<'refunding' | 'need-account'> {
+    let payoutId: string | null = null;
+    const res = await this.run(async (tx, out): Promise<'refunding' | 'need-account'> => {
+      const deal = await this.lockByCode(tx, code);
+      const allowed = buyerGaveAccount || by === 'buyer' ? deal.buyer_id === user.id : deal.seller_id === user.id;
+      if (!allowed) throw new DealError('NOT_ALLOWED');
+      if (deal.status !== 'FUNDED' || deal.dispatched_at) throw new DealError('NOT_ALLOWED');
+      if (by === 'buyer' && !this.isOverdue(deal)) throw new DealError('NOT_ALLOWED');
+      const buyer = await this.userById(tx, deal.buyer_id!);
+      const acct = await tx.query(`SELECT id FROM bank_accounts WHERE user_id=$1 AND is_default AND holder='SELF' ORDER BY created_at DESC LIMIT 1`, [deal.buyer_id]);
+      if (!acct.rows[0]) {
+        await tx.query(
+          `INSERT INTO chat_sessions (phone, state, data) VALUES ($1,'REFUND_BANK',$2)
+           ON CONFLICT (phone) DO UPDATE SET state='REFUND_BANK', data=$2, updated_at=now()`,
+          [buyer.phone, JSON.stringify({ code: deal.code, refundNow: by })]);
+        out.push({ phone: buyer.phone, message: msg.askRefundAccountNow(deal.code, by) });
+        if (by === 'seller') out.push({ phone: user.phone, message: msg.sellerRefundStarted(deal.code, false) });
+        return 'need-account';
+      }
+      const note = by === 'seller' ? 'Seller can\'t fulfil the order' : 'Not dispatched by the expected date; buyer asked for a refund';
+      payoutId = await this.startRefund(tx, deal, by, note, acct.rows[0].id);
+      const seller = await this.sellerOf(tx, deal);
+      if (by === 'seller') out.push({ phone: seller.phone, message: msg.sellerRefundStarted(deal.code, true) });
+      else out.push({ phone: seller.phone, message: msg.sellerBuyerTookRefund(deal.code) });
+      out.push({ phone: buyer.phone, message: msg.buyerRefundStarted(deal.code, by) });
+      return 'refunding';
+    });
+    if (payoutId) await this.submitPayout(payoutId);
+    return res;
+  }
+
+  /** Paid, not dispatched, and the date the buyer expected it has passed. */
+  isOverdue(deal: Pick<Deal, 'status' | 'dispatched_at' | 'arrive_by'>): boolean {
+    if (deal.status !== 'FUNDED' || deal.dispatched_at || !deal.arrive_by) return false;
+    const day = typeof deal.arrive_by === 'string' ? deal.arrive_by : deal.arrive_by.toISOString().slice(0, 10);
+    return new Date(day + 'T23:59:59+01:00').getTime() < Date.now();
+  }
+
+  /** "Send reminder": the buyer nudges a seller who hasn't dispatched. */
+  async remindSeller(code: string, buyer: User): Promise<void> {
+    const deal = await this.findByCode(code);
+    if (!deal || deal.buyer_id !== buyer.id || !deal.seller_id) throw new DealError('NOT_FOUND');
+    if (deal.status !== 'FUNDED' || deal.dispatched_at) { await this.o.messenger.send(buyer.phone, msg.dealStatusNow(deal.code, deal.status)); return; }
+    const seller = await this.userById(this.o.db, deal.seller_id);
+    await this.o.messenger.send(seller.phone, msg.sellerDispatchReminder(deal.code, deal.item, true), dealTemplate('dispatchReminder', [deal.code], [`dispatch:${deal.code}`]));
+    await this.o.messenger.send(buyer.phone, msg.reminderSent(deal.code));
+  }
+
   // ---------- 5a. buyer is happy → pay the seller ----------
   async confirmHappy(code: string, buyer: User): Promise<void> {
-    const payoutId = await this.run(async (tx, out) => {
+    const payoutIds = await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
       if (!['FUNDED', 'SHIPPED'].includes(deal.status)) throw new DealError('NOT_ALLOWED');
       if (deal.status === 'FUNDED') await this.move(tx, deal, 'SHIPPED', 'buyer', 'Buyer confirmed before seller marked it sent');
-      const id = await this.startRelease(tx, deal, 'buyer');
+      const ids = await this.startRelease(tx, deal, 'buyer');
       const seller = await this.sellerOf(tx, deal);
       out.push({ phone: buyer.phone, message: msg.buyerReleased(deal.code, firstName(seller.display_name) ?? 'the seller') });
-      return id;
+      return ids;
     });
-    await this.submitPayout(payoutId);
+    for (const id of payoutIds) await this.submitPayout(id);
   }
 
-  private async startRelease(tx: Tx, deal: Deal, actor: string, note?: string): Promise<string> {
+  /**
+   * Pays the seller what's left: everything still held, minus Hoolam's fee. If a rider or driver was set to be
+   * paid and hasn't been yet (no code was entered), they're paid first. Returns the payouts to send.
+   */
+  private async startRelease(tx: Tx, deal: Deal, actor: string, note?: string): Promise<string[]> {
+    if (!deal.seller_account_id) throw new Error(`Order ${deal.code} has no seller bank account`);
+    const courierPayout = await this.payCourier(tx, deal);
     await this.move(tx, deal, 'RELEASING', actor, note);
     const fee = deal.buyer_pays_minor - deal.seller_gets_minor;
+    const held = await this.heldFor(tx, deal);
+    const toSeller = held - fee;
+    if (toSeller <= 0) throw new Error(`Order ${deal.code}: nothing left for the seller (held ${held}, fee ${fee})`);
     await post(tx, {
       dealId: deal.id, currency: deal.currency, memo: `Release ${deal.code} to seller`,
       lines: [
-        { account: 'held:deal', amountMinor: deal.buyer_pays_minor },
-        { account: 'payable:seller', amountMinor: -deal.seller_gets_minor },
+        { account: 'held:deal', amountMinor: held },
+        { account: 'payable:seller', amountMinor: -toSeller },
         { account: 'revenue:fees', amountMinor: -fee },
       ],
     });
-    if (!deal.seller_account_id) throw new Error(`Deal ${deal.code} has no seller bank account`);
     const r = await tx.query(
       `INSERT INTO payouts (deal_id, kind, provider, reference, amount_minor, currency, bank_account_id) VALUES ($1,'SELLER',$2,$3,$4,$5,$6) RETURNING id`,
-      [deal.id, this.o.provider.name, `${deal.code}-PAY-${randomUUID().slice(0, 6)}`, deal.seller_gets_minor, deal.currency, deal.seller_account_id],
+      [deal.id, this.o.provider.name, `${deal.code}-PAY-${randomUUID().slice(0, 6)}`, toSeller, deal.currency, deal.seller_account_id],
+    );
+    return [...(courierPayout ? [courierPayout] : []), r.rows[0].id];
+  }
+
+  /** Refunds everything still held for the order (a delivery fee already paid to a rider can't come back). */
+  private async startRefund(tx: Tx, deal: Deal, actor: string, note: string, accountId: string): Promise<string> {
+    await this.move(tx, deal, 'REFUNDING', actor, note);
+    const held = await this.heldFor(tx, deal);
+    await post(tx, {
+      dealId: deal.id, currency: deal.currency, memo: `Refund ${deal.code} to buyer`,
+      lines: [{ account: 'held:deal', amountMinor: held }, { account: 'payable:buyer', amountMinor: -held }],
+    });
+    const r = await tx.query(
+      `INSERT INTO payouts (deal_id, kind, provider, reference, amount_minor, currency, bank_account_id) VALUES ($1,'REFUND',$2,$3,$4,$5,$6) RETURNING id`,
+      [deal.id, this.o.provider.name, `${deal.code}-REF-${randomUUID().slice(0, 6)}`, held, deal.currency, accountId],
     );
     return r.rows[0].id;
   }
@@ -822,34 +1027,25 @@ export class DealService {
   }
 
   async adminRelease(code: string, note: string): Promise<void> {
-    const payoutId = await this.run(async (tx) => {
+    const payoutIds = await this.run(async (tx) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.status !== 'DISPUTED' && deal.status !== 'SHIPPED' && deal.status !== 'FUNDED') throw new DealError('NOT_ALLOWED');
       if (deal.status === 'FUNDED') await this.move(tx, deal, 'SHIPPED', 'admin', note);
       await tx.query(`UPDATE disputes SET status='RESOLVED_RELEASE', resolution_note=$2, resolved_at=now() WHERE deal_id=$1 AND status='OPEN'`, [deal.id, note]);
       return this.startRelease(tx, deal, 'admin', note);
     });
-    await this.submitPayout(payoutId);
+    for (const id of payoutIds) await this.submitPayout(id);
   }
 
   async adminRefund(code: string, note: string): Promise<void> {
     const payoutId = await this.run(async (tx) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.status !== 'DISPUTED' && deal.status !== 'FUNDED') throw new DealError('NOT_ALLOWED');
-      const acct = await tx.query('SELECT id FROM bank_accounts WHERE user_id=$1 AND is_default ORDER BY created_at DESC LIMIT 1', [deal.buyer_id]);
+      const acct = await tx.query(`SELECT id FROM bank_accounts WHERE user_id=$1 AND is_default AND holder='SELF' ORDER BY created_at DESC LIMIT 1`, [deal.buyer_id]);
       if (!acct.rows[0]) throw new DealError('NOT_ALLOWED', 'The buyer has not given a refund account yet');
-      await this.move(tx, deal, 'REFUNDING', 'admin', note);
       await tx.query(`UPDATE disputes SET status='RESOLVED_REFUND', resolution_note=$2, resolved_at=now() WHERE deal_id=$1 AND status='OPEN'`, [deal.id, note]);
-      // Phase 1 policy: a refund returns everything the buyer paid, fee included.
-      await post(tx, {
-        dealId: deal.id, currency: deal.currency, memo: `Refund ${deal.code} to buyer`,
-        lines: [{ account: 'held:deal', amountMinor: deal.buyer_pays_minor }, { account: 'payable:buyer', amountMinor: -deal.buyer_pays_minor }],
-      });
-      const r = await tx.query(
-        `INSERT INTO payouts (deal_id, kind, provider, reference, amount_minor, currency, bank_account_id) VALUES ($1,'REFUND',$2,$3,$4,$5,$6) RETURNING id`,
-        [deal.id, this.o.provider.name, `${deal.code}-REF-${randomUUID().slice(0, 6)}`, deal.buyer_pays_minor, deal.currency, acct.rows[0].id],
-      );
-      return r.rows[0].id;
+      // A refund returns everything still held: the fee too. A delivery fee already paid to the rider can't come back.
+      return this.startRefund(tx, deal, 'admin', note, acct.rows[0].id);
     });
     await this.submitPayout(payoutId);
   }
@@ -893,6 +1089,7 @@ export class DealService {
       if (!p) { this.log(`payout result for unknown reference ${reference}`); return; }
       if (p.status === 'SUCCESS') return;
       const deal = await this.lockById(tx, p.deal_id);
+      if (p.kind === 'DELIVERY') return this.applyCourierPayout(tx, out, p, deal, result);
       const holding = p.kind === 'SELLER' ? 'payable:seller' : 'payable:buyer';
       const doneStatus: Status = p.kind === 'SELLER' ? 'COMPLETED' : 'REFUNDED';
 
@@ -931,6 +1128,25 @@ export class DealService {
     });
   }
 
+  /** The rider's/driver's delivery fee landed (or didn't). The order itself carries on either way. */
+  private async applyCourierPayout(tx: Tx, out: Outbox, p: any, deal: Deal, result: PayoutResult): Promise<void> {
+    const seller = await this.sellerOf(tx, deal);
+    if (result.status === 'SUCCESS') {
+      await tx.query(`UPDATE payouts SET status='SUCCESS', provider_message=$2, updated_at=now() WHERE id=$1`, [p.id, result.message ?? null]);
+      await post(tx, {
+        dealId: deal.id, currency: deal.currency, memo: `Delivery fee ${p.reference} sent`,
+        lines: [{ account: 'payable:courier', amountMinor: Number(p.amount_minor) }, { account: `cash:${p.provider}`, amountMinor: -Number(p.amount_minor) }],
+      });
+      const acct = await tx.query('SELECT account_name, bank_name FROM bank_accounts WHERE id=$1', [p.bank_account_id]);
+      out.push({ phone: seller.phone, message: msg.courierPaid(deal.code, this.money(Number(p.amount_minor)), acct.rows[0]?.account_name ?? 'the rider', acct.rows[0]?.bank_name ?? 'bank') });
+      return;
+    }
+    await tx.query('UPDATE payouts SET status=$2, provider_message=$3, updated_at=now() WHERE id=$1', [p.id, result.status, result.message ?? null]);
+    if (result.status === 'SUBMITTED') return;
+    await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)',
+      [deal.id, deal.status, 'provider', `NEEDS_ATTENTION: delivery fee payout ${p.reference} ${result.status}${result.message ? ': ' + result.message : ''}`]);
+  }
+
   /** Checks payouts still waiting on the provider. Run on a timer. */
   async pollPayouts(): Promise<void> {
     const r = await this.o.db.query(`SELECT reference FROM payouts WHERE status='SUBMITTED' AND updated_at < now() - interval '2 minutes' LIMIT 20`);
@@ -942,9 +1158,28 @@ export class DealService {
 
   // ---------- timers ----------
   /** Reminds quiet buyers, expires unpaid deals. Run on a timer. */
-  async sweep(opts: { nudgeAfterHours: number; expireUnpaidAfterHours?: number }): Promise<{ nudged: number; expired: number }> {
+  async sweep(opts: { nudgeAfterHours: number; expireUnpaidAfterHours?: number }): Promise<{ nudged: number; expired: number; released?: number }> {
     let nudged = 0;
     let expired = 0;
+    let released = 0;
+    // Handed over and the buyer said nothing in time: pay the seller.
+    const due = await this.o.db.query(
+      `SELECT id FROM deals WHERE status='SHIPPED' AND handed_over_at IS NOT NULL AND handed_over_at < now() - make_interval(mins => $1) LIMIT 50`,
+      [this.autoReleaseMinutes()]);
+    for (const row of due.rows) {
+      try {
+        const ids = await this.run(async (tx, out) => {
+          const deal = await this.lockById(tx, row.id);
+          if (deal.status !== 'SHIPPED' || !deal.handed_over_at) return [];
+          const ids = await this.startRelease(tx, deal, 'system', `No problem reported within ${waitText(this.autoReleaseMinutes())} of handover`);
+          const buyer = await this.userById(tx, deal.buyer_id!);
+          out.push({ phone: buyer.phone, message: msg.autoReleased(deal.code) });
+          return ids;
+        });
+        for (const id of ids) await this.submitPayout(id);
+        if (ids.length) released++;
+      } catch (e) { this.log(`auto-release ${row.id}: ${(e as Error).message}`); }
+    }
     const toNudge = await this.o.db.query(
       `SELECT d.code, d.buyer_pays_minor, u.phone FROM deals d JOIN users u ON u.id=d.buyer_id
        WHERE d.status='SHIPPED' AND d.reminded_at IS NULL AND d.shipped_at < now() - make_interval(hours => $1) LIMIT 50`,
@@ -974,13 +1209,21 @@ export class DealService {
         expired++;
       });
     }
-    return { nudged, expired };
+    return { nudged, expired, released };
   }
 }
 
 function firstName(name: string | null): string | null {
   const f = name?.trim().split(/\s+/)[0];
   return f ? f.slice(0, 30) : null;
+}
+
+/** 30 → "30 minutes", 1440 → "24 hours", 2880 → "2 days" */
+export function waitText(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const h = Math.round(minutes / 60);
+  if (h >= 48 && h % 24 === 0) return `${h / 24} days`;
+  return `${h} hour${h === 1 ? '' : 's'}`;
 }
 
 /** "2026-10-09" → "Fri 9 Oct" */

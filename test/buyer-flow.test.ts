@@ -180,8 +180,8 @@ describe('the seller answers', () => {
     const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
     h.provider.pay(r.rows[0].provider_reference);
     await h.app.deals.handleCollection(r.rows[0].provider_reference);
-    expect(h.last(seller)).toMatch(/the buyer has paid/);
-    await h.tap(seller, `shipped:${code}`);
+    expect(h.last(seller)).toMatch(/The buyer has paid.*Dispatch it now/s);
+    await h.tap(seller, `dispatch:${code}`); await h.tap(seller, 'dm:pickup'); await h.say(seller, 'Shop 4, Rumuola Plaza');
     await h.tap(buyer, `happy:${code}`);
     expect((await deal(code)).status).toBe('COMPLETED');
     expect(h.last(seller)).toMatch(/You've been paid/);
