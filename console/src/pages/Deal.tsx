@@ -215,15 +215,14 @@ export function Deal() {
             <div className="panel-body">
               <dl className="kv">
                 {d.category && <><dt>Category</dt><dd>{CATEGORY_NAMES[d.category] ?? d.category}</dd></>}
-                {d.delivery_method && <><dt>Getting it</dt><dd>{d.delivery_method === 'PICKUP' ? 'Buyer picks it up' : Number(d.delivery_fee_minor) > 0 ? 'Delivery, arranged by the seller' : 'Free delivery from the seller'}</dd></>}
-                <dt>Price</dt><dd className="money">{money(d.price_minor, cur)}</dd>
-                {Number(d.delivery_fee_minor) > 0 && <><dt>Delivery fee</dt><dd className="money">{money(d.delivery_fee_minor, cur)} <span className="muted small">goes to the seller</span></dd></>}
+                {d.delivery_address && <><dt>Deliver to</dt><dd>{d.delivery_address}</dd></>}
+                <dt>Price</dt><dd className="money">{money(d.price_minor, cur)}{d.started_by === 'BUYER' && <span className="muted small"> total, delivery included</span>}</dd>
                 <dt>Hoolam fee</dt><dd className="money">{money(d.fee_minor, cur)} <span className="muted small">paid by {d.fee_payer === 'SELLER' ? 'seller' : 'buyer'}</span></dd>
                 <dt>Buyer pays</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.buyer_pays_minor, cur)}</dd>
                 <dt>Seller receives</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.seller_gets_minor, cur)}</dd>
                 {d.counter_price_minor && <><dt>New price asked</dt><dd className="money">{money(d.counter_price_minor, cur)} <span className="pill gold plain">Waiting for buyer</span></dd></>}
                 {d.accept_by && d.status === 'AWAITING_SELLER' && <><dt>Seller must accept</dt><dd>{ago(d.accept_by)} <span className="muted small">({dateTime(d.accept_by)})</span></dd></>}
-                {d.arrive_by && <><dt>{d.delivery_method === 'PICKUP' ? 'Pickup on' : 'Wanted by'}</dt><dd>{d.arrive_by}</dd></>}
+                {d.arrive_by && <><dt>Expected by</dt><dd>{d.arrive_by}</dd></>}
                 {data.sellerAccount && <><dt>Pays out to</dt><dd>{data.sellerAccount.account_name}<div className="cell-sub">{data.sellerAccount.bank_name} ••••{data.sellerAccount.last4}</div></dd></>}
               </dl>
             </div>

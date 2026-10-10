@@ -36,7 +36,7 @@ async function buyByChat(buyer: string, price = '15000') {
   await h.tap(buyer, 'menu:buy');
   await h.say(buyer, 'Red dress');
   await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
-  await h.say(buyer, price); await h.tap(buyer, 'dlv:free');
+  await h.say(buyer, price); await h.say(buyer, '12 Woji Road, Port Harcourt');
   await h.tap(buyer, 'buy:nophotos');
   await h.tap(buyer, 'buy:nophone');
   await h.tap(buyer, 'buy:send');

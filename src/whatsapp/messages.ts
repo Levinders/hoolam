@@ -10,13 +10,6 @@ import { CATEGORIES } from '../deals/categories.js';
 type Money = { minor: number; currency: Currency };
 const m = (x: Money) => formatMoney(x.minor, x.currency);
 
-/** One line about delivery, from the buyer's or the seller's side. */
-function deliveryLine(how: 'DELIVERY' | 'PICKUP' | null | undefined, fee: Money | undefined, side: 'buyer' | 'seller'): string {
-  if (how === 'PICKUP') return side === 'seller' ? '📍 The buyer picks it up\n' : '📍 You pick it up\n';
-  if (how !== 'DELIVERY') return '';
-  if (fee && fee.minor > 0) return side === 'seller' ? `🚚 Delivery fee ${m(fee)} (you arrange the rider)\n` : `🚚 Delivery ${m(fee)}\n`;
-  return side === 'seller' ? '🚚 Free delivery (you arrange it)\n' : '🚚 Free delivery\n';
-}
 
 /**
  * THE TWO MENUS: one for buying, one for selling. Everyone starts on the buying menu; becoming a seller
@@ -329,21 +322,19 @@ export const msg = {
     buttons: [{ id: 'buy:nophone', title: 'Skip' }],
   }),
 
-  /** Check before sending. */
-  buySummary: (d: { item: string; description?: string | null; category?: string | null; delivery?: 'DELIVERY' | 'PICKUP' | null; deliveryFee?: Money; photos: number; arriveBy: string | null; sellerPhone: string | null; price: Money; fee: Money; total: Money }): Outbound => ({
+  /** Check before sending. The Hoolam fee is added once the seller accepts (they may change the price). */
+  buySummary: (d: { item: string; description?: string | null; category?: string | null; address?: string | null; photos: number; arriveBy: string | null; sellerPhone: string | null; total: Money; feeRule: string }): Outbound => ({
     kind: 'buttons',
     text:
       `🛒 *Check your order*\n\n*${d.item}*\n` +
       (d.description ? `${d.description}\n` : '') +
       (d.category ? `🏷️ ${d.category}\n` : '') +
       (d.photos ? `📷 ${d.photos} photo${d.photos > 1 ? 's' : ''}\n` : '') +
-      (d.arriveBy ? `📅 ${d.delivery === 'PICKUP' ? 'Pickup on' : 'Needed by'} ${d.arriveBy}\n` : '') +
-      `📨 ${d.sellerPhone ? `We'll alert ${maskPhone(d.sellerPhone)}` : 'You\'ll get a link for the seller'}\n\n` +
-      `Price         ${m(d.price)}\n` +
-      (d.delivery === 'DELIVERY' && d.deliveryFee && d.deliveryFee.minor > 0 ? `Delivery      ${m(d.deliveryFee)}\n` : '') +
-      `Hoolam fee    ${m(d.fee)}\n*You'll pay    ${m(d.total)}*\n` +
-      (d.delivery === 'PICKUP' ? '📍 You\'ll pick it up\n' : d.delivery === 'DELIVERY' ? (d.deliveryFee && d.deliveryFee.minor > 0 ? '🚚 The seller arranges delivery\n' : '🚚 Free delivery from the seller\n') : '') +
-      '\n💡 Nothing to pay yet. You pay after the seller accepts.',
+      (d.address ? `📍 ${d.address}\n` : '') +
+      (d.arriveBy ? `📅 Expecting it by ${d.arriveBy}\n` : '') +
+      `📨 ${d.sellerPhone ? `We'll send it to ${maskPhone(d.sellerPhone)}` : 'You\'ll get a link for the seller'}\n\n` +
+      `*Total price  ${m(d.total)}*\n_Delivery included, if any._\n\n` +
+      `🧾 Hoolam's fee is added when the seller accepts: ${d.feeRule}.\n\n💡 Nothing to pay yet.`,
     buttons: [{ id: 'buy:send', title: '📨 Send to seller' }, { id: 'buy:restart', title: '✏️ Start again' }],
   }),
 
@@ -353,11 +344,7 @@ export const msg = {
     kind: 'list', text: '🏷️ What kind of item is it?', button: 'Choose',
     sections: [{ title: 'Category', rows: CATEGORIES.map((c) => ({ id: `cat:${c.id}`, title: c.title })) }],
   }),
-  askDelivery: (): Outbound => ({
-    kind: 'buttons', text: '🚚 How will you get it?',
-    buttons: [{ id: 'dlv:paid', title: '🚚 Delivery + fee' }, { id: 'dlv:free', title: '🎁 Free delivery' }, { id: 'dlv:pickup', title: '📍 I\'ll pick it up' }],
-  }),
-  askDeliveryFee: (): Outbound => ({ kind: 'text', text: '🚚 How much is the delivery fee? (in naira)\n\nFor example: _2500_\n\nYou pay it with the order. We hold it and pass it to the seller with the price.' }),
+  askDeliveryAddress: (): Outbound => ({ kind: 'text', text: '📍 What\'s the delivery address?\n\nStreet, area and city. For example: _12 Woji Road, Port Harcourt_' }),
 
   buyDealReady: (code: string, link: string, alert: 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed', hours: number): Outbound => ({
     kind: 'buttons',
@@ -373,9 +360,11 @@ export const msg = {
   buyerAlertFailed: (): Outbound => ({ kind: 'text', text: '📵 We couldn\'t reach that WhatsApp number. Please send the seller the link above.' }),
   ownBuyDeal: (code: string, link: string): Outbound => withMenu(`🛒 This is your order ${code}. It's waiting for the seller.\n\nSend them this link:\n${link}`),
 
-  buyerSellerAccepted: (code: string, sellerName: string, item: string, total: Money, trust?: string): Outbound => ({
+  buyerSellerAccepted: (code: string, sellerName: string, item: string, amt: { price: Money; fee: Money; pay: Money }, trust?: string): Outbound => ({
     kind: 'buttons',
-    text: `🎉 ${sellerName} accepted your order!\n` + (trust ? `${trust}\n` : '') + `\n*${item}*\nYou pay *${m(total)}*\n\n🛡️ Your money stays with Hoolam until you have your item and you're happy. (Order ${code})`,
+    text: `🎉 ${sellerName} accepted your order!\n` + (trust ? `${trust}\n` : '') +
+      `\n*${item}*\nTotal price    ${m(amt.price)}\nHoolam fee     ${m(amt.fee)}\n*You pay        ${m(amt.pay)}*\n\n` +
+      `🛡️ Your money stays with Hoolam until you have your item and you're happy. (Order ${code})`,
     buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: 'Not now' }],
   }),
   buyerSellerDeclined: (code: string): Outbound => ({
@@ -395,15 +384,14 @@ export const msg = {
   }),
 
   // ===== WHAT THE SELLER SEES (seller flow comes later; this is the small part buyers need) =====
-  sellerDealCard: (d: { code: string; buyerName: string; item: string; description?: string | null; category?: string | null; delivery?: 'DELIVERY' | 'PICKUP' | null; deliveryFee?: Money; price: Money; sellerGets: Money; arriveBy: string | null; hoursLeft: number; invited: boolean; buyerLine?: string }): Outbound => ({
+  sellerDealCard: (d: { code: string; buyerName: string; item: string; description?: string | null; category?: string | null; address?: string | null; price: Money; sellerGets: Money; arriveBy: string | null; hoursLeft: number; invited: boolean; buyerLine?: string }): Outbound => ({
     kind: 'buttons',
     text:
       `🛒 *${d.buyerName} wants to buy from you*\n` + (d.buyerLine ? `${d.buyerLine}\n` : '') +
       `\n*${d.item}*\n` + (d.description ? `${d.description}\n` : '') + (d.category ? `🏷️ ${d.category}\n` : '') +
-      `\n💰 Price ${m(d.price)}\n` + deliveryLine(d.delivery, d.deliveryFee, 'seller') +
-      `💸 You receive *${m(d.sellerGets)}*\n` +
-      (d.arriveBy ? `📅 ${d.delivery === 'PICKUP' ? 'Pickup on' : 'Wanted by'} ${d.arriveBy}\n` : '') +
-      `\n💳 ${d.buyerName} pays Hoolam first\n📦 You ${d.delivery === 'PICKUP' ? 'hand it over' : 'ship'} once the money is held\n💸 You get paid when they're happy\n\n` +
+      (d.address ? `📍 ${d.address}\n` : '') + (d.arriveBy ? `📅 Expecting it by ${d.arriveBy}\n` : '') +
+      `\n💰 Total price ${m(d.price)} (delivery included)\n💸 You receive *${m(d.sellerGets)}*, minus the rider's fee if you send one\n` +
+      `\n💳 ${d.buyerName} pays Hoolam first\n📦 You dispatch once the money is held\n💸 You get paid when they're happy\n\n` +
       `⏳ Accept within ${d.hoursLeft} hour${d.hoursLeft === 1 ? '' : 's'}. (Order ${d.code})`,
     buttons: [
       { id: `saccept:${d.code}`, title: '✅ Accept' },

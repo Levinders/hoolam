@@ -4,7 +4,7 @@ import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { PRICING, quote } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
 import type { Bank, PaymentProvider } from '../payments/provider.js';
-import { DealError, withDelivery, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
+import { DealError, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
 import { CATEGORIES, categoryTitle, isCategory } from '../deals/categories.js';
 import type { Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
@@ -24,7 +24,7 @@ type State =
   | 'IDLE' | 'SELL_ITEM' | 'SELL_PRICE' | 'SELL_BANK' | 'SELL_BANK_CONFIRM' | 'SELL_CONFIRM'
   | 'DISPUTE_DETAIL' | 'REFUND_BANK' | 'REFUND_BANK_CONFIRM'
   | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE'
-  | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_DESC' | 'BUY_CATEGORY' | 'BUY_PRICE' | 'BUY_DELIVERY' | 'BUY_DELIVERY_FEE' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
+  | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_DESC' | 'BUY_CATEGORY' | 'BUY_PRICE' | 'BUY_ADDRESS' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SHIP_PROOF'
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
@@ -55,8 +55,8 @@ export interface FlowOptions {
 
 /** What a buyer has told us so far, kept in the chat session until they tap "Send to seller". */
 interface BuyDraft {
-  item?: string; description?: string; category?: string; priceMinor?: number;
-  delivery?: 'DELIVERY' | 'PICKUP'; deliveryPaid?: boolean; deliveryFeeMinor?: number;
+  item?: string; description?: string; category?: string; priceMinor?: number; // price = the total agreed, delivery included
+  address?: string;
   arriveBy?: string | null; photos?: { mediaId: string; mimeType?: string | null }[]; photosDone?: boolean;
   sellerPhone?: string | null; // undefined: not asked yet; null: they chose to send the link themselves
 }
@@ -170,9 +170,7 @@ export class Conversation {
         case 'cat':
           if (s.state !== 'BUY_CATEGORY' || !isCategory(code)) return this.continueBuying(m.phone, s.data);
           return this.continueBuying(m.phone, { ...s.data, category: code });
-        case 'dlv':
-          if (s.state !== 'BUY_DELIVERY' || !['paid', 'free', 'pickup'].includes(code ?? '')) return this.continueBuying(m.phone, s.data);
-          return this.continueBuying(m.phone, { ...s.data, delivery: code === 'pickup' ? 'PICKUP' : 'DELIVERY', deliveryPaid: code === 'paid', deliveryFeeMinor: 0 });
+
         // ----- the seller's side of a buyer's deal -----
         case 'sview': await this.save(m.phone, 'IDLE'); return this.o.deals.showToSeller(code!, user);
         case 'saccept': await this.o.deals.setMenuMode(user, 'seller'); return this.sellerAccepts(m.phone, user, code!);
@@ -343,12 +341,9 @@ export class Conversation {
         if (priceMinor > this.maxDeal(user)) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
         return this.continueBuying(m.phone, { ...s.data, priceMinor });
       }
-      case 'BUY_DELIVERY': return this.send(m.phone, msg.askDelivery());
-      case 'BUY_DELIVERY_FEE': {
-        const major = /^(0|free|none)$/i.test(text) ? 0 : parseAmount(text);
-        if (major === null || major === undefined) return this.send(m.phone, msg.badPrice());
-        const fee = toMinor(major, this.o.currency);
-        return this.continueBuying(m.phone, { ...s.data, deliveryPaid: fee > 0, deliveryFeeMinor: fee });
+      case 'BUY_ADDRESS': {
+        if (text.length < 5) return this.send(m.phone, msg.askDeliveryAddress());
+        return this.continueBuying(m.phone, { ...s.data, address: text.slice(0, 300) });
       }
       case 'BUY_PHOTOS': {
         if (m.type === 'image' && m.mediaId) {
@@ -542,6 +537,14 @@ export class Conversation {
       return this.send(phone, msg.askSellerProblem(r.rows[0].code));
     }
     return this.send(phone, msg.pickOrderForSellerProblem(r.rows));
+  }
+
+  /** "2.5% (at least ₦300)": how the Hoolam fee is worked out, for before the price is final. */
+  private feeRuleText(): string {
+    const c = this.o.currency;
+    const r = this.o.deals.pricingRules() ?? PRICING[c];
+    const unit = c === 'NGN' ? 100 : 1;
+    return `${r.ratePercent}% of the total (at least ${formatMoney(r.min * unit, c)}${r.max ? `, at most ${formatMoney(r.max * unit, c)}` : ''})`;
   }
 
   private feesMessage(): Outbound {
@@ -796,12 +799,7 @@ export class Conversation {
     const major = f.price ? parseAmount(f.price) : null;
     const priceMinor = major ? toMinor(major, this.o.currency) : 0;
     if (priceMinor && priceMinor <= this.maxDeal(user)) d.priceMinor = priceMinor;
-    if (f.delivery) {
-      d.delivery = f.delivery;
-      const fee = f.deliveryFee ? parseAmount(f.deliveryFee) : null;
-      d.deliveryPaid = f.deliveryPaid;
-      d.deliveryFeeMinor = f.deliveryPaid && fee ? toMinor(fee, this.o.currency) : 0;
-    }
+    if (f.address) d.address = f.address.slice(0, 300);
     if (f.otherPhone) {
       const p = normalizePhone(f.otherPhone);
       if (p) d.sellerPhone = p;
@@ -821,8 +819,7 @@ export class Conversation {
     if (!d.description) return ask('BUY_DESC', msg.askBuyDescription());
     if (!d.category) return ask('BUY_CATEGORY', msg.askCategory());
     if (!d.priceMinor) return ask('BUY_PRICE', msg.askBuyPrice());
-    if (!d.delivery) return ask('BUY_DELIVERY', msg.askDelivery());
-    if (d.delivery === 'DELIVERY' && d.deliveryPaid && !d.deliveryFeeMinor) return ask('BUY_DELIVERY_FEE', msg.askDeliveryFee());
+    if (!d.address) return ask('BUY_ADDRESS', msg.askDeliveryAddress());
     if (!d.photosDone) return ask('BUY_PHOTOS', msg.askBuyPhotos());
     if (d.sellerPhone === undefined) return ask('BUY_SELLER', msg.askSellerPhone());
     return this.showBuySummary(phone, d);
@@ -830,14 +827,12 @@ export class Conversation {
 
   private async showBuySummary(phone: string, d: BuyDraft) {
     if (!d.item || !d.priceMinor) return this.startBuying(phone);
-    const q = withDelivery(this.o.deals.previewDeal(d.priceMinor, 'buyer'), d.deliveryFeeMinor);
+    this.o.deals.previewDeal(d.priceMinor, 'buyer'); // checks the limit
     await this.save(phone, 'BUY_CONFIRM', d as Record<string, any>);
-    const c = this.o.currency;
     return this.send(phone, msg.buySummary({
-      item: d.item, description: d.description ?? null, category: categoryTitle(d.category), delivery: d.delivery ?? null,
-      deliveryFee: { minor: q.deliveryFeeMinor, currency: c },
+      item: d.item, description: d.description ?? null, category: categoryTitle(d.category), address: d.address ?? null,
       photos: d.photos?.length ?? 0, arriveBy: d.arriveBy ? dayText(d.arriveBy) : null, sellerPhone: d.sellerPhone ?? null,
-      price: { minor: q.priceMinor, currency: c }, fee: { minor: q.feeMinor, currency: c }, total: { minor: q.buyerPaysMinor, currency: c },
+      total: { minor: d.priceMinor, currency: this.o.currency }, feeRule: this.feeRuleText(),
     }));
   }
 
@@ -847,7 +842,7 @@ export class Conversation {
     await this.save(phone, 'IDLE');
     const input: BuyerDealInput = {
       item: d.item, priceMinor: d.priceMinor, sellerPhone: d.sellerPhone ?? null, arriveBy: d.arriveBy ?? null, photos: d.photos ?? [],
-      description: d.description ?? null, category: d.category ?? null, delivery: d.delivery ?? null, deliveryFeeMinor: d.deliveryFeeMinor ?? 0,
+      description: d.description ?? null, category: d.category ?? null, address: d.address ?? null,
     };
     await this.o.deals.createBuyerDeal(user, input);
   }
