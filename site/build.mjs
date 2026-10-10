@@ -41,11 +41,13 @@ const COMPANY = {
   payService: 'Monnify',
 };
 // The date the legal pages took effect. Change it (and say what changed) whenever their wording changes.
-const LEGAL_EFFECTIVE = '8 October 2026';
+const LEGAL_EFFECTIVE = '11 October 2026'; // transaction fee added
 
 // What the console has, or these if the server can't be reached. Keep in step with src/pricing.ts and src/config.ts.
 const DEFAULTS = {
   fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000,
+  txn: { seller: [{ upTo: 100000, fee: 500 }, { upTo: 200000, fee: 1000 }, { upTo: 300000, fee: 1500 }, { upTo: 400000, fee: 2000 }, { upTo: null, fee: 2500 }],
+         buyer: [{ upTo: 100000, fee: 500 }, { upTo: 200000, fee: 1000 }, { upTo: 300000, fee: 1500 }, { upTo: 400000, fee: 2000 }, { upTo: null, fee: 2500 }] },
   timing: { acceptHours: 48, nudgeHours: 24, flagHours: 72, unpaidHours: 72, autoReleaseMinutes: 1440 },
   contact: { email: 'hello@hoolam.com', phone: '', socials: [] },
 };
@@ -73,10 +75,12 @@ async function serverSettings() {
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const num = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const naira = (n) => `₦${num(n)}`;
-/** +234 801 234 5678, +1 555 138 0045 */
+/** Nigerian numbers the way people write them: 07034577787. Others: +1 555 138 0045. */
 function phoneText(raw) {
   const d = String(raw ?? '').replace(/\D/g, '');
   if (!d) return '';
+  if (/^234\d{10}$/.test(d)) return '0' + d.slice(3);
+  if (/^0\d{10}$/.test(d)) return d;
   const cc = /^[17]/.test(d) ? d.slice(0, 1) : /^(2[1-9]\d|3[578]\d|42\d|5[09]\d|6[7-9]\d|8[5-9]\d|9[6-9]\d)/.test(d) ? d.slice(0, 3) : d.slice(0, 2);
   const rest = d.slice(cc.length);
   return `+${cc} ${rest.length === 10 ? rest.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1 $2 $3') : rest.replace(/(\d{2})(?=\d)/g, '$1 ')}`;
@@ -91,6 +95,7 @@ const baked = {};
 if (live && live.currency === 'NGN') {
   baked.fees = live.fees;
   baked.maxDeal = live.maxDeal;
+  if (live.txn) baked.txn = live.txn;
   if (live.whatsapp) baked.whatsapp = String(live.whatsapp).replace(/\D/g, '');
   baked.images = {};
   for (const [slot, img] of Object.entries(live.images ?? {})) {
@@ -107,6 +112,9 @@ if (live && live.currency === 'NGN') {
 const ok = live && live.currency === 'NGN';
 const fees = (ok && live.fees) || DEFAULTS.fees;
 const maxDeal = (ok && live.maxDeal) || DEFAULTS.maxDeal;
+const txn = (ok && live.txn) || DEFAULTS.txn;
+/** "₦500 for orders up to ₦100,000, ₦1,000 up to ₦200,000, … and ₦2,500 above ₦400,000" */
+const bandsText = (b) => b.map((x, i) => x.upTo == null ? `${i ? 'and ' : ''}${naira(x.fee)} above ${naira(b[i - 1]?.upTo ?? 0)}` : `${naira(x.fee)} ${i ? '' : 'for orders '}up to ${naira(x.upTo)}`).join(', ');
 const timing = { ...DEFAULTS.timing, ...((ok && live.timing) || {}) };
 const contact = { ...DEFAULTS.contact, ...((ok && live.contact) || {}) };
 const wa = baked.whatsapp ?? fallbackWa;
@@ -130,6 +138,7 @@ const shared = {
   INCORPORATED: COMPANY.incorporated, YEAR: String(new Date().getFullYear()), EFFECTIVE: LEGAL_EFFECTIVE,
   EMAIL: esc(contact.email), EMAIL_LINK: `<a href="mailto:${esc(contact.email)}">${esc(contact.email)}</a>`,
   WHATSAPP: esc(phoneText(wa)), WA_LINK: `<a data-wa href="${esc(waLink)}" target="_blank" rel="noopener">${wa ? `WhatsApp on ${esc(phoneText(wa))}` : 'WhatsApp'}</a>`,
+  TXN_SELLER: bandsText(txn.seller), TXN_BUYER: bandsText(txn.buyer),
   FEE_RATE: `${String(fees.rate).replace(/\.0+$/, '')}%`, FEE_MIN: naira(fees.min), FEE_MAX: naira(fees.max), FEE_ROUND: naira(fees.roundTo || 1), MAX_DEAL: naira(maxDeal),
   ACCEPT_HOURS: hours(timing.acceptHours), NUDGE_HOURS: hours(timing.nudgeHours), FLAG_HOURS: hours(timing.flagHours), UNPAID_HOURS: hours(timing.unpaidHours), AUTO_RELEASE: minutesText(timing.autoReleaseMinutes ?? 1440),
 };

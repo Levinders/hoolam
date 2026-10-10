@@ -140,13 +140,18 @@ handover code.
 
 ## Seller starts the deal
 
-**Whoever starts the deal pays Hoolam's fee.** A seller's deal: the buyer pays just the price, the seller receives
-the price minus the fee. A buyer's deal: the buyer pays price + fee, the seller receives the full price.
+**Whoever starts the deal pays Hoolam's fee; the other side pays a flat transaction fee** (bands by order total, set in
+Console → Settings → Fees: "Seller transaction fee" and "Buyer transaction fee", default ₦500 / ₦1,000 / ₦1,500 /
+₦2,000 / ₦2,500 at ₦100k steps). A buyer's deal: the buyer pays price + Hoolam fee, the seller receives the price
+minus the seller's transaction fee. A seller's deal: the buyer pays price + the buyer's transaction fee, the seller
+receives the price minus Hoolam's fee. Stored as `deals.txn_fee_minor` / `txn_fee_payer`; both fees land in
+`revenue:fees` at release. Each person only sees their own fee (chat, forms, and their own order page link).
+Refunds return everything still held, so a buyer's transaction fee comes back and the seller pays none.
 
 1. The seller gives the item, price, up to 3 photos and (optionally) the buyer's WhatsApp, in the seller form or the chat.
 2. The buyer is alerted once with the template `hoolam_order_payment_request` (**View order** / **Not me**); the seller also gets
    a `Pay HL-…` link to forward. The buyer sees the photos, then **Pay now**.
-3. On a buyer's deal the seller can **✏️ Change price**: the buyer gets the new total and accepts or cancels.
+3. On a buyer's deal the seller can **✏️ Update price** (with a reason): the buyer gets the new price, Hoolam fee and total, and accepts or cancels.
 4. After **I've sent it**, the seller can send a photo or a tracking note as proof of shipping. The buyer sees it; it's
    kept with the deal (`deal_photos.kind = 'SHIPPING'`, `deals.shipping_note`) for disputes.
 

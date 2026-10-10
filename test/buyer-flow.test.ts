@@ -133,7 +133,7 @@ describe('a buyer starts a deal in the chat', () => {
     await h.tap(buyer, 'buy:nophone');
     expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/\*💰 Total price  ₦20,000\*/);
-    expect(h.last(buyer)).toMatch(/Hoolam's fee is added when the seller accepts: 2\.5% of the total \(at least ₦300, at most ₦5,000\)/);
+    expect(h.last(buyer)).toMatch(/Hoolam's fee is added when the seller accepts: 2\.5% of the total \(starting from ₦300, at most ₦5,000\)/);
     expect(h.last(buyer)).toMatch(/📍 Deliver to: \*12 Woji Road, Port Harcourt\*/);
     expect(h.last(buyer)).toMatch(/Nothing to pay yet/);
     expect(h.last(buyer)).toMatch(/\[📨 Send to seller\]/);
@@ -157,12 +157,13 @@ describe('the seller answers', () => {
     const code = await buyByChat(buyer, { sellerPhone: seller, photos: 2 });
 
     await h.app.chat.handle({ id: `t${++n}`, phone: seller, name: 'Bayo Shoes', type: 'button', text: 'View deal', buttonId: `sview:${code}`, mediaId: null });
-    expect(h.last(seller)).toMatch(/Ada wants to buy from you/);
-    expect(h.last(seller)).toMatch(/You receive \*₦15,000\*/);
+    expect(h.last(seller)).toMatch(/\*New order request\* on \*Hoolam\*/);
+    expect(h.last(seller)).toMatch(/👤 Buyer: \*Ada\*\n📦 Item: \*Black sneakers, size 42\*\n💰 Total price: \*₦15,000\*/);
+    expect(h.last(seller)).toMatch(/Transaction fee  −₦500\n\*You receive     ₦14,500\*/); // only the seller sees their transaction fee
     expect(h.last(seller)).toMatch(/Brand new, in the box/);
-    expect(h.last(seller)).toMatch(/📍 12 Woji Road, Port Harcourt/);
-    expect(h.last(seller)).toMatch(/minus the rider's fee if you send one/);
-    expect(h.last(seller)).toMatch(/\[✅ Accept\] \[✏️ Change price\] \[✕ Decline\]/);
+    expect(h.last(seller)).toMatch(/📍 Deliver to: \*12 Woji Road, Port Harcourt\*/);
+    expect(h.last(seller)).toMatch(/Minus the rider's fee, if you send one/);
+    expect(h.last(seller)).toMatch(/\[✅ Accept\] \[✏️ Update price\] \[✕ Decline\]/);
     const images = await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='image'`, [seller]);
     expect(images.rows[0].c).toBe(2);
 
@@ -171,8 +172,11 @@ describe('the seller answers', () => {
     await h.say(seller, '0123456789 GTBank');
     await h.tap(seller, 'bank:yes');
     expect(h.last(seller)).toMatch(/Order HL-.* accepted/);
-    expect(h.last(buyer)).toMatch(/Bayo accepted your order/);
-    expect(h.last(buyer)).toMatch(/\[💳 Pay now\]/);
+    expect(h.last(buyer)).toMatch(/\*Bayo\* \*accepted your order!\*/);
+    expect(h.last(buyer)).toMatch(/Hoolam fee     ₦400/); // the buyer sees Hoolam's fee only, never the seller's transaction fee
+    expect(h.last(buyer)).not.toMatch(/Transaction fee/);
+    expect(h.last(buyer)).toMatch(/\*Your money stays with Hoolam until you have your item and you're happy\.\*/);
+    expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[🛡️ Seller's record\] \[✕ Cancel order\]/);
     expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
 
     await h.tap(buyer, `pay:${code}`);
@@ -180,7 +184,7 @@ describe('the seller answers', () => {
     const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
     h.provider.pay(r.rows[0].provider_reference);
     await h.app.deals.handleCollection(r.rows[0].provider_reference);
-    expect(h.last(seller)).toMatch(/The buyer has paid.*Dispatch it now/s);
+    expect(h.last(seller)).toMatch(/Ada has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,500\* is held.*Dispatch it now/s);
     await h.tap(seller, `dispatch:${code}`); await h.tap(seller, 'dm:pickup'); await h.say(seller, 'Shop 4, Rumuola Plaza');
     await h.tap(buyer, `happy:${code}`);
     expect((await deal(code)).status).toBe('COMPLETED');
@@ -221,7 +225,7 @@ describe('the seller answers', () => {
     const code = await buyByChat(buyer);
     expect(h.last(buyer)).toMatch(/Send this link to the seller/);
     await h.say(seller, `View ${code}`, 'Chidi');
-    expect(h.last(seller)).toMatch(/wants to buy from you/);
+    expect(h.last(seller)).toMatch(/New order request/);
     expect(h.last(seller)).not.toMatch(/Not me/); // they weren't alerted
     await h.tap(seller, `saccept:${code}`);
     expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
@@ -260,16 +264,17 @@ describe('buyer side, edges', () => {
     expect(h.last(buyer)).toMatch(/📍 Deliver to: \*8 Delta Bakery Road, Woji\*/);
     expect(h.last(buyer)).toMatch(/Expected by \*Fri 9 Oct\*/);
     expect(h.last(buyer)).toMatch(/\*💰 Total price  ₦12,000\*/);
-    expect(h.last(buyer)).not.toMatch(/You pay/);
+    expect(h.last(buyer)).not.toMatch(/You pay\s+₦/); // no amount to pay yet
     await h.tap(buyer, 'buy:send');
     const d = await deal(codeIn(h.last(buyer)));
     expect(d).toMatchObject({ arrive_by: '2026-10-09', description: '18k plated, pair', category: 'bags', delivery_address: '8 Delta Bakery Road, Woji' });
     expect(d.view_token).toMatch(/^[A-Za-z0-9_-]{16}$/);
     expect(Number(d.buyer_pays_minor)).toBe(1_230_000); // total + fee
-    expect(Number(d.seller_gets_minor)).toBe(1_200_000);
+    expect(Number(d.seller_gets_minor)).toBe(1_150_000); // ₦12,000 minus the seller's ₦500 transaction fee
+    expect(Number(d.txn_fee_minor)).toBe(50_000); expect(d.txn_fee_payer).toBe('SELLER');
     await h.tap(seller, `sview:${d.code}`);
-    expect(h.last(seller)).toMatch(/Expecting it by Fri 9 Oct/);
-    expect(h.last(seller)).toMatch(/📍 8 Delta Bakery Road, Woji/);
+    expect(h.last(seller)).toMatch(/Expected by \*Fri 9 Oct\*/);
+    expect(h.last(seller)).toMatch(/📍 Deliver to: \*8 Delta Bakery Road, Woji\*/);
 
     // the seller suggests a new price; the fee follows it, and the buyer sees the breakdown
     await h.tap(seller, `scounter:${d.code}`);
@@ -280,7 +285,7 @@ describe('buyer side, edges', () => {
     expect(h.last(buyer)).toMatch(/Total price    ₦14,000\nHoolam fee     ₦400\n\*You pay        ₦14,400\*/);
     const after = await deal(d.code);
     expect(Number(after.buyer_pays_minor)).toBe(1_440_000);
-    expect(Number(after.seller_gets_minor)).toBe(1_400_000);
+    expect(Number(after.seller_gets_minor)).toBe(1_350_000);
   });
 
   it('the form: a missing answer is asked in the chat', async () => {

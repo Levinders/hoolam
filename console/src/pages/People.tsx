@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, post } from '../api';
 import { useAuth } from '../auth';
-import { ACTIONS, ago, dateOnly, dateTime, hours, money } from '../format';
+import { ACTIONS, ago, dateOnly, dateTime, hours, money, phone } from '../format';
 import { useData, useDebounced } from '../hooks';
 import { Avatar, Button, ConfirmAction, Empty, ErrorBanner, Pager, Seg, Skeleton, SkeletonRows, StatusPill, useToast } from '../ui';
 
@@ -38,7 +38,7 @@ export function People() {
                       <tr key={u.id} className="link" tabIndex={0} onClick={() => nav(`/people/${u.id}`)} onKeyDown={(e) => { if (e.key === 'Enter') nav(`/people/${u.id}`); }}>
                         <td><div className="row"><Avatar name={u.business_name || u.display_name} gold={u.sales > 0} /><div><div className="cell-main">{u.business_name || u.display_name || 'No name'}</div>
                           <div className="cell-sub">{u.business_name && u.display_name ? u.display_name : u.city ?? ''}{u.blocked && <span className="pill red plain" style={{ height: 18, marginLeft: 6 }}>Paused</span>}{u.profile_public && <span className="pill teal plain" style={{ height: 18, marginLeft: 6 }}>Public page</span>}</div></div></div></td>
-                        <td className="num">{u.phone}</td>
+                        <td className="num">{phone(u.phone)}</td>
                         <td className="r num">{u.sales || <span className="faint">0</span>}</td>
                         <td className="r num">{u.purchases || <span className="faint">0</span>}</td>
                         <td className="muted">{u.last_deal_at ? ago(u.last_deal_at) : '—'}</td>
@@ -80,7 +80,7 @@ export function Person() {
             : <Avatar name={name} gold={s?.completed > 0} />}
           <div>
             <h1>{name}</h1>
-            <p className="lede">{u.phone}{u.city ? ` · ${u.city}` : ''} · on Hoolam since {dateOnly(u.created_at)}</p>
+            <p className="lede">{phone(u.phone)}{u.city ? ` · ${u.city}` : ''} · on Hoolam since {dateOnly(u.created_at)}</p>
           </div>
         </div>
         <div className="actions">

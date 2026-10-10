@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { post } from '../api';
 import { useAuth } from '../auth';
-import { ACTIONS, ago, dateTime, money, STATUS } from '../format';
+import { ACTIONS, ago, dateTime, money, STATUS, phone } from '../format';
 import { useData } from '../hooks';
 import { Avatar, Button, ConfirmAction, Empty, ErrorBanner, Modal, PayoutPill, Seg, Skeleton, StatusPill, useToast } from '../ui';
 
@@ -218,6 +218,7 @@ export function Deal() {
                 {d.delivery_address && <><dt>Deliver to</dt><dd>{d.delivery_address}</dd></>}
                 <dt>Price</dt><dd className="money">{money(d.price_minor, cur)}{d.started_by === 'BUYER' && <span className="muted small"> total, delivery included</span>}</dd>
                 <dt>Hoolam fee</dt><dd className="money">{money(d.fee_minor, cur)} <span className="muted small">paid by {d.fee_payer === 'SELLER' ? 'seller' : 'buyer'}</span></dd>
+                {Number(d.txn_fee_minor) > 0 && <><dt>Transaction fee</dt><dd className="money">{money(d.txn_fee_minor, cur)} <span className="muted small">paid by {d.txn_fee_payer === 'BUYER' ? 'buyer' : 'seller'}</span></dd></>}
                 <dt>Buyer pays</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.buyer_pays_minor, cur)}</dd>
                 <dt>Seller receives</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.seller_gets_minor, cur)}</dd>
                 {d.counter_price_minor && <><dt>New price asked</dt><dd className="money">{money(d.counter_price_minor, cur)} <span className="pill gold plain">Waiting for buyer</span></dd></>}
@@ -226,7 +227,7 @@ export function Deal() {
                 {d.arrive_by && <><dt>Expected by</dt><dd>{d.arrive_by}</dd></>}
                 {d.dispatch_method && <><dt>Dispatch</dt><dd>
                   {d.dispatch_method === 'PICKUP' ? <>Pickup<div className="cell-sub">{d.pickup_address}</div></>
-                    : <>{d.dispatch_method === 'RIDER' ? `Rider${d.courier_name ? ': ' + d.courier_name : ''}` : 'Waybill'}<div className="cell-sub">{[d.courier_phone, d.courier_location].filter(Boolean).join(' · ')}</div></>}
+                    : <>{d.dispatch_method === 'RIDER' ? `Rider${d.courier_name ? ': ' + d.courier_name : ''}` : 'Waybill'}<div className="cell-sub">{[phone(d.courier_phone), d.courier_location].filter(Boolean).join(' · ')}</div></>}
                 </dd></>}
                 {Number(d.delivery_fee_minor) > 0 && <><dt>Delivery fee</dt><dd className="money">{money(d.delivery_fee_minor, cur)} <span className="muted small">{d.courier_paid_at ? 'paid to the ' + (d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider') : 'paid when the code is right'}</span></dd></>}
                 {d.dispatched_at && <><dt>Handover code</dt><dd>{d.handed_over_at ? <>Confirmed <span className="muted small">{dateTime(d.handed_over_at)}</span></> : <span className="muted">Not entered yet{d.handover_tries ? ` · ${d.handover_tries} wrong ${d.handover_tries === 1 ? 'try' : 'tries'}` : ''}</span>}</dd></>}
@@ -244,8 +245,8 @@ export function Deal() {
                   <Avatar name={u?.business_name || u?.display_name || who} gold={who === 'Seller'} />
                   <div style={{ minWidth: 0 }}>
                     <div className="small muted">{who}</div>
-                    {u ? <Link to={`/people/${u.id}`} className="cell-main" style={{ color: 'var(--ink)' }}>{u.business_name || u.display_name || u.phone}</Link> : <span className="faint">{who === 'Seller' && d.invited_phone ? `Invited: ${d.invited_phone}` : 'Not yet'}</span>}
-                    {u && <div className="cell-sub">{u.phone}{u.blocked && <span className="pill red plain" style={{ marginLeft: 6, height: 20 }}>Paused</span>}</div>}
+                    {u ? <Link to={`/people/${u.id}`} className="cell-main" style={{ color: 'var(--ink)' }}>{u.business_name || u.display_name || phone(u.phone)}</Link> : <span className="faint">{who === 'Seller' && d.invited_phone ? `Invited: ${phone(d.invited_phone)}` : 'Not yet'}</span>}
+                    {u && <div className="cell-sub">{phone(u.phone)}{u.blocked && <span className="pill red plain" style={{ marginLeft: 6, height: 20 }}>Paused</span>}</div>}
                     {u && line && <div className="cell-sub">{line}</div>}
                   </div>
                 </div>

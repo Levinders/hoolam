@@ -3,6 +3,7 @@ import type { ListSection, Outbound } from './client.js';
 import { shipText, shortBankName, type BuyerStats, type SellerStats } from '../trust.js';
 import { SOCIAL_NAMES, type SocialKind } from '../socials.js';
 import { CATEGORIES } from '../deals/categories.js';
+import { localPhone } from '../phone.js';
 
 // Every message Hoolam sends, in one place. Plain words, short lines, and always answer
 // the quiet question underneath: "where is my money right now?"
@@ -65,8 +66,7 @@ const STORY =
 /** A message with a "Main menu" button under it, so nobody is left at a dead end. */
 /** "+2348012345678" → "+234 801 ••• 5678" */
 const maskPhone = (p: string) => p.length > 8 ? `${p.slice(0, 4)} ${p.slice(4, 7)} ••• ${p.slice(-4)}` : p;
-/** +2348117663890 → 0811 766 3890 (the way people write Nigerian numbers). */
-export const localPhone = (p: string) => { const l = p.replace(/^\+234/, '0'); return /^0\d{10}$/.test(l) ? `${l.slice(0, 4)} ${l.slice(4, 7)} ${l.slice(7)}` : p; };
+export { localPhone };
 const first = (name: string | null) => (name ? ' ' + name.split(' ')[0] : '');
 const withMenu = (text: string): Outbound => ({ kind: 'buttons', text, buttons: [{ id: 'menu:open', title: 'Main menu' }] });
 
@@ -159,7 +159,7 @@ export const msg = {
     text: `🏦 We send your money here:\n\n*${accountName}*\n${bankName} ••••${last4}`,
     buttons: [{ id: 'account:change', title: '✏️ Change account' }, { id: 'menu:open', title: 'Main menu' }],
   }),
-  askNewAccount: (): Outbound => ({ kind: 'text', text: '🏦 Send the new account number and bank.\n\nFor example: _0123456789 GTBank_' }),
+  askNewAccount: (): Outbound => ({ kind: 'text', text: '🏦 Send the new account number. We\'ll show you the banks to pick from.\n\nFor example: _0123456789_' }),
   accountSaved: (bankName: string, last4: string): Outbound => withMenu(`✅ Saved. New orders pay into ${bankName} ••••${last4}.\n\nOrders already running keep their account.`),
 
   // ----- talk to a person -----
@@ -279,7 +279,7 @@ export const msg = {
   }),
   askCity: (): Outbound => ({ kind: 'buttons', text: '📍 Which city are you in?', buttons: [{ id: 'card:nocity', title: 'Skip' }] }),
   cardShared: (url: string): Outbound => withMenu(`🔗 Your page is live:\n${url}\n\nPost it on Instagram, your WhatsApp status, or send it to buyers. Anyone who taps *Buy safely* starts a protected order with you.\n\nTip: forward the next message as it is.`),
-  cardForwardText: (name: string, url: string): Outbound => ({ kind: 'text', text: `🛡️ Buy from ${name} safely with Hoolam. Your money is held until you're happy with your order.\n\n${url}` }),
+  cardForwardText: (name: string, url: string): Outbound => ({ kind: 'text', noMenu: true, text: `🛡️ Buy from ${name} safely with Hoolam. Your money is held until you're happy with your order.\n\n${url}` }),
   cardHidden: (): Outbound => withMenu('🙈 Your page is hidden. Buyers still see your record on your orders, to keep them safe.'),
 
   // ===== RATINGS =====
@@ -320,11 +320,11 @@ export const msg = {
   }),
   badSellerPhone: (): Outbound => ({
     kind: 'buttons',
-    text: '🤔 I couldn\'t read that number. Try it like _08012345678_ or _+229 90 00 00 00_.',
+    text: '🤔 I couldn\'t read that number. Try it like _08012345678_.',
     buttons: [{ id: 'buy:nophone', title: 'Skip' }],
   }),
 
-  /** Check before sending. The Hoolam fee is added once the seller accepts (they may change the price). */
+  /** Check before sending. The Hoolam fee is added once the seller accepts (they may update the price). */
   buySummary: (d: { item: string; description?: string | null; category?: string | null; address?: string | null; photos: number; arriveBy: string | null; sellerPhone: string | null; total: Money; feeRule: string }): Outbound => ({
     kind: 'buttons',
     text:
@@ -336,7 +336,7 @@ export const msg = {
       (d.arriveBy ? `📅 Expected by *${d.arriveBy}*\n` : '') +
       `📨 ${d.sellerPhone ? `Seller's WhatsApp: *${localPhone(d.sellerPhone)}*` : 'You\'ll get a link for the seller'}\n\n` +
       `*💰 Total price  ${m(d.total)}*\n_Delivery included, if any._\n\n` +
-      `🧾 Hoolam's fee is added when the seller accepts: ${d.feeRule}.\n\n💡 Nothing to pay yet.`,
+      `🧾 Hoolam's fee is added when the seller accepts: ${d.feeRule}.\n\n💡 Nothing to pay yet. You pay after the seller accepts.\n\nIs everything right?`,
     buttons: [{ id: 'buy:send', title: '📨 Send to seller' }, { id: 'buy:edit', title: '✏️ Edit order' }, { id: 'buy:restart', title: '🔄 Start again' }],
   }),
   /** The order to check, in the form: photos, details, then Send / Edit / Start again. */
@@ -390,12 +390,12 @@ export const msg = {
   buyerAlertFailed: (): Outbound => ({ kind: 'text', text: '📵 We couldn\'t reach that WhatsApp number. Please send the seller the link above.' }),
   ownBuyDeal: (code: string, link: string): Outbound => withMenu(`🛒 This is your order ${code}. It's waiting for the seller.\n\nSend them this link:\n${link}`),
 
-  buyerSellerAccepted: (code: string, sellerName: string, item: string, amt: { price: Money; fee: Money; pay: Money }, trust?: string): Outbound => ({
+  buyerSellerAccepted: (code: string, sellerName: string, item: string, amt: { price: Money; fee: Money; pay: Money; feeLabel?: string }, trust?: string): Outbound => ({
     kind: 'buttons',
-    text: `🎉 ${sellerName} accepted your order!\n` + (trust ? `${trust}\n` : '') +
-      `\n*${item}*\nTotal price    ${m(amt.price)}\nHoolam fee     ${m(amt.fee)}\n*You pay        ${m(amt.pay)}*\n\n` +
-      `🛡️ Your money stays with Hoolam until you have your item and you're happy. (Order ${code})`,
-    buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: 'Not now' }],
+    text: `🎉 *${sellerName}* *accepted your order!*\n` + (trust ? `${trust}\n` : '') +
+      `\n*${item}*\nTotal price    ${m(amt.price)}\n${(amt.feeLabel ?? 'Hoolam fee').padEnd(14)} ${m(amt.fee)}\n*You pay        ${m(amt.pay)}*\n\n` +
+      `🛡️ *Your money stays with Hoolam until you have your item and you're happy.* (Order *${code}*)`,
+    buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: '✕ Cancel order' }],
   }),
   buyerSellerDeclined: (code: string): Outbound => ({
     kind: 'buttons',
@@ -414,41 +414,44 @@ export const msg = {
   }),
 
   // ===== WHAT THE SELLER SEES (seller flow comes later; this is the small part buyers need) =====
-  sellerDealCard: (d: { code: string; buyerName: string; item: string; description?: string | null; category?: string | null; address?: string | null; price: Money; sellerGets: Money; arriveBy: string | null; hoursLeft: number; invited: boolean; buyerLine?: string }): Outbound => ({
+  sellerDealCard: (d: { code: string; buyerName: string; item: string; description?: string | null; category?: string | null; address?: string | null; price: Money; sellerGets: Money; txnFee?: Money | null; arriveBy: string | null; hoursLeft: number; invited: boolean; buyerLine?: string }): Outbound => ({
     kind: 'buttons',
     text:
-      `🛒 *${d.buyerName} wants to buy from you*\n` + (d.buyerLine ? `${d.buyerLine}\n` : '') +
-      `\n*${d.item}*\n` + (d.description ? `${d.description}\n` : '') + (d.category ? `🏷️ ${d.category}\n` : '') +
-      (d.address ? `📍 ${d.address}\n` : '') + (d.arriveBy ? `📅 Expecting it by ${d.arriveBy}\n` : '') +
-      `\n💰 Total price ${m(d.price)} (delivery included)\n💸 You receive *${m(d.sellerGets)}*, minus the rider's fee if you send one\n` +
+      `🛒 *New order request* on *Hoolam*\n\n` +
+      `👤 Buyer: *${d.buyerName}*\n📦 Item: *${d.item}*\n💰 Total price: *${m(d.price)}*\n` + (d.buyerLine ? `\n${d.buyerLine}\n` : '') +
+      (d.description || d.category ? '\n' : '') + (d.description ? `${d.description}\n` : '') + (d.category ? `🏷️ ${d.category}\n` : '') +
+      (d.address || d.arriveBy ? '\n' : '') + (d.address ? `📍 Deliver to: *${d.address}*\n` : '') + (d.arriveBy ? `📅 Expected by *${d.arriveBy}*\n` : '') +
+      `\nTotal price       ${m(d.price)} (delivery included)\n` +
+      (d.txnFee && d.txnFee.minor ? `Transaction fee  −${m(d.txnFee)}\n` : '') +
+      `*You receive     ${m(d.sellerGets)}*\n_Minus the rider's fee, if you send one._\n` +
       `\n💳 ${d.buyerName} pays Hoolam first\n📦 You dispatch once the money is held\n💸 You get paid when they're happy\n\n` +
-      `⏳ Accept within ${d.hoursLeft} hour${d.hoursLeft === 1 ? '' : 's'}. (Order ${d.code})`,
+      `⏳ Accept within ${d.hoursLeft} hour${d.hoursLeft === 1 ? '' : 's'}. (Order *${d.code}*)`,
     buttons: [
       { id: `saccept:${d.code}`, title: '✅ Accept' },
-      { id: `scounter:${d.code}`, title: '✏️ Change price' },
+      { id: `scounter:${d.code}`, title: '✏️ Update price' },
       { id: `sdecline:${d.code}`, title: '✕ Decline' },
     ],
   }),
-  askSellerBank: (): Outbound => ({ kind: 'text', text: '🏦 Last step: where should we pay you when the buyer is happy?\n\nSend your account number and bank.\nFor example: _0123456789 GTBank_' }),
+  askSellerBank: (): Outbound => ({ kind: 'text', text: '🏦 Last step: where should we pay you when the buyer is happy?\n\nSend your account number. We\'ll show you the banks to pick from.\nFor example: _0123456789_' }),
   sellerAcceptedOk: (code: string, buyerName: string, bankName: string, last4: string): Outbound => withMenu(
     `✅ Order ${code} accepted.\n\n⏳ We've asked ${buyerName} to pay. We'll tell you the moment the money is held. Don't ship before then.\n\n🏦 You'll be paid into ${bankName} ••••${last4}.`,
   ),
 
-  // ----- Change price -----
+  // ----- Update price -----
   askCounterPrice: (current: Money): Outbound => ({ kind: 'text', text: `✏️ What price works for you? (in naira)\n\nThe buyer offered *${m(current)}*.` }),
   askCounterReason: (price: Money): Outbound => ({ kind: 'text', text: `💬 Why *${m(price)}*? Tell the buyer in a few words (max 150 characters).\n\nFor example: _The price went up at the market_` }),
   badCounterReason: (): Outbound => ({ kind: 'text', text: '💬 Please type a short reason for the buyer (3 to 150 characters).' }),
-  counterSent: (code: string, buyerName: string, price: Money): Outbound => withMenu(`✏️ Sent. We've asked ${buyerName} if ${m(price)} works.\n\nWe'll tell you when they answer. (Order ${code})`),
+  counterSent: (code: string, buyerName: string, price: Money): Outbound => withMenu(`✏️ Sent. We've asked *${buyerName}* if *${m(price)}* works.\n\nWe'll tell you when they answer. (Order *${code}*)`),
   counterWaiting: (code: string): Outbound => withMenu(`⏳ Order ${code}: we're waiting for the buyer to answer your price.`),
-  buyerCounterOffer: (code: string, sellerName: string, item: string, oldPrice: Money, newPrice: Money, newTotal: Money, reason = ''): Outbound => ({
+  buyerCounterOffer: (code: string, sellerName: string, item: string, oldPrice: Money, newPrice: Money, newTotal: Money, reason = '', fee?: Money): Outbound => ({
     kind: 'buttons',
-    text: `✏️ ${sellerName} wants a different price\n\n*${item}*\n~${m(oldPrice)}~ → *${m(newPrice)}*\n` +
+    text: `✏️ *${sellerName}* updated the price\n\n*${item}*\n~${m(oldPrice)}~ → *${m(newPrice)}*\n` +
       (reason ? `💬 Reason: ${reason}\n` : '') +
-      `\nYou'd pay *${m(newTotal)}*\n\n💡 You only pay if you accept. (Order *${code}*)`,
+      `\nNew price       ${m(newPrice)}\n` + (fee ? `Hoolam fee     ${m(fee)}\n` : '') + `*You'd pay       ${m(newTotal)}*\n\n💡 You only pay if you accept. (Order *${code}*)`,
     buttons: [{ id: `cyes:${code}`, title: '✅ Accept new price' }, { id: `cancel:${code}`, title: '✕ Cancel order' }],
   }),
   sellerCounterAccepted: (code: string, buyerName: string, youGet: Money): Outbound => withMenu(
-    `🎉 ${buyerName} accepted your price for order ${code}. You'll receive ${m(youGet)}.\n\n⏳ We've asked them to pay. Don't ship before we confirm the money is held.`,
+    `🎉 *${buyerName}* accepted your price for order *${code}*. You'll receive *${m(youGet)}*.\n\n⏳ We've asked them to pay. *Don't ship before we confirm the money is held.*`,
   ),
   askDeclineReason: (code: string): Outbound => ({
     kind: 'buttons',
@@ -472,8 +475,16 @@ export const msg = {
   askPrice: (): Outbound => ({ kind: 'text', text: 'What\'s the price in naira? (For example: 15000)' }),
   badPrice: (): Outbound => ({ kind: 'text', text: 'I didn\'t get that price. Please type just the amount, like 15000.' }),
   priceTooHigh: (max: Money): Outbound => ({ kind: 'text', text: `For now, orders can be up to ${m(max)}. Please type a smaller price, or contact us for bigger orders.` }),
-  askBank: (): Outbound => ({ kind: 'text', text: 'Where should we pay you? Send your account number and bank.\n\nFor example: 0123456789 GTBank' }),
-  badBank: (): Outbound => ({ kind: 'text', text: 'I couldn\'t read that. Please send a 10-digit account number and your bank name, like: 0123456789 Opay' }),
+  askBank: (): Outbound => ({ kind: 'text', text: '🏦 Where should we pay you? Send your account number. We\'ll show you the banks to pick from.\n\nFor example: _0123456789_' }),
+  /** Banks an account number can belong to, most likely first, plus "Other". */
+  pickBank: (accountNumber: string, banks: { code: string; name: string }[]): Outbound => ({
+    kind: 'list',
+    text: `🏦 Which bank is *${accountNumber}* with?`,
+    button: 'Choose bank',
+    sections: [{ title: 'Banks', rows: [...banks.map((b) => ({ id: `bpick:${b.code}`, title: b.name.slice(0, 24) })), { id: 'bpick:other', title: 'Other bank', description: 'Type the bank name' }] }],
+  }),
+  askBankName: (): Outbound => ({ kind: 'text', text: '🏦 Type the bank name. For example: _Fidelity_' }),
+  badBank: (): Outbound => ({ kind: 'text', text: 'I couldn\'t read that. Please send the 10-digit account number (and the bank, if you like), like: 0123456789 Opay' }),
   bankNotFound: (bank: string): Outbound => ({ kind: 'text', text: `I couldn't find a bank called "${bank}". Try the usual name, like GTBank, Access, Zenith, Opay, Moniepoint or Kuda.` }),
   accountNotFound: (): Outbound => ({ kind: 'text', text: 'That account number didn\'t match the bank. Please check it and send it again.' }),
   confirmBank: (accountName: string, bankName: string, last4: string): Outbound => ({
@@ -486,9 +497,9 @@ export const msg = {
     text:
       `🏷️ *Check your order*\n\n*${d.item}*\n` +
       (d.photos ? `📷 ${d.photos} photo${d.photos > 1 ? 's' : ''}\n` : '') +
-      `📨 ${d.buyerPhone ? `We'll send it to ${maskPhone(d.buyerPhone)}` : 'You\'ll get a link for the buyer'}\n\n` +
+      `📨 ${d.buyerPhone ? `Buyer's WhatsApp: *${localPhone(d.buyerPhone)}*` : 'You\'ll get a link for the buyer'}\n\n` +
       `Price         ${m(d.price)}\nHoolam fee   −${m(d.fee)}\n*You receive  ${m(d.sellerGets)}*\n\n` +
-      `💳 The buyer pays ${m(d.buyerPays)}. You started the order, so you pay the fee.`,
+      `💳 You started the order, so you pay Hoolam's fee.`,
     buttons: [{ id: 'sell:confirm', title: '✅ Create order' }, { id: 'sell:restart', title: '✏️ Start again' }],
   }),
   askSellPhotos: (): Outbound => ({
@@ -503,7 +514,7 @@ export const msg = {
   }),
   badBuyerPhone: (): Outbound => ({
     kind: 'buttons',
-    text: '🤔 I couldn\'t read that number. Try it like _08012345678_ or _+229 90 00 00 00_.',
+    text: '🤔 I couldn\'t read that number. Try it like _08012345678_.',
     buttons: [{ id: 'sell:nophone', title: 'Skip' }],
   }),
   sellerBuyerNotMe: (code: string): Outbound => ({
@@ -534,13 +545,13 @@ export const msg = {
   ownDeal: (): Outbound => ({ kind: 'text', text: 'This is your own order. Send the link to your buyer.' }),
   dealTaken: (): Outbound => ({ kind: 'text', text: 'Someone else is already paying for this order. Ask the seller for a new link.' }),
   dealClosed: (code: string): Outbound => ({ kind: 'text', text: `Order ${code} is already closed.` }),
-  dealForBuyer: (code: string, item: string, sellerName: string, price: Money, fee: Money, total: Money, trust?: string): Outbound => ({
+  dealForBuyer: (code: string, item: string, sellerName: string, price: Money, fee: Money, total: Money, trust?: string, feeLabel = 'Transaction fee'): Outbound => ({
     kind: 'buttons',
     text:
-      `Order ${code}\n${item}\n` + (trust ? `${trust}\n` : `Seller: ${sellerName}\n`) + '\n' +
-      (fee.minor > 0 ? `Price: ${m(price)}\nHoolam fee: ${m(fee)}\n*You pay: ${m(total)}*\n\n` : `*You pay: ${m(total)}*\nNo fee for you: the seller pays it.\n\n`) +
-      'Your money stays with Hoolam, not the seller. They only get paid after you receive your item and say you\'re happy. If it never comes, you get your money back.',
-    buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: 'Not now' }],
+      `🛒 Order *${code}* from *${sellerName}*\n` + (trust ? `${trust}\n` : '') + `\n*${item}*\n` +
+      (fee.minor > 0 ? `Price               ${m(price)}\n${feeLabel.padEnd(18)} ${m(fee)}\n*You pay           ${m(total)}*\n\n` : `*You pay ${m(total)}*\n\n`) +
+      '🛡️ *Your money stays with Hoolam, not the seller.* They only get paid after you receive your item and say you\'re happy. If it never comes, you get your money back.',
+    buttons: [{ id: `pay:${code}`, title: '💳 Pay now' }, { id: `record:${code}`, title: '🛡️ Seller\'s record' }, { id: `cancel:${code}`, title: '✕ Cancel order' }],
   }),
   payInstructions: (total: Money, accountNumber: string, bankName: string, accountName: string, minutes: number | null, code: string, hint: 'fake' | 'sandbox' | null = null): Outbound => ({
     kind: 'buttons',
@@ -556,15 +567,14 @@ export const msg = {
     kind: 'text',
     text: `We received ${m(paid)}, but the total is ${m(due)}. Your money is safe with us. A person from Hoolam will contact you to sort it out.`,
   }),
-  buyerFunded: (total: Money, code: string): Outbound => ({
-    kind: 'text',
-    text: `Received ${m(total)}. Your money is safe with Hoolam.\n\nWe've told the seller to send your item. Nothing moves until you say you're happy. (Order ${code})`,
-  }),
+  buyerFunded: (total: Money, code: string, sellerName = 'the seller'): Outbound => withMenu(
+    `✅ Received *${m(total)}*. *Your money is safe with Hoolam.*\n\nWe've told ${sellerName} to send your item. Nothing moves until you say you're happy. (Order *${code}*)`,
+  ),
 
   // ----- seller ships -----
-  sellerFunded: (code: string, yours: Money): Outbound => ({
+  sellerFunded: (code: string, yours: Money, buyerName = 'The buyer'): Outbound => ({
     kind: 'buttons',
-    text: `Good news: the buyer has paid for order ${code}. Your ${m(yours)} is held safely by Hoolam.\n\nShip the item now, then tap below.`,
+    text: `💰 Good news: ${buyerName} has paid for order *${code}*. Your *${m(yours)}* is held safely by Hoolam.\n\nShip the item now, then tap below.`,
     buttons: [{ id: `shipped:${code}`, title: 'I\'ve sent it' }],
   }),
   sellerShippedOk: (code: string): Outbound => ({
@@ -587,9 +597,9 @@ export const msg = {
 
   // ===== DISPATCH (buyer orders) =====
   /** The buyer paid: the seller dispatches (or says they can't fulfil it). */
-  sellerFundedDispatch: (code: string, yours: Money, page: string | null = null): Outbound => ({
+  sellerFundedDispatch: (code: string, yours: Money, page: string | null = null, buyerName = 'The buyer'): Outbound => ({
     kind: 'buttons',
-    text: `💰 The buyer has paid for order ${code}. Your ${m(yours)} is held safely by Hoolam.\n\nDispatch it now: tell us if it's a pickup, a rider or a waybill.` + (page ? `\n\n🔗 Order details: ${page}` : ''),
+    text: `💰 ${buyerName} has paid for order *${code}*. Your *${m(yours)}* is held safely by Hoolam.\n\nDispatch it now: tell us if it's a pickup, a rider or a waybill.` + (page ? `\n\n🔗 Order details: ${page}` : ''),
     buttons: [{ id: `dispatch:${code}`, title: '🚚 Dispatch now' }, { id: `srefund:${code}`, title: '❌ Can\'t fulfil' }],
   }),
   askDispatchMethod: (code: string): Outbound => ({
@@ -606,7 +616,7 @@ export const msg = {
     : { kind: 'text', text: `📍 Where is the ${role} delivering to?` },
   askCourierAccount: (role: 'rider' | 'driver'): Outbound => ({
     kind: 'text',
-    text: `🏦 The ${role}'s account number and bank, for their delivery fee.\n\nFor example: _0123456789 Opay_\n\n⚠️ Please check it carefully. We pay exactly the account you give, and Hoolam can't recover money sent to a wrong account.`,
+    text: `🏦 The ${role}'s account number, for their delivery fee. We'll show you the banks to pick from.\n\nFor example: _0123456789_\n\n⚠️ Please check it carefully. We pay exactly the account you give, and Hoolam can't recover money sent to a wrong account.`,
   }),
   confirmCourierAccount: (role: 'rider' | 'driver', accountName: string, bankName: string, last4: string): Outbound => ({
     kind: 'buttons',
@@ -629,8 +639,8 @@ export const msg = {
       (d.method === 'PICKUP'
         ? `📍 Order ${d.code} is ready for pickup at:\n_${d.pickupAddress ?? ''}_\n`
         : d.method === 'RIDER'
-          ? `🛵 Order ${d.code} is on its way with a rider.\n${d.courierName ? `Rider: *${d.courierName}*\n` : ''}${d.courierPhone ? `📞 ${d.courierPhone}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`
-          : `🚌 Order ${d.code} is on its way by waybill.\n${d.courierPhone ? `Driver: 📞 ${d.courierPhone}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`) +
+          ? `🛵 Order ${d.code} is on its way with a rider.\n${d.courierName ? `Rider: *${d.courierName}*\n` : ''}${d.courierPhone ? `📞 ${localPhone(d.courierPhone)}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`
+          : `🚌 Order ${d.code} is on its way by waybill.\n${d.courierPhone ? `Driver: 📞 ${localPhone(d.courierPhone)}\n` : ''}${d.location ? `📍 To: ${d.location}\n` : ''}`) +
       `\n🔑 Your handover code: *${d.handover}*\n\nGive it only to the ${d.method === 'PICKUP' ? 'seller' : d.method === 'RIDER' ? 'rider' : 'driver'} when the item is in your hands. It confirms you got it. Your money stays with Hoolam until you're happy.` +
       (d.page ? `\n\n🔗 Order details: ${d.page}` : ''),
     buttons: [{ id: `hcodeshow:${d.code}`, title: '🔑 Show my code' }, { id: `problem:${d.code}`, title: '🚩 Problem' }],
@@ -681,7 +691,7 @@ export const msg = {
   askRefundAccountNow: (code: string, by: 'seller' | 'buyer'): Outbound => ({
     kind: 'text',
     text: (by === 'seller' ? `😕 The seller can't fulfil order ${code}. You'll get all your money back.` : `💸 Okay, we'll refund order ${code}.`) +
-      '\n\nWhere should we send it? Send your account number and bank, like: _0123456789 Opay_',
+      '\n\nWhere should we send it? Send your account number, like _0123456789_. We\'ll show you the banks to pick from.',
   }),
   sellerRefundStarted: (code: string, now: boolean): Outbound => withMenu(now
     ? `Done. The buyer is being refunded for order ${code}.`
@@ -710,7 +720,7 @@ export const msg = {
   }),
   askRefundBank: (): Outbound => ({
     kind: 'text',
-    text: 'If we need to refund you, where should the money go? Send your account number and bank, like: 0123456789 Opay',
+    text: 'If we need to refund you, where should the money go? Send your account number, like _0123456789_. We\'ll show you the banks to pick from.',
   }),
   problemLogged: (code: string, ref: string): Outbound => withMenu(`Got it. Case ${ref} is open for order ${code}. A real person will reply within 24 hours. The money stays frozen until it's sorted.`),
   sellerProblem: (code: string): Outbound => ({

@@ -99,7 +99,7 @@ describe('where buyers see it', () => {
     const buyer = phone();
     await h.say(buyer, `Pay ${code}`, 'Tolu');
     expect(h.last(buyer)).toMatch(/🛡️ Bayo · ✅ 3 orders/);
-    expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[🛡️ Seller's record\] \[Not now\]/);
+    expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[🛡️ Seller's record\] \[✕ Cancel order\]/);
     expect(h.last(seller)).toMatch(/👤 Tolu · 🌱 new buyer on Hoolam/); // sellers see the buyer too
     await h.tap(buyer, `record:${code}`);
     expect(h.last(buyer)).toMatch(/✅ 3 orders completed/);
@@ -133,9 +133,9 @@ describe('where buyers see it', () => {
     await h.say(buyer, 'Loafers'); await h.say(buyer, 'Brown, size 41'); await h.tap(buyer, 'cat:shoes');
     await h.say(buyer, '12000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'buy:nophotos');
     expect(h.last(buyer)).toMatch(/Check your order/);
-    expect(h.last(buyer)).toMatch(/Seller's WhatsApp: \*0807 /);
+    expect(h.last(buyer)).toMatch(/Seller's WhatsApp: \*0807\d{7}\*/);
     await h.tap(buyer, 'buy:send');
-    expect((await lastBody(seller)).text).toMatch(/\[template hoolam_new_order_request\]/);
+    expect((await lastBody(seller)).text).toMatch(/\[template hoolam_new_order_request_v2\]/);
   });
 });
 

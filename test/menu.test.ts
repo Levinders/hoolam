@@ -22,7 +22,7 @@ async function paidDeal(seller: string, buyer: string, item = 'Blue handbag'): P
   await h.say(seller, item);
   await h.say(seller, '10000');
   await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone');
-  if (/account number and bank/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
+  if (/Send your account number|account number/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
   await h.tap(seller, 'sell:confirm');
   const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
   await h.say(buyer, `Pay ${code}`, 'Tolu');
@@ -157,7 +157,7 @@ describe('the menu in the chat', () => {
     const p = phone();
     await h.say(p, '/fees');
     expect(h.last(p)).toMatch(/2\.5%\* of the price/);
-    expect(h.last(p)).toMatch(/₦15,000 item → fee ₦400/);
+    expect(h.last(p)).toMatch(/₦15,000 order → Hoolam's fee ₦400/);
     expect(h.last(p)).toMatch(/\[Main menu\]/);
     await h.say(p, '/help');
     expect(h.last(p)).toMatch(/One payment, start to finish/);
@@ -183,7 +183,7 @@ describe('the menu in the chat', () => {
     await h.say(buyer, 'not a code');
     expect(h.last(buyer)).toMatch(/doesn't look like an order code/);
     await h.say(buyer, code.toLowerCase().replace('-', ''));
-    expect(h.last(buyer)).toMatch(new RegExp(`Order ${code}`));
+    expect(h.last(buyer)).toMatch(new RegExp(`Order \\*${code}\\*`));
     expect(h.last(buyer)).toMatch(/Pay now\]/);
   });
 
@@ -219,7 +219,7 @@ describe('the menu in the chat', () => {
   it('"My payout account" shows and changes where the seller is paid', async () => {
     const p = phone();
     await h.tap(p, 'menu:account');
-    expect(h.last(p)).toMatch(/account number and bank/); // none yet: asks for one
+    expect(h.last(p)).toMatch(/Send your account number|account number/); // none yet: asks for one
     await h.say(p, '0123456789 GTBank');
     await h.tap(p, 'bank:yes');
     expect(h.last(p)).toMatch(/Saved\. New orders pay into .*••••6789/);
@@ -344,7 +344,7 @@ describe('buying and selling menus', () => {
     const c2 = (await h.db.query("SELECT code FROM deals d JOIN users u ON u.id=d.buyer_id WHERE u.phone=$1", [b2])).rows[0].code;
     await h.tap(s2, `sview:${c2}`);
     await h.tap(s2, `saccept:${c2}`);
-    if (/account number and bank/.test(h.last(s2))) { await h.say(s2, '0123456789 GTBank'); await h.tap(s2, 'bank:yes'); }
+    if (/Send your account number|account number/.test(h.last(s2))) { await h.say(s2, '0123456789 GTBank'); await h.tap(s2, 'bank:yes'); }
     expect((await user(s2)).seller_since).not.toBeNull();
     await h.say(s2, 'menu');
     expect(await header(s2)).toBe('🏷️ Selling');

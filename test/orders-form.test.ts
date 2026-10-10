@@ -153,31 +153,43 @@ describe('my orders, in the form', () => {
     expect(list.screen).toBe('ORDERS');
     expect(list.data.summary).toBe('Pending · 1–1 of 1');
     expect(list.data.orders[0].id).toBe(code);
-    expect(list.data.orders[0].title).toMatch(new RegExp(`^\\S+ · ${code} · ₦20,000$`)); // the buyer's name first
+    expect(list.data.orders[0].title).toMatch(new RegExp(`^\\S+ · ${code} · ₦19,500$`)); // the buyer's name first, then what the seller receives
     expect(list.data.orders[0].description).toMatch(/Leather bag\n👉 Paid: dispatch it now/);
     expect(list.data.nav.map((n: any) => n.id)).toEqual(['f-completed', 'f-all']);
 
     const order = await call(t, 'data_exchange', { action: 'open', code });
     expect(order.screen).toBe('ORDER');
     expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, has_tertiary: false });
-    expect(order.data.key).toMatch(/You receive ₦20,000/);
+    expect(order.data.key).toMatch(/💰 Total price ₦20,000\n🧾 Transaction fee −₦500\n💸 You receive ₦19,500/);
 
     expect((await call(t, 'data_exchange', { action: 'dispatch', code })).screen).toBe('DISPATCH');
     const picked = await call(t, 'data_exchange', { action: 'method', code, method: 'pickup' });
     expect(picked.data.show_pickup).toBe(true);
     const courier = await call(t, 'data_exchange', { action: 'dispatch_submit', code, method: 'rider' });
     expect(courier.screen).toBe('COURIER');
-    expect(courier.data).toMatchObject({ is_rider: true, location: '12 Woji Road', footer_label: 'Check account' });
+    expect(courier.data).toMatchObject({ is_rider: true, location: '12 Woji Road', footer_label: 'Continue', show_banks: false, phone_label: 'Rider\'s number' });
+    expect(courier.data.heading).toBe(`🛵 ${(await h.db.query('SELECT display_name FROM users WHERE phone=$1', [buyer])).rows[0].display_name.split(' ')[0]} · ${code}`);
 
-    const base = { action: 'courier', code, method: 'rider', name: 'Musa', phone: '08031234567', fee: '2000', location: '12 Woji Road', account_number: '9876543210', bank: 'opay' };
+    const base = { op: 'courier', code, method: 'rider', name: 'Musa', phone: '08031234567', fee: '2000', location: '12 Woji Road', account_number: '0000014579' };
     const tooMuch = await call(t, 'data_exchange', { ...base, fee: '50000' });
     expect(tooMuch.data.error).toMatch(/less than what you receive/);
-    const check = await call(t, 'data_exchange', base);
+    const noName = await call(t, 'data_exchange', { ...base, name: '' });
+    expect(noName.data.error).toMatch(/rider's name/);
+    // 1. the account number: we list the banks it can be with, the big fintechs first
+    const pick = await call(t, 'data_exchange', base);
+    expect(pick.data).toMatchObject({ show_banks: true, footer_label: 'Check account', listed_for: '0000014579', show_confirm: false });
+    const ids = pick.data.banks.map((b: any) => b.id);
+    expect(ids.slice(0, 4)).toEqual(['999992', '50515', '999991', '50211']); // OPay, Moniepoint, PalmPay, Kuda always
+    expect(ids).toContain('011'); // First Bank: 0000014579 passes its NUBAN check (CBN's example)
+    expect(ids).not.toContain('058'); // GTBank: it can't be
+    // 2. they pick First Bank: we check whose account it is
+    const check = await call(t, 'data_exchange', { ...base, listed_for: '0000014579', bank: '011' });
     expect(check.screen).toBe('COURIER');
-    expect(check.data).toMatchObject({ show_confirm: true, footer_label: 'Dispatch' });
-    expect(check.data.confirm_text).toMatch(/belongs to TEST ACCOUNT HOLDER/);
+    expect(check.data).toMatchObject({ show_confirm: true, show_banks: false, bank: '011', footer_label: 'Dispatch' });
+    expect(check.data.confirm_text).toMatch(/belongs to TEST ACCOUNT HOLDER \(First Bank ••••4579\)/);
     expect((await deal(code)).status).toBe('FUNDED'); // nothing saved until confirmed
-    const done = await call(t, 'data_exchange', { ...base, confirm: true });
+    // 3. they tick "Yes, this is the right account" (the dropdown is hidden now, so the bank comes back from the screen)
+    const done = await call(t, 'data_exchange', { ...base, listed_for: '0000014579', bank: '', chosen_bank: '011', confirm: true });
     expect(done.screen).toBe('DONE');
     expect(done.data.title).toBe('✅ Dispatched');
     const d = await deal(code);
@@ -287,11 +299,11 @@ describe('a seller opens a new order in the form', () => {
     const { buyer, seller, code } = await newOrder();
     const r = await call(signToken(h.app.formSecret, seller, 'seller', 'order', code), 'INIT');
     expect(r.screen).toBe('ORDER');
-    expect(r.data).toMatchObject({ primary: 'accept', primary_label: 'Accept order', secondary: 'counterask', secondary_label: 'Change price', tertiary: 'decline', has_tertiary: true, show_price: false });
+    expect(r.data).toMatchObject({ primary: 'accept', primary_label: 'Accept order', secondary: 'counterask', secondary_label: 'Update price', tertiary: 'decline', has_tertiary: true, show_price: false });
     expect(r.data.heading).toMatch(/Ada wants to buy from you/);
     expect(r.data.item).toBe(`Wig (${code})`);
     expect(r.data.about).toMatch(/Bone straight, 22 inches/);
-    expect(r.data.key).toMatch(/💰 Total price ₦30,000\n💸 You receive/);
+    expect(r.data.key).toMatch(/💰 Total price ₦30,000\n🧾 Transaction fee −₦500\n💸 You receive ₦29,500/);
     expect(r.data.key).toMatch(/📍 Deliver to: GRA/);
     expect(r.data.hint).toMatch(/within 4\d hours/);
     const own = await call(signToken(h.app.formSecret, buyer, 'seller', 'order', code), 'INIT');
@@ -313,7 +325,7 @@ describe('a seller opens a new order in the form', () => {
     expect(r.data.title).toBe('🏦 One last step');
     expect(r.data).toMatchObject({ has_important: true, important: 'Then we send the buyer your new price.' });
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
-    expect(h.last(buyer)).toMatch(/wants a different price/);
+    expect(h.last(buyer)).toMatch(/\*Bayo\* updated the price/);
     expect(h.last(buyer)).toMatch(/💬 Reason: Fabric cost went up this week/);
     const d = await deal(code);
     expect(d.counter_price_minor).toBe(2_800_000);
@@ -380,7 +392,7 @@ describe('the buyer checks their order before it goes to the seller', () => {
     expect(r.data.about).toMatch(/Bone straight, 22 inches/);
     expect(r.data.key).toMatch(/💰 Total price ₦30,000/);
     expect(r.data.key).toMatch(/📍 Deliver to: GRA/);
-    expect(r.data.key).toContain(`Seller's WhatsApp: ${seller.replace('+234', '0').replace(/^(\d{4})(\d{3})(\d{4})$/, '$1 $2 $3')}`);
+    expect(r.data.key).toContain(`Seller's WhatsApp: ${seller.replace('+234', '0')}`); // as people write it, no country code
     const sent = await call(t, 'data_exchange', { op: 'bsend', code: 'preview' });
     expect(sent.data.title).toBe('📨 Sent to the seller');
     expect(h.last(buyer)).toMatch(/HL-[A-Z2-9]{5}/);

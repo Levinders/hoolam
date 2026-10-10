@@ -5,9 +5,10 @@ import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { categoryTitle } from '../deals/categories.js';
 import { dayText, DealError, type Deal, type DealService, type User } from '../deals/service.js';
 import type { Bank, PaymentProvider } from '../payments/provider.js';
-import { matchBank } from './banks.js';
+import { bankChoices, matchBank } from './banks.js';
 import { normalizePhone } from './inbound.js';
 import { STATUS_WORDS } from './messages.js';
+import { localPhone } from '../phone.js';
 
 /**
  * "MY ORDERS": a WhatsApp form that loads live data from our server (the encrypted endpoint in app.ts).
@@ -66,15 +67,15 @@ const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAA
 export type FormStart = 'FILTER' | 'ORDER';
 /** "Ada · HL-7K2QF · ₦20,000" in at most 30 characters (WhatsApp's limit): the name gives way first. */
 export function rowTitle(name: string | null, phone: string | null, mode: 'buyer' | 'seller', code: string, amount: string): string {
-  const who = name?.trim().split(/\s+/)[0] || (phone ? phone.replace(/^\+234/, '0') : mode === 'seller' ? 'Buyer' : 'Seller');
+  const who = name?.trim().split(/\s+/)[0] || (phone ? localPhone(phone) : mode === 'seller' ? 'Buyer' : 'Seller');
   const rest = ` · ${code} · ${amount}`;
   const room = 30 - rest.length;
   if (room < 3) return `${code} · ${amount}`.slice(0, 30);
   return (who.length <= room ? who : who.slice(0, room - 1) + '…') + rest;
 }
 
-export function ordersFlowJson(start: FormStart = 'FILTER') {
-  const full = fullOrdersFlowJson();
+export function ordersFlowJson(start: FormStart = 'FILTER', safe = false) {
+  const full = fullOrdersFlowJson(safe);
   if (start === 'FILTER') return full;
   const drop = new Set(['FILTER', 'ORDERS']);
   return {
@@ -84,7 +85,8 @@ export function ordersFlowJson(start: FormStart = 'FILTER') {
   };
 }
 
-function fullOrdersFlowJson() {
+/** `safe`: no fields that switch between required and optional, and fixed labels (a fallback if Meta refuses those). */
+function fullOrdersFlowJson(safe = false) {
   return {
     version: '7.3',
     data_api_version: '3.0',
@@ -136,7 +138,7 @@ function fullOrdersFlowJson() {
         },
       },
       {
-        id: 'ORDER', title: 'Order',
+        id: 'ORDER', title: 'Order summary',
         data: {
           code: ex('HL-7K2QF'), heading: ex('HL-7K2QF · Paid, money held'), item: ex('Leather bag'), about: ex('Brown, medium size'), has_about: ex(true),
           key: ex('💰 Total price ₦20,000'), info: ex('🛵 Rider Musa'), has_info: ex(false), hint: ex('👉 Dispatch it now'), warn: ex(''), has_warn: ex(false),
@@ -155,8 +157,8 @@ function fullOrdersFlowJson() {
             { type: 'TextBody', text: '${data.about}', visible: '${data.has_about}' },
             { type: 'TextBody', text: '${data.key}', 'font-weight': 'bold' },
             { type: 'TextBody', text: '${data.info}', visible: '${data.has_info}' },
-            { type: 'TextCaption', text: '${data.hint}' },
             { type: 'TextBody', text: '${data.warn}', 'font-weight': 'bold', visible: '${data.has_warn}' },
+            { type: 'TextCaption', text: '${data.hint}' },
             { type: 'TextInput', name: 'new_price', label: 'Your price (₦)', 'input-type': 'text', required: false, visible: '${data.show_price}', 'max-chars': 20, 'helper-text': 'Total, delivery included. e.g. 18000 or 18k' },
             { type: 'TextArea', name: 'reason', label: 'Why the new price?', required: false, visible: '${data.show_price}', 'max-length': 150, 'helper-text': 'The buyer sees this. Max 150 characters' },
             { type: 'EmbeddedLink', text: '${data.secondary_label}', visible: '${data.has_secondary}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.secondary}', code: '${data.code}' } } },
@@ -181,7 +183,7 @@ function fullOrdersFlowJson() {
               ],
               'on-select-action': { name: 'data_exchange', payload: { op: 'method', code: '${data.code}', method: '${form.method}' } },
             },
-            { type: 'TextArea', name: 'pickup_address', label: 'Pickup address', required: false, 'max-length': 300, visible: '${data.show_pickup}', 'init-value': '${data.pickup_address}', 'helper-text': 'Where the buyer collects it' },
+            { type: 'TextArea', name: 'pickup_address', label: 'Pickup address', required: safe ? false : '${data.show_pickup}', 'max-length': 300, visible: '${data.show_pickup}', 'init-value': '${data.pickup_address}', 'helper-text': 'Where the buyer collects it' },
             { type: 'TextBody', text: '${data.error}', 'font-weight': 'bold', visible: '${data.has_error}' },
             {
               type: 'Footer', label: 'Continue',
@@ -193,20 +195,22 @@ function fullOrdersFlowJson() {
       {
         id: 'COURIER', title: 'Delivery details',
         data: {
-          code: ex('HL-7K2QF'), method: ex('rider'), heading: ex('🛵 Rider for HL-7K2QF'), is_rider: ex(true),
-          name: ex(''), phone: ex(''), fee: ex(''), location: ex('12 Woji Road'), account_number: ex(''), bank: ex(''),
-          confirm_text: ex(''), show_confirm: ex(false), error: ex(''), has_error: ex(false), footer_label: ex('Check account'),
+          code: ex('HL-7K2QF'), method: ex('rider'), heading: ex('🛵 Ada · HL-7K2QF'), is_rider: ex(true), phone_label: ex('Rider\'s number'),
+          name: ex(''), phone: ex(''), fee: ex(''), location: ex('12 Woji Road'), account_number: ex(''),
+          banks: exList([{ id: '999992', title: 'OPay' }]), show_banks: ex(false), bank: ex(''), listed_for: ex(''),
+          confirm_text: ex(''), show_confirm: ex(false), error: ex(''), has_error: ex(false), footer_label: ex('Continue'),
         },
         layout: {
           type: 'SingleColumnLayout',
           children: [
             { type: 'TextSubheading', text: '${data.heading}' },
-            { type: 'TextInput', name: 'name', label: 'Rider\'s name', 'input-type': 'text', required: false, visible: '${data.is_rider}', 'init-value': '${data.name}', 'max-chars': 80 },
-            { type: 'TextInput', name: 'phone', label: 'Phone number', 'input-type': 'phone', required: true, 'init-value': '${data.phone}' },
+            { type: 'TextInput', name: 'name', label: 'Rider\'s name', 'input-type': 'text', required: safe ? false : '${data.is_rider}', visible: '${data.is_rider}', 'init-value': '${data.name}', 'max-chars': 80 },
+            { type: 'TextInput', name: 'phone', label: safe ? 'Phone number' : '${data.phone_label}', 'input-type': 'phone', required: true, 'init-value': '${data.phone}', 'helper-text': 'e.g. 08031234567' },
             { type: 'TextInput', name: 'fee', label: 'Delivery fee (₦)', 'input-type': 'text', required: true, 'init-value': '${data.fee}', 'max-chars': 20, 'helper-text': 'Paid to them from the order money when the code is right' },
             { type: 'TextArea', name: 'location', label: 'Delivering to', required: true, 'init-value': '${data.location}', 'max-length': 300 },
             { type: 'TextInput', name: 'account_number', label: 'Account number', 'input-type': 'number', required: true, 'init-value': '${data.account_number}', 'max-chars': 10, 'helper-text': '10 digits' },
-            { type: 'TextInput', name: 'bank', label: 'Bank', 'input-type': 'text', required: true, 'init-value': '${data.bank}', 'max-chars': 40, 'helper-text': 'e.g. GTBank, Opay, Moniepoint' },
+            { type: 'Dropdown', name: 'bank', label: 'Bank', required: false, visible: '${data.show_banks}', 'data-source': '${data.banks}' },
+            { type: 'TextInput', name: 'bank_other', label: 'Bank not listed?', 'input-type': 'text', required: false, visible: '${data.show_banks}', 'max-chars': 40, 'helper-text': 'Only if it\'s not in the list above' },
             { type: 'TextCaption', text: '⚠️ We pay exactly the account you give. Hoolam can\'t recover money sent to a wrong account.' },
             { type: 'TextBody', text: '${data.confirm_text}', 'font-weight': 'bold', visible: '${data.show_confirm}' },
             { type: 'OptIn', name: 'confirm', label: 'Yes, this is the right account', required: false, visible: '${data.show_confirm}' },
@@ -217,7 +221,8 @@ function fullOrdersFlowJson() {
                 name: 'data_exchange',
                 payload: {
                   op: 'courier', code: '${data.code}', method: '${data.method}', name: '${form.name}', phone: '${form.phone}', fee: '${form.fee}',
-                  location: '${form.location}', account_number: '${form.account_number}', bank: '${form.bank}', confirm: '${form.confirm}',
+                  location: '${form.location}', account_number: '${form.account_number}', bank: '${form.bank}', bank_other: '${form.bank_other}',
+                  chosen_bank: '${data.bank}', listed_for: '${data.listed_for}', confirm: '${form.confirm}',
                 },
               },
             },
@@ -454,12 +459,12 @@ export class OrdersFlow {
         if (d.counter_seller_id) return none('Waiting for the buyer to answer your price');
         const left = d.accept_by ? Math.max(1, Math.round((new Date(d.accept_by).getTime() - Date.now()) / 3600_000)) : null;
         return {
-          primary: 'accept', label: 'Accept order', hint: `New order: accept, change the price, or decline${left ? ` (within ${left} hour${left === 1 ? '' : 's'})` : ''}`, needsYou: true,
-          secondary: 'counterask', secondaryLabel: 'Change price', tertiary: 'decline', tertiaryLabel: 'Decline order',
+          primary: 'accept', label: 'Accept order', hint: `New order: accept, update the price, or decline${left ? ` (within ${left} hour${left === 1 ? '' : 's'})` : ''}`, needsYou: true,
+          secondary: 'counterask', secondaryLabel: 'Update price', tertiary: 'decline', tertiaryLabel: 'Decline order',
         };
       }
       if (d.status === 'AWAITING_PAYMENT') return none('Waiting for the buyer to pay');
-      if (d.status === 'FUNDED' && !d.dispatched_at) return { primary: 'dispatch', label: 'Dispatch now', hint: 'Paid: dispatch it now', needsYou: true, secondary: 'cantfulfil', secondaryLabel: 'Can\'t fulfil (refund the buyer)' };
+      if (d.status === 'FUNDED' && !d.dispatched_at) return { primary: 'dispatch', label: 'Dispatch now', hint: 'Paid: dispatch it now', needsYou: true, secondary: 'cantfulfil', secondaryLabel: 'Can\'t fulfil? Refund' };
       if (d.status === 'SHIPPED' && !handed && d.handover_code) return { primary: 'code', label: 'Enter handover code', hint: 'Enter the handover code at delivery', needsYou: true };
       if (d.status === 'SHIPPED' && handed) return none('Handed over. Waiting for the buyer to confirm');
       return none(STATUS_WORDS[d.status] ?? d.status);
@@ -481,9 +486,10 @@ export class OrdersFlow {
     const countered = d.status === 'AWAITING_SELLER' && d.counter_price_minor;
     // bold: the money, where and when, codes. Plain: everything else.
     const key = [
-      mode === 'seller' ? `💰 Total price ${this.m(d.price_minor)}` : `💰 Total price ${this.m(d.price_minor)}`,
+      `💰 Total price ${this.m(d.price_minor)}`,
+      mode === 'seller' && d.price_minor > d.seller_gets_minor ? `🧾 ${this.o.deals.sellerFeeLabel(d)} −${this.m(d.price_minor - d.seller_gets_minor)}` : '',
       mode === 'seller' ? `💸 You receive ${this.m(d.seller_gets_minor)}${fee ? `, minus ${this.m(fee)} for delivery` : ''}` : '',
-      mode === 'buyer' && d.status !== 'AWAITING_SELLER' ? `🧾 Hoolam fee ${this.m(d.buyer_pays_minor - d.price_minor)}` : '',
+      mode === 'buyer' && d.status !== 'AWAITING_SELLER' && d.buyer_pays_minor > d.price_minor ? `🧾 ${this.o.deals.buyerFeeLabel(d)} ${this.m(d.buyer_pays_minor - d.price_minor)}` : '',
       mode === 'buyer' && d.status !== 'AWAITING_SELLER' ? `💳 You pay ${this.m(d.buyer_pays_minor)}` : '',
       countered ? (mode === 'seller' ? `✏️ Your new price ${this.m(d.counter_price_minor!)}` : `✏️ Seller's new price ${this.m(d.counter_price_minor!)}`) : '',
       d.delivery_address ? `📍 Deliver to: ${d.delivery_address}` : '',
@@ -494,8 +500,8 @@ export class OrdersFlow {
     ].filter(Boolean).join('\n');
     const info = [
       countered && d.counter_reason ? `💬 Reason: ${d.counter_reason}` : '',
-      d.dispatch_method === 'RIDER' ? `🛵 Rider: ${d.courier_name ?? ''} ${d.courier_phone ?? ''}`.trim() : '',
-      d.dispatch_method === 'WAYBILL' ? `🚌 Waybill driver: ${d.courier_phone ?? ''}`.trim() : '',
+      d.dispatch_method === 'RIDER' ? `🛵 Rider: ${d.courier_name ?? ''} ${localPhone(d.courier_phone)}`.trim() : '',
+      d.dispatch_method === 'WAYBILL' ? `🚌 Waybill driver: ${localPhone(d.courier_phone)}`.trim() : '',
     ].filter(Boolean).join('\n');
     const about = [d.description ?? '', d.category ? `🏷️ ${categoryTitle(d.category)}` : ''].filter(Boolean).join('\n');
     const p = override ?? { primary: nx.primary, label: nx.label, note: '' };
@@ -542,7 +548,7 @@ export class OrdersFlow {
         code: 'preview', heading: '🛒 Check your order',
         item: plain(p.item).slice(0, 300), about: plain(p.about).slice(0, 2000), has_about: !!p.about,
         key: plain(p.key).slice(0, 2000), info: plain(p.info).slice(0, 1000), has_info: !!p.info,
-        hint: 'Is everything right? Send it to the seller, or change it first.', warn: 'Nothing to pay yet. You pay after the seller accepts.', has_warn: true,
+        hint: 'Is everything right?', warn: 'Nothing to pay yet. You pay after the seller accepts.', has_warn: true,
         photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
         has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
         primary: 'bsend', primary_label: 'Send to seller',
@@ -615,7 +621,7 @@ export class OrdersFlow {
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
           await this.o.setChatState(user.phone, 'SELLER_BANK', { code, counterMinor: minor, counterReason: reason.slice(0, 150) });
-          return this.done('🏦 One last step', 'Send your account number and bank in the chat (for example 0123456789 GTBank).', 'Then we send the buyer your new price.');
+          return this.done('🏦 One last step', 'Send your account number in the chat (for example 0123456789), then pick your bank.', 'Then we send the buyer your new price.');
         }
         await this.o.deals.counterAsSeller(code, user, acct.id, minor, reason);
         return this.done('✏️ Price sent', `We've asked the buyer if ${this.m(minor)} works, and told them why. We'll tell you when they answer.`);
@@ -625,7 +631,7 @@ export class OrdersFlow {
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
           await this.o.setChatState(user.phone, 'SELLER_BANK', { code });
-          return this.done('🏦 One last step', 'Send your account number and bank in the chat (for example 0123456789 GTBank).', 'Then the order is accepted.');
+          return this.done('🏦 One last step', 'Send your account number in the chat (for example 0123456789), then pick your bank.', 'Then the order is accepted.');
         }
         await this.o.deals.acceptAsSeller(code, user, acct.id);
         return this.done('✅ Order accepted', 'We\'ve asked the buyer to pay. We\'ll tell you the moment the money is held.', 'Don\'t send anything before then.');
@@ -672,7 +678,7 @@ export class OrdersFlow {
         return this.done('🔔 Reminder sent', 'We\'ve reminded the seller to dispatch your order.');
       case 'refundme': {
         const r = await this.o.deals.refundPaidOrder(code, 'buyer', user);
-        return this.done('💸 Refund', r === 'refunding' ? 'Your refund is on its way.' : 'We need your account to send the refund.', 'Send your account number and bank in the chat.');
+        return this.done('💸 Refund', r === 'refunding' ? 'Your refund is on its way.' : 'We need your account to send the refund.', 'Send your account number in the chat, then pick your bank.');
       }
       case 'dispatch_submit': return this.dispatchSubmit(user, deal, p);
       case 'courier': return this.courier(user, deal, p);
@@ -681,13 +687,20 @@ export class OrdersFlow {
   }
 
   // ----- dispatch -----
-  private dispatchScreen(d: Deal, error: string | null, p: Record<string, any>): Res {
+  /** The buyer's first name (headings start with who the order is for). */
+  private async buyerFirst(d: Deal): Promise<string> {
+    if (!d.buyer_id) return 'Buyer';
+    const n = (await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [d.buyer_id])).rows[0]?.display_name as string | undefined;
+    return n?.trim().split(/\s+/)[0] || 'Buyer';
+  }
+
+  private async dispatchScreen(d: Deal, error: string | null, p: Record<string, any>): Promise<Res> {
     if (d.status !== 'FUNDED' || d.dispatched_at) return this.done('Already done', `Order ${d.code} is ${STATUS_WORDS[d.status] ?? d.status}.`);
     const method = ['pickup', 'rider', 'waybill'].includes(p.method) ? p.method : '';
     return {
       screen: 'DISPATCH',
       data: {
-        code: d.code, heading: `${d.code} · ${d.item}`.slice(0, 80), method, show_pickup: method === 'pickup',
+        code: d.code, heading: `${await this.buyerFirst(d)} · ${d.code} · ${d.item}`.slice(0, 80), method, show_pickup: method === 'pickup',
         pickup_address: String(p.pickup_address ?? ''), error: error ?? '', has_error: !!error,
       },
     };
@@ -702,19 +715,29 @@ export class OrdersFlow {
       await this.o.deals.dispatch(deal.code, user, { method: 'PICKUP', pickupAddress: address });
       return this.done('✅ Ready for pickup', 'We\'ve sent the buyer the address and their handover code. Enter the code in My orders or the chat.', 'Ask for the code before you hand over the item.');
     }
-    return this.courierScreen(deal, method as 'rider' | 'waybill', { location: deal.delivery_address ?? '' }, null, null);
+    return this.courierScreen(deal, method as 'rider' | 'waybill', { location: deal.delivery_address ?? '' }, null);
   }
 
-  private courierScreen(d: Deal, method: 'rider' | 'waybill', v: Record<string, any>, error: string | null, confirmText: string | null): Res {
+  /**
+   * The rider or driver's details, in up to three steps on one screen:
+   *  1. details and account number → 2. pick the bank (only banks that account number can belong to) →
+   *  3. we show whose account it is; they tick "Yes, this is the right account" and dispatch.
+   */
+  private async courierScreen(d: Deal, method: 'rider' | 'waybill', v: Record<string, any>, error: string | null,
+    step: { banks?: Bank[]; listedFor?: string; confirm?: { text: string; bank: string } } = {}): Promise<Res> {
     const rider = method === 'rider';
+    const banks = step.banks ?? [];
     return {
       screen: 'COURIER',
       data: {
-        code: d.code, method, heading: rider ? `🛵 Rider for ${d.code}` : `🚌 Waybill for ${d.code}`, is_rider: rider,
+        code: d.code, method, heading: `${rider ? '🛵' : '🚌'} ${await this.buyerFirst(d)} · ${d.code}`.slice(0, 80), is_rider: rider,
+        phone_label: rider ? 'Rider\'s number' : 'Driver\'s number',
         name: String(v.name ?? ''), phone: String(v.phone ?? ''), fee: String(v.fee ?? ''), location: String(v.location ?? ''),
-        account_number: String(v.account_number ?? ''), bank: String(v.bank ?? ''),
-        confirm_text: plain(confirmText ?? ''), show_confirm: !!confirmText, error: error ?? '', has_error: !!error,
-        footer_label: confirmText ? 'Dispatch' : 'Check account',
+        account_number: String(v.account_number ?? ''),
+        banks: banks.length ? banks.map((b) => ({ id: b.code, title: b.name.slice(0, 30) })) : [{ id: 'none', title: '-' }],
+        show_banks: banks.length > 0, listed_for: step.listedFor ?? '', bank: step.confirm?.bank ?? '',
+        confirm_text: plain(step.confirm?.text ?? ''), show_confirm: !!step.confirm, error: error ?? '', has_error: !!error,
+        footer_label: step.confirm ? 'Dispatch' : banks.length ? 'Check account' : 'Continue',
       },
     };
   }
@@ -722,10 +745,10 @@ export class OrdersFlow {
   private async courier(user: User, deal: Deal, p: Record<string, any>): Promise<Res> {
     const method = p.method === 'waybill' ? 'waybill' : 'rider';
     const role = method === 'rider' ? 'rider' : 'driver';
-    const bad = (why: string) => this.courierScreen(deal, method, p, why, null);
+    const bad = (why: string) => this.courierScreen(deal, method, p, why);
     if (method === 'rider' && String(p.name ?? '').trim().length < 2) return bad(`Type the ${role}'s name.`);
     const phone = normalizePhone(String(p.phone ?? ''));
-    if (!phone) return bad(`Check the ${role}'s phone number.`);
+    if (!phone) return bad(`Check the ${role}'s phone number, like 08031234567.`);
     const major = parseAmount(String(p.fee ?? ''));
     if (major === null || major === undefined) return bad('Type the delivery fee in naira, like 2000.');
     const fee = toMinor(major, this.o.currency);
@@ -735,12 +758,25 @@ export class OrdersFlow {
     const number = String(p.account_number ?? '').replace(/\D/g, '');
     if (number.length !== 10) return bad('The account number must be 10 digits.');
     this.banks ??= await this.o.provider.listBanks();
-    const bank = matchBank(String(p.bank ?? ''), this.banks);
-    if (!bank) return bad(`We couldn't find a bank called "${String(p.bank ?? '').slice(0, 30)}". Try GTBank, Opay, Moniepoint, Kuda…`);
+    const choices = bankChoices(number, this.banks);
+    // a new (or changed) account number: show the banks it can belong to
+    if (p.listed_for !== number) return this.courierScreen(deal, method, p, null, { banks: choices, listedFor: number });
+    const picked = String(p.bank ?? '');
+    const other = String(p.bank_other ?? '').trim();
+    const bank = (other ? matchBank(other, this.banks) : null)
+      ?? this.banks.find((b) => b.code === picked)
+      ?? this.banks.find((b) => b.code === String(p.chosen_bank ?? ''))
+      ?? null;
+    if (!bank) return this.courierScreen(deal, method, p, other ? `We couldn't find a bank called "${other.slice(0, 30)}". Pick it from the list.` : 'Pick the bank.', { banks: choices, listedFor: number });
     const name = await this.o.provider.resolveAccount(bank.code, number);
-    if (!name) return bad('That account number didn\'t match the bank. Please check it.');
+    if (!name) return this.courierScreen(deal, method, p, `That account number isn't at ${bank.name}. Check the number or pick another bank.`, { banks: choices, listedFor: number });
     const confirmed = p.confirm === true || p.confirm === 'true';
-    if (!confirmed) return this.courierScreen(deal, method, p, null, `This account belongs to *${name}* (${bank.name} ••••${number.slice(-4)}).\nThe ${role}'s fee of *${this.m(fee)}* goes here once the handover code is right.`);
+    if (!confirmed || String(p.chosen_bank ?? '') !== bank.code) {
+      return this.courierScreen(deal, method, p, null, {
+        listedFor: number,
+        confirm: { bank: bank.code, text: `This account belongs to ${name} (${bank.name} ••••${number.slice(-4)}).\nThe ${role}'s fee of ${this.m(fee)} goes here once the handover code is right.` },
+      });
+    }
     await this.o.deals.dispatch(deal.code, user, {
       method: method === 'rider' ? 'RIDER' : 'WAYBILL', courierName: method === 'rider' ? String(p.name).trim() : null, courierPhone: phone,
       location, feeMinor: fee, account: { bank_code: bank.code, bank_name: bank.name, account_number: number, account_name: name },

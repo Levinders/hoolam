@@ -3,7 +3,7 @@ import type { Config } from '../config.js';
 import type { Db } from '../db.js';
 import { DealError, type DealService } from '../deals/service.js';
 import type { PaymentProvider } from '../payments/provider.js';
-import { SETTING_DEFS, type Settings } from '../settings.js';
+import { SETTING_DEFS, type SettingValue, type Settings } from '../settings.js';
 import { parseSocial, SOCIAL_KINDS, type SocialKind } from '../socials.js';
 import { MAX_UPLOAD_BYTES, MediaError, SLOTS, type SiteMedia } from '../site-media.js';
 import type { SiteSync } from '../site-sync.js';
@@ -586,16 +586,16 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     });
     api.put('/settings', async (req) => {
       need(req, 'settings.update');
-      const b = req.body as { changes?: Record<string, number | boolean | string> };
+      const b = req.body as { changes?: Record<string, SettingValue> };
       const reason = reasonOf(req.body);
       const current = d.settings.all();
-      const changes: Record<string, number | boolean | string> = {};
+      const changes: Record<string, SettingValue> = {};
       const diff: Record<string, { from: unknown; to: unknown }> = {};
       for (let [k, v] of Object.entries(b.changes ?? {})) {
         v = d.settings.normalize(k, v) as typeof v;
         const err = d.settings.validate(k, v);
         if (err) throw new HttpError(400, err);
-        if (current[k] !== v) { changes[k] = v; diff[k] = { from: current[k], to: v }; }
+        if (JSON.stringify(current[k]) !== JSON.stringify(v)) { changes[k] = v; diff[k] = { from: current[k], to: v }; }
       }
       if (!Object.keys(changes).length) throw new HttpError(400, 'Nothing changed.');
       const core = Object.keys(changes).filter((k) => SETTING_DEFS.find((x) => x.key === k)?.core);

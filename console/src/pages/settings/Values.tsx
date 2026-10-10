@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, AtSign, BellRing, Building2, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -8,14 +8,17 @@ import { useData } from '../../hooks';
 import { Button, ConfirmAction, ErrorBanner, Pill, Skeleton, Switch, useToast } from '../../ui';
 import { SectionHead, useUnsaved } from '../Settings';
 
-type Val = number | boolean | string;
-export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social'; min?: number; max?: number; core?: boolean; optional?: boolean; social?: string };
+type Band = { upTo: number | null; fee: number };
+type Val = number | boolean | string | Band[];
+export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social' | 'bands'; min?: number; max?: number; core?: boolean; optional?: boolean; social?: string };
 interface SettingsData { currency: string; defs: Def[]; values: Record<string, Val>; defaults: Record<string, Val>; updated: Record<string, { at: string; by: string | null }>; history: any[] }
 
-/** +234 801 234 5678, +1 555 138 0045, +229 01 90 00 00 05 */
+/** Nigerian numbers the way people write them (07034577787); others +1 555 138 0045. */
 export function phoneText(raw: string): string {
   const d = String(raw ?? '').replace(/\D/g, '');
   if (!d) return '';
+  if (/^234\d{10}$/.test(d)) return '0' + d.slice(3);
+  if (/^0\d{10}$/.test(d)) return d;
   const cc = /^[17]/.test(d) ? d.slice(0, 1) : /^(2[1-9]\d|3[578]\d|42\d|5[09]\d|6[7-9]\d|8[5-9]\d|9[6-9]\d)/.test(d) ? d.slice(0, 3) : d.slice(0, 2);
   const rest = d.slice(cc.length);
   const grouped = rest.length === 10 ? rest.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1 $2 $3') : rest.replace(/(\d{2})(?=\d)/g, '$1 ');
@@ -40,6 +43,7 @@ export function showValue(d: Def | undefined, v: Val, currency = 'NGN'): string 
   if (d.type === 'hours') return `${v} hour${Number(v) === 1 ? '' : 's'}`;
   if (d.type === 'minutes') return minutesText(Number(v));
   if (d.type === 'phone') return phoneText(String(v));
+  if (d.type === 'bands') { const m = (n: number) => money(n * (currency === 'NGN' ? 100 : 1), currency); return (v as Band[]).map((b) => m(b.fee)).join(' / '); }
   return String(v);
 }
 
@@ -48,7 +52,7 @@ function useDraft(keys: string[]) {
   const q = useData<SettingsData>('/settings');
   const [draft, setDraft] = useState<Record<string, Val>>({});
   useEffect(() => { if (q.data) setDraft(Object.fromEntries(keys.map((k) => [k, q.data!.values[k]!]))); }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changed = useMemo(() => (q.data ? keys.filter((k) => draft[k] !== undefined && draft[k] !== q.data!.values[k]) : []), [draft, q.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changed = useMemo(() => (q.data ? keys.filter((k) => draft[k] !== undefined && JSON.stringify(draft[k]) !== JSON.stringify(q.data!.values[k])) : []), [draft, q.data]); // eslint-disable-line react-hooks/exhaustive-deps
   useUnsaved(changed.length > 0);
   return { ...q, draft, setDraft, changed, def: (k: string) => q.data?.defs.find((d) => d.key === k) };
 }
@@ -70,7 +74,11 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
   const data = s.data;
   const lockedKeys = keys.filter((k) => !canEdit(s.def(k)));
   const lockedCore = lockedKeys.some((k) => s.def(k)?.core);
-  const invalid = s.changed.find((k) => { const d = s.def(k); const v = s.draft[k]; return d && !['boolean', 'phone', 'email', 'social'].includes(d.type) && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max)); });
+  const invalid = s.changed.find((k) => {
+    const d = s.def(k); const v = s.draft[k];
+    if (d?.type === 'bands') return !!bandsError(v as Band[]);
+    return d && !['boolean', 'phone', 'email', 'social'].includes(d.type) && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max));
+  });
 
   return (
     <>
@@ -131,7 +139,7 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
       <div className={`savebar${s.changed.length ? ' show' : ''}`} aria-hidden={!s.changed.length}>
         <div className="savebar-in">
           <span className="dot" />
-          <span><b>{s.changed.length} unsaved change{s.changed.length === 1 ? '' : 's'}</b>{invalid ? <span className="savebar-err"> · {s.def(invalid)!.label} is out of range</span> : <span className="muted"> · {applies}</span>}</span>
+          <span><b>{s.changed.length} unsaved change{s.changed.length === 1 ? '' : 's'}</b>{invalid ? <span className="savebar-err"> · {s.def(invalid)!.type === 'bands' ? `${s.def(invalid)!.label}: ${bandsError(s.draft[invalid] as Band[])}` : `${s.def(invalid)!.label} is out of range`}</span> : <span className="muted"> · {applies}</span>}</span>
           <span className="spacer" />
           <Button icon={RotateCcw} variant="ghost" onClick={() => s.setDraft(Object.fromEntries(keys.map((k) => [k, data.values[k]!])))} tabIndex={s.changed.length ? 0 : -1}>Discard</Button>
           <Button icon={Save} variant="primary" disabled={!!invalid} onClick={() => setConfirm(true)} tabIndex={s.changed.length ? 0 : -1}>Save changes</Button>
@@ -162,9 +170,65 @@ function feeOf(price: number, d: Record<string, Val>) {
   let f = (price * p) / 100; f = Math.min(mx, Math.max(mn, f)); return Math.round(f / r) * r;
 }
 
+/** What's wrong with a band table, or null. Same rules as the server. */
+function bandsError(b: Band[]): string | null {
+  if (!Array.isArray(b) || !b.length) return 'add at least one band';
+  let last = 0;
+  for (let i = 0; i < b.length; i++) {
+    const x = b[i]!;
+    if (!Number.isFinite(x.fee) || x.fee < 0) return `band ${i + 1} needs a fee`;
+    if (i === b.length - 1) break;
+    if (x.upTo == null || !Number.isFinite(x.upTo) || x.upTo <= last) return `band ${i + 1}: "up to" must be bigger than the band before`;
+    last = x.upTo;
+  }
+  return null;
+}
+const bandFee = (b: Band[], price: number) => { for (const x of b) if (x.upTo == null || price <= x.upTo) return x.fee; return b.at(-1)?.fee ?? 0; };
+
+/** A band table that folds away under its heading: "up to" and the fee for each band; the last band is everything above. */
+function BandsField({ s, k, editable }: { s: Draft; k: string; editable: boolean }) {
+  const cur = s.data!.currency;
+  const sym = cur === 'NGN' ? '₦' : 'CFA';
+  const bands = (s.draft[k] as Band[]) ?? [];
+  const m = (n: number) => money(n * (cur === 'NGN' ? 100 : 1), cur);
+  const set = (i: number, patch: Partial<Band>) => s.setDraft({ ...s.draft, [k]: bands.map((b, j) => (j === i ? { ...b, ...patch } : b)) });
+  const num = (v: string) => (v === '' ? NaN : Number(v));
+  return (
+    <details className="bands" open={s.changed.includes(k) || undefined}>
+      <summary><span>{bands.map((b) => m(b.fee)).join(' / ')}</span><ChevronDown className="bands-arrow" /></summary>
+      <table className="bands-table">
+        <thead><tr><th>Order total</th><th>Fee</th></tr></thead>
+        <tbody>
+          {bands.map((b, i) => {
+            const from = i === 0 ? 0 : (bands[i - 1]!.upTo ?? 0) + 1;
+            const last = i === bands.length - 1;
+            return (
+              <tr key={i}>
+                <td>{last
+                  ? <span className="muted">Above {m(bands[i - 1]?.upTo ?? 0)}</span>
+                  : <label className="band-upto"><span className="muted small">{i === 0 ? 'Up to' : `${m(from)} to`}</span>
+                      <span className="affix pre"><span>{sym}</span><input className="input num" type="number" inputMode="numeric" min={0} disabled={!editable}
+                        aria-label={`Band ${i + 1}: up to`} value={Number.isFinite(b.upTo as number) ? String(b.upTo) : ''} onChange={(e) => set(i, { upTo: num(e.target.value) })} /></span></label>}
+                </td>
+                <td><span className="affix pre"><span>{sym}</span><input className="input num" type="number" inputMode="numeric" min={0} disabled={!editable}
+                  aria-label={`Band ${i + 1}: fee`} value={Number.isFinite(b.fee) ? String(b.fee) : ''} onChange={(e) => set(i, { fee: num(e.target.value) })} /></span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </details>
+  );
+}
+
 export function FeesPage() {
-  return <ValuesPage title="Fees" lede="What Hoolam charges on each order. Whoever starts the order pays the fee."
-    keys={['fee_rate_percent', 'fee_min', 'fee_max', 'fee_round_to']}
+  return <ValuesPage title="Fees" lede="Whoever starts the order pays Hoolam's fee. The other side pays a flat transaction fee, and only they see it."
+    keys={['fee_rate_percent', 'fee_min', 'fee_max', 'fee_round_to', 'seller_txn_fee', 'buyer_txn_fee']}
+    stacked={['seller_txn_fee', 'buyer_txn_fee']}
+    render={{
+      seller_txn_fee: (s, editable) => <BandsField s={s} k="seller_txn_fee" editable={editable} />,
+      buyer_txn_fee: (s, editable) => <BandsField s={s} k="buyer_txn_fee" editable={editable} />,
+    }}
     aside={(s) => <FeePreview s={s} />} />;
 }
 function FeePreview({ s }: { s: Draft }) {
@@ -172,6 +236,7 @@ function FeePreview({ s }: { s: Draft }) {
   const cur = s.data!.currency;
   const m = (n: number) => money(n * (cur === 'NGN' ? 100 : 1), cur);
   const fee = feeOf(price, s.draft);
+  const sTxn = bandFee((s.draft.seller_txn_fee as Band[]) ?? [], price), bTxn = bandFee((s.draft.buyer_txn_fee as Band[]) ?? [], price);
   return (
     <section className="panel">
       <div className="panel-head"><h2>Try it</h2><span className="right small muted">Updates as you type</span></div>
@@ -180,6 +245,8 @@ function FeePreview({ s }: { s: Draft }) {
         <div className="fee-split">
           <div><span>Hoolam fee</span><b className="money">{price ? m(fee) : '—'}</b></div>
           <div><span>Buyer starts: buyer pays</span><b className="money">{price ? m(price + fee) : '—'}</b></div>
+          <div><span>Buyer starts: seller gets</span><b className="money">{price ? m(price - sTxn) : '—'}</b></div>
+          <div><span>Seller starts: buyer pays</span><b className="money">{price ? m(price + bTxn) : '—'}</b></div>
           <div><span>Seller starts: seller gets</span><b className="money">{price ? m(price - fee) : '—'}</b></div>
         </div>
         <div className="chips">{[5_000, 15_000, 50_000].map((p) => <button key={p} type="button" className={`chip-btn${p === price ? ' on' : ''}`} onClick={() => setPrice(p)}>{m(p)} → {m(feeOf(p, s.draft))}</button>)}</div>
@@ -222,17 +289,20 @@ export function TimingPage() {
     }} />;
 }
 
+/** What people type (0803…) → what's stored (2348…). Anything else is kept as typed, digits only. */
+const storePhone = (typed: string) => { const d = typed.replace(/\D/g, '').slice(0, 15); return /^0\d{10}$/.test(d) ? '234' + d.slice(1) : d; };
+/** What's stored → what the field shows (0803… for Nigerian numbers). */
+const showPhone = (stored: string) => (/^234\d{10}$/.test(stored) ? '0' + stored.slice(3) : stored);
+
 function PhoneField({ s, k, editable, emptyHint }: { s: Draft; k: string; editable: boolean; emptyHint: string }) {
   const v = String(s.draft[k] ?? '');
   const ok = /^[1-9]\d{7,14}$/.test(v);
   return (
     <div className="phone-field">
-      <div className="affix pre big"><span>+</span>
-        <input id={`f-${k}`} className="input num" inputMode="numeric" autoComplete="off" disabled={!editable} value={v} placeholder="2348012345678"
-          onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value.replace(/\D/g, '').slice(0, 15) })} aria-describedby={`${k}-hint`} />
-      </div>
+      <input id={`f-${k}`} className="input num" style={{ maxWidth: 240 }} inputMode="numeric" autoComplete="off" disabled={!editable} value={showPhone(v)} placeholder="07034577787"
+        onChange={(e) => s.setDraft({ ...s.draft, [k]: storePhone(e.target.value) })} aria-describedby={`${k}-hint`} />
       <div id={`${k}-hint`} className={`small ${v && !ok ? 'err-text' : 'muted'}`}>
-        {!v ? emptyHint : ok ? <>Shows as <b>{phoneText(v)}</b></> : v.startsWith('0') ? 'Start with the country code (234 for Nigeria), not 0.' : 'That doesn\'t look like a full number yet.'}
+        {!v ? emptyHint : ok ? <>Shows as <b>{phoneText(v)}</b></> : 'That doesn\'t look like a full number yet. For example 07034577787.'}
       </div>
     </div>
   );
@@ -272,12 +342,10 @@ export function WhatsAppPage() {
         const ok = /^[1-9]\d{7,14}$/.test(v);
         return (
           <div className="phone-field">
-            <div className="affix pre big"><span>+</span>
-              <input id="f-whatsapp_number" className="input num" inputMode="numeric" autoComplete="off" disabled={!editable} value={v} placeholder="2348012345678"
-                onChange={(e) => s.setDraft({ ...s.draft, whatsapp_number: e.target.value.replace(/\D/g, '').slice(0, 15) })} aria-describedby="wa-hint" />
-            </div>
+            <input id="f-whatsapp_number" className="input num" style={{ maxWidth: 240 }} inputMode="numeric" autoComplete="off" disabled={!editable} value={showPhone(v)} placeholder="07034577787"
+              onChange={(e) => s.setDraft({ ...s.draft, whatsapp_number: storePhone(e.target.value) })} aria-describedby="wa-hint" />
             <div id="wa-hint" className={`small ${v && !ok ? 'err-text' : 'muted'}`}>
-              {!v ? 'Country code first, digits only.' : ok ? <>Shows as <b>{phoneText(v)}</b> · <a href={`https://wa.me/${v}`} target="_blank" rel="noopener">Open the chat <ArrowUpRight className="inline-ic" /></a></> : v.startsWith('0') ? 'Start with the country code (234 for Nigeria), not 0.' : 'That doesn\'t look like a full number yet.'}
+              {!v ? 'For example 07034577787.' : ok ? <>Shows as <b>{phoneText(v)}</b> · <a href={`https://wa.me/${v}`} target="_blank" rel="noopener">Open the chat <ArrowUpRight className="inline-ic" /></a></> : 'That doesn\'t look like a full number yet. For example 07034577787.'}
             </div>
           </div>
         );

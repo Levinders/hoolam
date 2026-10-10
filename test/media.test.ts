@@ -99,10 +99,13 @@ describe('Hoolam\'s WhatsApp number from settings', () => {
     expect((await call('GET', '/site.json')).json.whatsapp).toBe('15551380045');
   });
 
-  it('refuses numbers without a country code', async () => {
-    const r = await call('PUT', '/console/api/settings', { body: { changes: { whatsapp_number: '08012345678' }, reason: 'New number' }, cookie: owner });
-    expect(r.status).toBe(400);
-    expect(r.json.error).toMatch(/country code/);
+  it('takes the number the way people write it (0801…) and adds the country code behind the scenes', async () => {
+    const bad = await call('PUT', '/console/api/settings', { body: { changes: { whatsapp_number: '0801234' }, reason: 'New number' }, cookie: owner });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error).toMatch(/07034577787/);
+    const r = await call('PUT', '/console/api/settings', { body: { changes: { whatsapp_number: '08012345679' }, reason: 'New number' }, cookie: owner });
+    expect(r.status).toBe(200);
+    expect((await call('GET', '/site.json')).json.whatsapp).toBe('2348012345679');
   });
 
   it('a new number changes the website, the chat link and deal links', async () => {

@@ -57,6 +57,13 @@ export function initials(name: string | null | undefined): string {
   return ((p[0]?.[0] ?? '?') + (p[1]?.[0] ?? '')).toUpperCase();
 }
 
+/** Phone numbers as people write them: +2348031234567 → 08031234567. Other countries keep their code. */
+export function phone(p: string | null | undefined): string {
+  if (!p) return '';
+  const d = p.replace(/\D/g, '');
+  return /^234\d{10}$/.test(d) ? '0' + d.slice(3) : p;
+}
+
 export function maskPhone(p: string | null | undefined): string {
   if (!p) return '';
   return p.length > 8 ? `${p.slice(0, 4)} ${p.slice(4, 7)} ${p.slice(7, -4).replace(/./g, '•')} ${p.slice(-4)}` : p;

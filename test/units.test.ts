@@ -98,7 +98,7 @@ describe('bank input', () => {
     expect(matchBank(input, banks)?.code).toBe(code);
   });
   it('returns null for unknown banks', () => expect(matchBank('Bank of Mars', banks)).toBeNull());
-  it('reads account number and bank in either order', () => {
+  it('reads Send your account number|account number in either order', () => {
     expect(parseBankInput('0123456789 GTBank')).toEqual({ accountNumber: '0123456789', bankText: 'GTBank' });
     expect(parseBankInput('Opay - 8012345678')).toEqual({ accountNumber: '8012345678', bankText: 'Opay' });
     expect(parseBankInput('GTBank')).toBeNull();

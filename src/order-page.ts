@@ -1,3 +1,4 @@
+import { localPhone } from './phone.js';
 import { categoryTitle } from './deals/categories.js';
 import { dayText, type Deal } from './deals/service.js';
 import { ICON } from './icons.js';
@@ -19,6 +20,8 @@ export interface OrderPageOptions {
   markUrl: string | null;
   sellerName: string | null;
   buyerName: string | null;
+  /** Whose link opened the page: each side sees their own fee. Null = the neutral page. */
+  viewer?: 'buyer' | 'seller' | null;
 }
 
 interface Step { label: string; at: Date | string | null; done: boolean; now?: boolean; bad?: boolean }
@@ -47,22 +50,25 @@ const when = (at: Date | string | null) => at ? new Date(at).toLocaleString('en-
 
 export function orderPage(d: Deal, o: OrderPageOptions): string {
   const m = (minor: number) => formatMoney(minor, d.currency);
-  const fee = d.buyer_pays_minor - d.price_minor > 0 ? d.buyer_pays_minor - d.price_minor : d.price_minor - d.seller_gets_minor;
   const status = (STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase());
   const deliveryFee = Number(d.delivery_fee_minor ?? 0);
-  const rows: [string, string][] = [
-    ['Total price', m(d.price_minor) + (d.started_by === 'BUYER' ? ' <small>delivery included</small>' : '')],
-    ['Hoolam fee', `${m(fee)} <small>paid by the ${d.fee_payer === 'SELLER' ? 'seller' : 'buyer'}</small>`],
-    ['Buyer pays', `<b>${m(d.buyer_pays_minor)}</b>`],
-    ...(deliveryFee ? [['Delivery fee', `${m(deliveryFee)} <small>to the ${d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider'}, from the seller's share</small>`] as [string, string]] : []),
-    ['Seller receives', `<b>${m(d.seller_gets_minor - deliveryFee)}</b>`],
-  ];
+  // each side sees only their own fee: Hoolam's fee for whoever started the order, the transaction fee for the other
+  const buyerFee = d.buyer_pays_minor - d.price_minor, sellerFee = d.price_minor - d.seller_gets_minor;
+  const buyerFeeLabel = d.fee_payer === 'BUYER' ? 'Hoolam fee' : 'Transaction fee';
+  const sellerFeeLabel = d.fee_payer === 'SELLER' ? 'Hoolam fee' : 'Transaction fee';
+  const deliveryRow = deliveryFee ? [['Delivery fee', `−${m(deliveryFee)} <small>to the ${d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider'}</small>`] as [string, string]] : [];
+  const total: [string, string] = ['Total price', m(d.price_minor) + (d.started_by === 'BUYER' ? ' <small>delivery included</small>' : '')];
+  const rows: [string, string][] = o.viewer === 'buyer'
+    ? [total, ...(buyerFee > 0 ? [[buyerFeeLabel, m(buyerFee)] as [string, string]] : []), ['You pay', `<b>${m(d.buyer_pays_minor)}</b>`]]
+    : o.viewer === 'seller'
+      ? [total, ...(sellerFee > 0 ? [[sellerFeeLabel, `−${m(sellerFee)}`] as [string, string]] : []), ...deliveryRow, ['You receive', `<b>${m(d.seller_gets_minor - deliveryFee)}</b>`]]
+      : [total, ['Buyer pays', `<b>${m(d.buyer_pays_minor)}</b>`], ...deliveryRow, ['Seller receives', `<b>${m(d.seller_gets_minor - deliveryFee)}</b>`]];
   const delivery: string[] = [
     d.delivery_address ? `${ICON.mapPin}<span><b>Deliver to</b>${esc(d.delivery_address)}</span>` : '',
     d.arrive_by ? `${ICON.calendar}<span><b>Expected by</b>${esc(dayText(String(d.arrive_by)))}</span>` : '',
     d.dispatch_method === 'PICKUP' ? `${ICON.mapPin}<span><b>Pickup at</b>${esc(d.pickup_address ?? '')}</span>` : '',
-    d.dispatch_method === 'RIDER' ? `${ICON.truck}<span><b>Rider</b>${esc([d.courier_name, d.courier_phone].filter(Boolean).join(' · '))}</span>` : '',
-    d.dispatch_method === 'WAYBILL' ? `${ICON.truck}<span><b>Waybill driver</b>${esc(d.courier_phone ?? '')}${d.courier_location ? ` · to ${esc(d.courier_location)}` : ''}</span>` : '',
+    d.dispatch_method === 'RIDER' ? `${ICON.truck}<span><b>Rider</b>${esc([d.courier_name, localPhone(d.courier_phone)].filter(Boolean).join(' · '))}</span>` : '',
+    d.dispatch_method === 'WAYBILL' ? `${ICON.truck}<span><b>Waybill driver</b>${esc(localPhone(d.courier_phone))}${d.courier_location ? ` · to ${esc(d.courier_location)}` : ''}</span>` : '',
   ].filter(Boolean);
   const timeline = steps(d).map((s) => `<li class="${s.bad ? 'bad' : s.done ? 'done' : s.now ? 'now' : ''}"><i></i><span>${esc(s.label)}${s.at && s.done ? `<small>${esc(when(s.at))}</small>` : ''}</span></li>`).join('');
 

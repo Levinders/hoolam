@@ -648,3 +648,17 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 11px; resize: ver
 .tpl-body { margin: 0; font-size: 12.5px; color: var(--muted); white-space: pre-line; line-height: 1.5; }
 .tpl-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .tpl-btns span { font-size: 11.5px; font-weight: 600; color: var(--teal); background: var(--teal-50); border-radius: 999px; padding: 2px 9px; }
+
+/* Fees: band tables that fold away under their heading */
+.bands { border: 1px solid var(--line-2); border-radius: 12px; overflow: hidden; width: 100%; max-width: 460px; }
+.bands > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; cursor: pointer; font-size: 13px; font-variant-numeric: tabular-nums; }
+.bands > summary::-webkit-details-marker { display: none; }
+.bands > summary:focus-visible { outline: 2px solid var(--ink, currentColor); outline-offset: -2px; }
+.bands-arrow { width: 16px; height: 16px; flex: none; transition: transform .15s ease; }
+.bands[open] .bands-arrow { transform: rotate(180deg); }
+.bands-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bands-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 8px 14px; border-top: 1px solid var(--line-2); }
+.bands-table td { padding: 8px 14px; border-top: 1px solid var(--line-2); vertical-align: middle; }
+.bands-table .affix { width: 150px; }
+.band-upto { display: flex; flex-direction: column; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .bands-arrow { transition: none; } }

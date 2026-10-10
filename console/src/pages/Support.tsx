@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { post } from '../api';
 import { useAuth } from '../auth';
-import { ACTIONS, ago, dateTime } from '../format';
+import { ACTIONS, ago, dateTime, phone } from '../format';
 import { useData } from '../hooks';
 import { Avatar, Button, Empty, ErrorBanner, Pager, Seg, SkeletonRows, useToast } from '../ui';
 
@@ -36,9 +36,9 @@ function Inbox() {
             <div style={{ overflowY: 'auto' }}>
               {list.data.rows.map((r: any) => (
                 <button key={r.id} onClick={() => setSp({ open: String(r.id) })} style={{ display: 'flex', gap: 10, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--line-2)', padding: '12px 14px', cursor: 'pointer', background: String(r.id) === openId ? 'var(--teal-50)' : 'transparent' }}>
-                  <Avatar name={r.business_name || r.display_name || r.phone} />
+                  <Avatar name={r.business_name || r.display_name || phone(r.phone)} />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="row" style={{ gap: 6 }}><b style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.business_name || r.display_name || r.phone}</b><span className="spacer" /><span className="faint small nowrap">{ago(r.created_at)}</span></div>
+                    <div className="row" style={{ gap: 6 }}><b style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.business_name || r.display_name || phone(r.phone)}</b><span className="spacer" /><span className="faint small nowrap">{ago(r.created_at)}</span></div>
                     <div className="cell-sub" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.message}</div>
                     {r.last_reply_at && <div className="small" style={{ color: 'var(--teal)' }}>Replied {ago(r.last_reply_at)}</div>}
                   </div>
@@ -78,8 +78,8 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="panel-head">
         <div style={{ minWidth: 0 }}>
-          <h2>{r.business_name || r.display_name || r.phone}</h2>
-          <div className="small muted">{r.phone}{r.user_id && <> · <Link to={`/people/${r.user_id}`}>Their record</Link></>}</div>
+          <h2>{r.business_name || r.display_name || phone(r.phone)}</h2>
+          <div className="small muted">{phone(r.phone)}{r.user_id && <> · <Link to={`/people/${r.user_id}`}>Their record</Link></>}</div>
         </div>
         <div className="right">
           {data.windowOpen ? <span className="pill green plain"><Clock style={{ width: 13 }} />Can reply ({ago(data.lastInboundAt)})</span> : <span className="pill gold plain"><Clock style={{ width: 13 }} />24 h window closed</span>}

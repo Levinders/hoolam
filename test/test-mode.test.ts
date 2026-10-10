@@ -21,7 +21,7 @@ describe('test mode: one phone plays both sides', () => {
     const code = h.last(me).match(/HL-[A-Z2-9]{5}/)![0];
 
     await h.say(me, `Pay ${code}`);
-    expect(h.last(me)).toMatch(/You pay: ₦10,000/);
+    expect(h.last(me)).toMatch(/\*You pay           ₦10,500\*/); // price + the buyer's ₦500 transaction fee (the seller started it)
     await h.tap(me, `pay:${code}`);
     expect(h.last(me)).toMatch(/TEST MODE: no real money/);
 

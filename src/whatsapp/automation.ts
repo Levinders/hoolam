@@ -96,11 +96,11 @@ export interface MetaSetupOptions extends AutomationOptions { wabaId: string; fo
  * so alerts never stop while wording changes are reviewed. Variables and buttons must stay in the same places.
  */
 export const SELLER_ALERT = {
-  name: 'hoolam_new_order_request', replaces: 'hoolam_order_request',
+  name: 'hoolam_new_order_request_v2', replaces: 'hoolam_new_order_request',
   body:
-    '🛒 New order request on Hoolam\n\n{{1}} wants to buy {{2}} from you for {{3}}.\n\n' +
-    'They pay Hoolam first. You ship once the money is held, and you get paid when they are happy.\n\n' +
-    'Order {{4}}. Tap below to see the photos and accept.',
+    '🛒 *New order request* on *Hoolam*\n\n👤 Buyer: *{{1}}*\n📦 Item: *{{2}}*\n💰 Total price: *{{3}}*\n\n' +
+    'They pay Hoolam first. You dispatch once the money is held, and you get paid when they are happy.\n\n' +
+    'Order *{{4}}*. Tap below to see the photos and accept.',
   example: ['Ada', 'Black sneakers, size 42', '₦15,000', 'HL-7K2QF'],
   footer: 'Not expecting this? Tap Not me.',
   buttons: ['View order', 'Not me'],
@@ -120,8 +120,10 @@ export const BUYER_ALERT = {
 
 export interface TemplateDef {
   name: string; body: string; example: string[]; footer?: string; buttons?: string[]; replaces?: string;
-  /** How many variables the replaced version has, when the new one adds some (extra values are left off when sending it). */
-  replacesParams?: number;
+  /** When the replaced version has different variables: which of the new values it takes, in its order (0-based). */
+  replacesParams?: number[];
+  /** When the replaced version has fewer buttons: how many it has. */
+  replacesButtons?: number;
 }
 
 /**
@@ -132,18 +134,18 @@ export interface TemplateDef {
  */
 export const DEAL_TEMPLATES = {
   sellerAccepted: {
-    name: 'hoolam_order_accepted', replaces: 'hoolam_seller_accepted', label: 'Seller accepted (to the buyer)',
-    body: 'Good news: the seller accepted your order {{1}}.\n\nPay {{2}} to Hoolam to start. We hold the money until you have your item and are happy.',
-    example: ['HL-7K2QF', '₦15,300'], buttons: ['Pay now'],
+    name: 'hoolam_order_accepted_pay', replaces: 'hoolam_order_accepted', replacesButtons: 1, label: 'Seller accepted, pay now (to the buyer)',
+    body: 'Good news: the seller *accepted your order!* Order *{{1}}*.\n\nPay *{{2}}* to Hoolam to start. *Your money stays with Hoolam until you have your item and you are happy.*',
+    example: ['HL-7K2QF', '₦15,300'], buttons: ['Pay now', 'Cancel order'],
   },
   counterOffer: {
-    name: 'hoolam_order_new_price_reason', replaces: 'hoolam_order_new_price', replacesParams: 2, label: 'New price from the seller, with the reason (to the buyer)',
-    body: 'The seller replied to your order {{1}} with a new price. You would pay {{2}} in total.\n\nTheir reason: {{3}}\n\nYou only pay if you accept.',
-    example: ['HL-7K2QF', '₦18,400', 'The price went up at the market'], buttons: ['Accept new price', 'Cancel order'],
+    name: 'hoolam_order_new_price_breakdown', replaces: 'hoolam_order_new_price', replacesParams: [0, 4], label: 'New price from the seller, with the reason (to the buyer)',
+    body: 'The seller replied to your order *{{1}}* with a new price of *{{2}}*.\n\nTheir reason: {{3}}\n\nHoolam fee: {{4}}\nYou would pay: *{{5}}*\n\nYou only pay if you accept.',
+    example: ['HL-7K2QF', '₦18,000', 'The price went up at the market', '₦450', '₦18,450'], buttons: ['Accept new price', 'Cancel order'],
   },
   paymentReceived: {
-    name: 'hoolam_order_paid', replaces: 'hoolam_payment_received', label: 'Buyer paid (to the seller)',
-    body: 'The buyer has paid for order {{1}}. Your {{2}} is held safely by Hoolam.\n\nSend the item now, then tap below.',
+    name: 'hoolam_order_paid_v2', replaces: 'hoolam_order_paid', label: 'Buyer paid (to the seller)',
+    body: 'The buyer has paid for order *{{1}}*. Your *{{2}}* is held safely by Hoolam.\n\nSend the item now, then tap below.',
     example: ['HL-7K2QF', '₦15,000'], buttons: ['I have sent it'],
   },
   itemOnTheWay: {
@@ -182,8 +184,8 @@ export const DEAL_TEMPLATES = {
     example: ['HL-7K2QF'], buttons: ['Start another'],
   },
   paidDispatch: {
-    name: 'hoolam_order_paid_dispatch', label: 'Buyer paid, dispatch now (to the seller)',
-    body: 'The buyer has paid for order {{1}}. Your {{2}} is held safely by Hoolam.\n\nDispatch it now: tell us if it is a pickup, a rider or a waybill.',
+    name: 'hoolam_order_paid_dispatch_v2', replaces: 'hoolam_order_paid_dispatch', label: 'Buyer paid, dispatch now (to the seller)',
+    body: 'The buyer has paid for order *{{1}}*. Your *{{2}}* is held safely by Hoolam.\n\nDispatch it now: tell us if it is a pickup, a rider or a waybill.',
     example: ['HL-7K2QF', '₦15,000'], buttons: ['Dispatch now'],
   },
   orderDispatched: {

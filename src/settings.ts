@@ -1,6 +1,6 @@
 import type { Config } from './config.js';
 import type { Db, Queryable } from './db.js';
-import { PRICING, type PricingRules } from './pricing.js';
+import { checkBands, DEFAULT_TXN_BANDS, PRICING, type FeeBand, type PricingRules, type TxnFees } from './pricing.js';
 import { COMPANY_SOCIAL_KINDS, COMPANY_SOCIAL_NAMES, companySocialLink, parseCompanySocial, type CompanySocialKind } from './socials.js';
 
 /**
@@ -8,7 +8,7 @@ import { COMPANY_SOCIAL_KINDS, COMPANY_SOCIAL_NAMES, companySocialLink, parseCom
  * a type and limits, so a typo can't break the service. Changes apply to NEW deals only: a deal keeps
  * the fee and limits it was created with.
  */
-export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social';
+export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social' | 'bands';
 
 export interface SettingDef {
   key: string;
@@ -28,13 +28,15 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'fee_min', group: 'Fees', label: 'Minimum fee', help: 'The smallest fee on any deal.', type: 'money', min: 0, max: 100_000, core: true },
   { key: 'fee_max', group: 'Fees', label: 'Maximum fee', help: 'The fee never goes above this.', type: 'money', min: 0, max: 1_000_000, core: true },
   { key: 'fee_round_to', group: 'Fees', label: 'Round fees to', help: 'Fees are rounded to the nearest multiple of this.', type: 'money', min: 1, max: 10_000, core: true },
+  { key: 'seller_txn_fee', group: 'Fees', label: 'Seller transaction fee', help: 'A flat fee by order size, taken from the seller\'s payout on orders the buyer started. Only the seller sees it.', type: 'bands', core: true },
+  { key: 'buyer_txn_fee', group: 'Fees', label: 'Buyer transaction fee', help: 'A flat fee by order size, added to what the buyer pays on orders the seller started. Only the buyer sees it.', type: 'bands', core: true },
   { key: 'max_deal', group: 'Limits', label: 'Largest order', help: 'Most a single order can be (before KYC). You can raise it for one person on their page.', type: 'money', min: 1_000, max: 100_000_000, core: true },
   { key: 'seller_accept_hours', group: 'Timing', label: 'Seller has to accept within', help: 'For orders a buyer starts. After this, the order closes.', type: 'hours', min: 1, max: 336 },
   { key: 'nudge_after_hours', group: 'Timing', label: 'Remind the buyer after', help: 'Hours after shipping before we ask the buyer if the item arrived.', type: 'hours', min: 1, max: 336 },
   { key: 'auto_release_minutes', group: 'Timing', label: 'Pay the seller automatically after', help: 'Once the handover code is entered, the buyer has this long to tap "I\'m happy" or report a problem. If they do neither, the seller is paid.', type: 'minutes', min: 30, max: 20_160 },
   { key: 'dispatch_remind_hours', group: 'Timing', label: 'Remind the seller to dispatch after', help: 'Hours after the buyer pays before we remind a seller who hasn\'t dispatched.', type: 'hours', min: 1, max: 336 },
   { key: 'flag_after_hours', group: 'Timing', label: 'Flag for the team after', help: 'Hours after shipping before an unconfirmed order appears in Needs action.', type: 'hours', min: 1, max: 720 },
-  { key: 'whatsapp_number', group: 'WhatsApp', label: 'Hoolam\'s WhatsApp number', help: 'The number people message. Used in every "chat with Hoolam" link: the website, seller pages and payment links. Digits only, with the country code.', type: 'phone', core: true },
+  { key: 'whatsapp_number', group: 'WhatsApp', label: 'Hoolam\'s WhatsApp number', help: 'The number people message. Used in every "chat with Hoolam" link: the website, seller pages and payment links. For example 07034577787.', type: 'phone', core: true },
   { key: 'alerts_enabled', group: 'WhatsApp', label: 'Alert the other side by number', help: 'Send "New order request" / "Payment request" when someone types the other side\'s number.', type: 'boolean' },
   { key: 'contact_email', group: 'Contact', label: 'Email', help: 'Where people can write to Hoolam. Shown in the website footer and on the legal pages.', type: 'email' },
   { key: 'contact_phone', group: 'Contact', label: 'Phone for calls', help: 'Optional. Leave it empty to show Hoolam\'s WhatsApp number instead.', type: 'phone', optional: true },
@@ -42,7 +44,8 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'forms_enabled', group: 'WhatsApp', label: 'WhatsApp forms', help: 'Offer the buy and sell forms (needs Meta business verification).', type: 'boolean' },
 ];
 
-type Value = number | boolean | string;
+type Value = number | boolean | string | FeeBand[];
+export type SettingValue = Value;
 type Values = Record<string, Value>;
 
 export class Settings {
@@ -58,6 +61,7 @@ export class Settings {
     const p = PRICING[this.c.CURRENCY];
     return {
       fee_rate_percent: p.ratePercent, fee_min: p.min, fee_max: p.max, fee_round_to: p.roundTo,
+      seller_txn_fee: DEFAULT_TXN_BANDS, buyer_txn_fee: DEFAULT_TXN_BANDS,
       max_deal: this.c.MAX_DEAL_MINOR / this.unit,
       auto_release_minutes: 1440, dispatch_remind_hours: 12,
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
@@ -80,7 +84,7 @@ export class Settings {
   normalize(key: string, value: unknown): unknown {
     const def = SETTING_DEFS.find((d) => d.key === key);
     if (!def || typeof value !== 'string') return value;
-    if (def.type === 'phone') return value.replace(/\D/g, '');
+    if (def.type === 'phone') { const d = value.replace(/\D/g, ''); return /^0\d{10}$/.test(d) ? '234' + d.slice(1) : d; } // 0803… → 2348…
     if (def.type === 'email') return value.trim().toLowerCase();
     if (def.type === 'social') {
       if (!value.trim()) return '';
@@ -95,6 +99,7 @@ export class Settings {
     const def = SETTING_DEFS.find((d) => d.key === key);
     if (!def) return `Unknown setting ${key}`;
     if (def.type === 'boolean') return typeof value === 'boolean' ? null : `${def.label} must be on or off`;
+    if (def.type === 'bands') { const e = checkBands(value); return e ? `${def.label}: ${e}` : null; }
     if (def.optional && value === '') return null;
     if (def.type === 'email') return typeof value === 'string' && /^[^\s@<>"]{1,64}@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) ? null : 'Enter a full email address, like hello@hoolam.com.';
     if (def.type === 'social') {
@@ -103,8 +108,7 @@ export class Settings {
       return 'error' in r ? r.error : null;
     }
     if (def.type === 'phone') {
-      if (typeof value !== 'string' || !/^\d{8,15}$/.test(value)) return 'Enter the full number with the country code, digits only. For example 2348012345678.';
-      if (value.startsWith('0')) return 'Start with the country code (234 for Nigeria), not 0.';
+      if (typeof value !== 'string' || !/^[1-9]\d{7,14}$/.test(value)) return 'Enter the full number, for example 07034577787.';
       return null;
     }
     if (typeof value !== 'number' || !Number.isFinite(value)) return `${def.label} must be a number`;
@@ -131,6 +135,11 @@ export class Settings {
       ratePercent: this.get('fee_rate_percent'), min: this.get('fee_min'), max: this.get('fee_max'),
       roundTo: this.get('fee_round_to'), buyerShare: PRICING[this.c.CURRENCY].buyerShare,
     };
+  }
+  /** The flat transaction fee bands (major units). */
+  txnFees(): TxnFees {
+    const read = (k: string) => { const v = this.get<Value>(k) as unknown; return checkBands(v) ? DEFAULT_TXN_BANDS : (v as FeeBand[]); };
+    return { seller: read('seller_txn_fee'), buyer: read('buyer_txn_fee') };
   }
   maxDealMinor(): number { return Math.round(this.get<number>('max_deal') * this.unit); }
   acceptHours(): number { return this.get('seller_accept_hours'); }

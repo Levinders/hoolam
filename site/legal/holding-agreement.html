@@ -7,7 +7,7 @@
     <li>We hold it with {{BANK_PARTNER}}, a bank licensed by the Central Bank of Nigeria. We don’t spend it, lend it or invest it.</li>
     <li>The seller is paid when the buyer says they are happy, or when our team decides a problem in the seller’s favour.</li>
     <li>If the item never comes, or our team decides for the buyer, the buyer gets back everything they paid, our fee included.</li>
-    <li>Whoever starts the order pays our fee: {{FEE_RATE}} of the price, never less than {{FEE_MIN}}, never more than {{FEE_MAX}}.</li>
+    <li>Whoever starts the order pays our fee: {{FEE_RATE}} of the price, never less than {{FEE_MIN}}, never more than {{FEE_MAX}}. The other side pays a flat transaction fee by order size.</li>
   </ul>
 </div>
 
@@ -52,7 +52,12 @@
     <div><b>{{FEE_MIN}}</b><span>smallest fee</span></div>
     <div><b>{{FEE_MAX}}</b><span>biggest fee</span></div>
   </div>
-  <p>Fees are rounded to the nearest {{FEE_ROUND}}. <strong>Whoever starts the order pays the fee.</strong> If the buyer starts it, the buyer pays the price plus the fee and the seller gets the full price. If the seller starts it, the buyer pays just the price and the seller gets the price minus the fee.</p>
+  <p>Fees are rounded to the nearest {{FEE_ROUND}}. <strong>Whoever starts the order pays our fee, and the other side pays a flat transaction fee.</strong></p>
+  <ul>
+    <li><strong>The buyer starts it:</strong> the buyer pays the price plus our fee. The seller gets the price minus the seller's transaction fee: {{TXN_SELLER}}.</li>
+    <li><strong>The seller starts it:</strong> the seller gets the price minus our fee. The buyer pays the price plus the buyer's transaction fee: {{TXN_BUYER}}.</li>
+  </ul>
+  <p>Each person sees their own fee in their order summary before anything is paid. The transaction fee is worked out on the total price, delivery included. If an order is refunded or cancelled, the seller pays no transaction fee, and a buyer who paid one gets it back with the rest of their money (except a delivery fee already paid to a rider or driver).</p>
   <p>The fee is shown in the order summary before anyone pays. There is no sign-up fee, monthly fee or other charge from Hoolam. Your own bank may charge you for making a transfer; that is between you and your bank. If we change our fees, the change applies to new orders only: an order keeps the fee it started with.</p>
   <p>We take our fee only when the money is released to the seller. If the buyer is refunded, we take no fee.</p>
   <h3>Delivery</h3>

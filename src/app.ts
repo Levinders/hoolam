@@ -2,13 +2,13 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
-import { DealError, DealService } from './deals/service.js';
+import { DealError, DealService, viewKey, type Deal } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
 import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
-import { OrdersFlow, signToken, type Entry } from './whatsapp/orders-flow.js';
+import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
 import { Settings } from './settings.js';
@@ -39,7 +39,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const messenger = new Messenger(db, {
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
-  for (const t of ALL_TEMPLATES) if (t.replaces) messenger.setTemplateReplaces(t.name, t.replaces, t.replacesParams);
+  for (const t of ALL_TEMPLATES) if (t.replaces) messenger.setTemplateReplaces(t.name, t.replaces, { params: t.replacesParams, buttons: t.replacesButtons });
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider.sandbox;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
@@ -74,7 +74,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const mode = at.mode ?? (at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer');
     const titles: Record<Exclude<Entry, 'preview'>, [string, string]> = {
       orders: ['📋 My orders', mode === 'seller' ? 'Everything you\'re selling: what needs you first, then the rest.' : 'Everything you\'re buying, and where your money is.'],
-      order: at.mode === 'seller' ? ['🛒 New order for you', `Order ${at.code}: see the photos and details, then accept, change the price or decline.`] : ['📋 Your order', `Order ${at.code}: details, photos and the next step.`],
+      order: at.mode === 'seller' ? ['🛒 New order for you', `Order ${at.code}: see the photos and details, then accept, update the price or decline.`] : ['📋 Your order', `Order ${at.code}: details, photos and the next step.`],
       dispatch: ['🚚 Dispatch', `Order ${at.code}: pickup, rider or waybill. It takes a minute.`],
       code: ['🔑 Handover code', `Order ${at.code}: enter the receiver's 4-digit code.`],
     };
@@ -138,6 +138,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.header('access-control-allow-origin', '*').header('cache-control', 'public, max-age=120').send({
       currency: c.CURRENCY, whatsapp: settings.waNumber(),
       fees: { rate: p.ratePercent, min: p.min, max: p.max, roundTo: p.roundTo },
+      txn: settings.txnFees(), // flat transaction fee bands (naira): seller's when the buyer starts, buyer's when the seller starts
       maxDeal: settings.maxDealMinor() / unit,
       contact: settings.contact(),
       timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: 72, autoReleaseMinutes: settings.autoReleaseMinutes() },
@@ -187,23 +188,28 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.header('cache-control', 'no-store').redirect(toChat(`View ${code.toUpperCase()}`));
   });
   // ---------- the private order page (link sent only to the buyer and the seller) ----------
-  const orderFor = async (code: string, key: unknown) => {
+  /** The order for a page link, and whose link it is (each side sees their own fee; the bare token is neutral). */
+  const orderView = async (code: string, key: unknown): Promise<{ d: Deal; viewer: 'buyer' | 'seller' | null } | null> => {
     if (!CODE.test(code) || typeof key !== 'string' || key.length < 10) return null;
     const d = await deals.findByCode(code.toUpperCase());
     if (!d?.view_token) return null;
-    const a = Buffer.from(d.view_token), b = Buffer.from(key);
-    return a.length === b.length && timingSafeEqual(a, b) ? d : null;
+    const same = (x: string) => { const a = Buffer.from(x), b = Buffer.from(key); return a.length === b.length && timingSafeEqual(a, b); };
+    if (same(viewKey(d.view_token, 'buyer'))) return { d, viewer: 'buyer' };
+    if (same(viewKey(d.view_token, 'seller'))) return { d, viewer: 'seller' };
+    return same(d.view_token) ? { d, viewer: null } : null;
   };
+  const orderFor = async (code: string, key: unknown) => (await orderView(code, key))?.d ?? null;
   app.get('/o/:code', async (req, reply) => {
     const { code } = req.params as { code: string };
     const k = (req.query as { k?: string }).k;
-    const d = await orderFor(code, k);
-    if (!d) return reply.code(404).type('text/html').send(notFoundPage());
+    const v = await orderView(code, k);
+    if (!v) return reply.code(404).type('text/html').send(notFoundPage());
+    const d = v.d;
     const photos = await db.query(`SELECT id FROM deal_photos WHERE deal_id=$1 AND kind='ITEM' AND bytes IS NOT NULL ORDER BY id LIMIT 3`, [d.id]);
     const name = async (id: string | null) => id ? (await db.query('SELECT COALESCE(business_name, display_name) AS n FROM users WHERE id=$1', [id])).rows[0]?.n ?? null : null;
     return reply.type('text/html').header('cache-control', 'private, no-store').header('x-robots-tag', 'noindex').send(orderPage(d, {
       photoIds: photos.rows.map((r) => r.id), photoUrl: (id) => `/o/${d.code}/p/${id}.jpg?k=${encodeURIComponent(String(k))}`,
-      chatUrl: toChat('menu'), markUrl: siteMedia.url(base, 'mark'), sellerName: await name(d.seller_id), buyerName: await name(d.buyer_id),
+      chatUrl: toChat('menu'), markUrl: siteMedia.url(base, 'mark'), sellerName: await name(d.seller_id), buyerName: await name(d.buyer_id), viewer: v.viewer,
     }));
   });
   app.get('/o/:code/p/:id', async (req, reply) => {
@@ -508,9 +514,10 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         log(`forms key: ${keys.source === 'env' ? 'from FLOWS_PRIVATE_KEY' : keys.source === 'new' ? 'made a new one (kept in the database)' : 'loaded from the database'}`);
         if (await registerFlowsKey(o, keys.publicKeyPem)) {
           const endpoint = `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/flows/endpoint`;
-          const id = await ensureOrdersFlow(o, endpoint);
+          // if Meta refuses a newer form feature, fall back to the plain version so My orders keeps working
+          const id = (await ensureOrdersFlow(o, endpoint)) ?? (await ensureOrdersFlow(o, endpoint, ordersFlowJson('FILTER', true)));
           ordersForm = id ? { flowId: id, mode: c.WHATSAPP_FORM_MODE } : null;
-          const one = await ensureOrderFlow(o, endpoint);
+          const one = (await ensureOrderFlow(o, endpoint)) ?? (await ensureOrderFlow(o, endpoint, ordersFlowJson('ORDER', true)));
           orderForm = one ? { flowId: one, mode: c.WHATSAPP_FORM_MODE } : null;
         }
       }

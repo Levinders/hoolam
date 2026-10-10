@@ -44,7 +44,7 @@ async function dispatchByRider(seller: string, code: string, fee = '2,000') {
   await h.say(seller, '08031234567');
   await h.say(seller, fee);
   await h.tap(seller, 'dloc:buyer');
-  if (/account number and bank/.test(h.last(seller))) {
+  if (/Send your account number|account number/.test(h.last(seller))) {
     await h.say(seller, '9876543210 Opay');
     await h.tap(seller, 'dacct:yes');
   }
@@ -78,7 +78,7 @@ describe('dispatch', () => {
     await h.say(seller, '9876543210 Opay');
     expect(h.last(seller)).toMatch(/\*MUSA IBRAHIM\*/);
     await h.tap(seller, 'dacct:no');
-    expect(h.last(seller)).toMatch(/account number and bank/);
+    expect(h.last(seller)).toMatch(/Send your account number|account number/);
     await h.say(seller, '9876543210 Opay');
     await h.tap(seller, 'dacct:yes');
 
@@ -115,12 +115,12 @@ describe('dispatch', () => {
 
     await h.tap(buyer, `happy:${code}`);
     expect((await deal(code)).status).toBe('COMPLETED');
-    expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['DELIVERY', 200_000], ['SELLER', 1_800_000]]);
+    expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['DELIVERY', 200_000], ['SELLER', 1_750_000]]);
     const l = await ledger(code);
     expect(l['held:deal']).toBe(0);
     expect(l['payable:courier']).toBe(0);
     expect(l['payable:seller']).toBe(0);
-    expect(l['revenue:fees']).toBe(-50_000);
+    expect(l['revenue:fees']).toBe(-100_000); // Hoolam's ₦500 fee (buyer) + the ₦500 transaction fee (seller)
   });
 
   it('five wrong codes lock it for the team', async () => {
@@ -145,7 +145,7 @@ describe('dispatch', () => {
     await h.tap(seller, `hcode:${code}`); await h.say(seller, (await deal(code)).handover_code);
     expect(await payouts(code)).toEqual([]);
     await h.tap(buyer, `happy:${code}`);
-    expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['SELLER', 2_000_000]]);
+    expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['SELLER', 1_950_000]]); // ₦20,000 minus the seller's ₦500 transaction fee
   });
 
   it('no answer after the handover: the seller is paid automatically after the set time', async () => {
@@ -167,7 +167,7 @@ describe('dispatch', () => {
     await h.tap(seller, `hcode:${code}`); await h.say(seller, (await deal(code)).handover_code);
     await h.tap(buyer, `problem:${code}`);
     await h.say(buyer, 'Wrong colour, I refused it');
-    if (/account number and bank/.test(h.last(buyer))) { await h.say(buyer, '1112223334 Kuda'); await h.tap(buyer, 'bank:yes'); }
+    if (/Send your account number|account number/.test(h.last(buyer))) { await h.say(buyer, '1112223334 Kuda'); await h.tap(buyer, 'bank:yes'); }
     await h.app.deals.adminRefund(code, 'Wrong colour, confirmed from photos');
     expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['DELIVERY', 200_000], ['REFUND', 1_850_000]]);
     expect((await ledger(code))['held:deal']).toBe(0);
@@ -177,7 +177,7 @@ describe('dispatch', () => {
     const { buyer, seller, code } = await paidBuyerOrder();
     await dispatchByRider(seller, code);
     await h.tap(buyer, `happy:${code}`);
-    expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['DELIVERY', 200_000], ['SELLER', 1_800_000]]);
+    expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['DELIVERY', 200_000], ['SELLER', 1_750_000]]);
   });
 
   it('the seller can\'t fulfil: the buyer is asked for an account, then refunded in full', async () => {
@@ -198,7 +198,7 @@ describe('dispatch', () => {
     expect(h.last(buyer)).toMatch(/Reminder sent/);
     await h.say(buyer, '1112223334 Kuda'); // not asked: stays a normal message
     await h.tap(buyer, `refundme:${code}`);
-    if (/account number and bank/.test(h.last(buyer))) { await h.say(buyer, '1112223334 Kuda'); await h.tap(buyer, 'bank:yes'); }
+    if (/Send your account number|account number/.test(h.last(buyer))) { await h.say(buyer, '1112223334 Kuda'); await h.tap(buyer, 'bank:yes'); }
     expect((await deal(code)).status).toBe('REFUNDED');
     expect(h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n')).toMatch(/asked for a refund/);
   });

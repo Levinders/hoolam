@@ -1,7 +1,7 @@
 import { SOCIAL_NAMES, type SocialKind } from '../socials.js';
 import type { Db } from '../db.js';
 import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
-import { PRICING, quote } from '../pricing.js';
+import { PRICING, quote, type FeeBand } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
 import type { PaymentProvider } from '../payments/provider.js';
 import { DealError, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
@@ -12,7 +12,8 @@ import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
 import { localPhone, msg, STATUS_WORDS } from './messages.js';
 import { readBuyForm } from './buy-flow.js';
 import { normalizePhone } from './inbound.js';
-import { matchBank, parseBankInput } from './banks.js';
+import { bankChoices, matchBank, parseBankInput } from './banks.js';
+import type { Bank } from '../payments/provider.js';
 import { dayText } from '../deals/service.js';
 import type { Trust } from '../trust.js';
 
@@ -167,6 +168,7 @@ export class Conversation {
         case 'dloc':
           if (s.state !== 'DISPATCH') return this.send(m.phone, msg.didntUnderstand());
           return this.dispatchStep(m.phone, user, { ...s.data, location: s.data.buyerAddress ?? '' });
+        case 'bpick': return this.bankPicked(m.phone, user, s, code!);
         case 'dacct': {
           if (s.state !== 'DISPATCH' || !s.data.pendingAccount) return this.send(m.phone, msg.didntUnderstand());
           if (code !== 'yes') { const { pendingAccount: _p, ...rest } = s.data; return this.dispatchStep(m.phone, user, { ...rest, account: undefined }); }
@@ -203,7 +205,7 @@ export class Conversation {
         // ----- the seller's side of a buyer's deal -----
         case 'sview': {
           await this.save(m.phone, 'IDLE');
-          // a new order for a seller opens in the form (photos, details, Accept / Change price / Decline); the chat is the fallback
+          // a new order for a seller opens in the form (photos, details, Accept / Update price / Decline); the chat is the fallback
           const d = await this.o.deals.findByCode(code!);
           if (d?.status === 'AWAITING_SELLER' && d.buyer_id !== user.id && !d.seller_id && this.o.ordersForm
             && (await this.o.ordersForm.open(m.phone, user, { screen: 'order', code: d.code, mode: 'seller' }))) return;
@@ -601,7 +603,7 @@ export class Conversation {
     const c = this.o.currency;
     const r = this.o.deals.pricingRules() ?? PRICING[c];
     const unit = c === 'NGN' ? 100 : 1;
-    return `${r.ratePercent}% of the total (at least ${formatMoney(r.min * unit, c)}${r.max ? `, at most ${formatMoney(r.max * unit, c)}` : ''})`;
+    return `${r.ratePercent}% of the total (starting from ${formatMoney(r.min * unit, c)}${r.max ? `, at most ${formatMoney(r.max * unit, c)}` : ''})`;
   }
 
   private feesMessage(): Outbound {
@@ -609,14 +611,20 @@ export class Conversation {
     const r = this.o.deals.pricingRules() ?? PRICING[c];
     const unit = c === 'NGN' ? 100 : 1;
     const f = (major: number) => formatMoney(major * unit, c);
-    const who = '🤝 *Whoever starts the order pays the fee.*\n🏷️ Seller starts it → buyer pays just the price\n🛒 Buyer starts it → seller gets the full price';
-    const rules = `*${r.ratePercent}%* of the price\nMin ${f(r.min)} · Max ${f(r.max)} · rounded to ${f(r.roundTo)}\n\n${who}`;
+    const who = '🤝 *Whoever starts the order pays Hoolam\'s fee.* The other side pays a small flat *transaction fee*.\n' +
+      '🛒 Buyer starts it → buyer pays Hoolam\'s fee, the seller\'s transaction fee comes out of their payout\n' +
+      '🏷️ Seller starts it → seller pays Hoolam\'s fee, the buyer pays a transaction fee';
+    const t = this.o.deals.txnFees();
+    const bands = (b: FeeBand[]) => b.map((x, i) => x.upTo == null ? `${f(x.fee)} above ${f(b[i - 1]?.upTo ?? 0)}` : `${f(x.fee)} up to ${f(x.upTo)}`).join('\n');
+    const same = JSON.stringify(t.seller) === JSON.stringify(t.buyer);
+    const txn = same ? `*Transaction fee*\n${bands(t.seller)}` : `*Seller's transaction fee*\n${bands(t.seller)}\n\n*Buyer's transaction fee*\n${bands(t.buyer)}`;
+    const rules = `*Hoolam's fee: ${r.ratePercent}%* of the price\nStarting from ${f(r.min)}, at most ${f(r.max)}\n\n${txn}\n\n${who}`;
     const examples = [5_000, 15_000, 50_000]
       .map((major) => major * unit)
       .filter((minor) => minor <= this.maxDeal())
       .map((minor) => {
         const q = quote(minor, c, r);
-        return `${formatMoney(minor, c)} item → fee ${formatMoney(q.feeMinor, c)}`;
+        return `${formatMoney(minor, c)} order → Hoolam's fee ${formatMoney(q.feeMinor, c)}`;
       });
     return msg.fees(rules, examples, { minor: this.maxDeal(), currency: c });
   }
@@ -704,7 +712,7 @@ export class Conversation {
     return this.send(phone, msg.dealCreated(deal.code, link, alert));
   }
 
-  /** "Change price" on a buyer's deal. */
+  /** "Update price" on a buyer's deal. */
   private async startCounter(phone: string, user: User, code: string) {
     const deal = await this.o.deals.findByCode(code);
     if (!deal) throw new DealError('NOT_FOUND');
@@ -906,7 +914,7 @@ export class Conversation {
       const n = d.photos?.length ?? 0;
       const status = await this.send(phone, msg.buyEditForm(form.flowId, form.mode, {
         item: d.item, description: d.description ?? '', category: d.category ?? '', price: String(d.priceMinor / 100),
-        address: d.address ?? '', arrive_by: d.arriveBy ?? '', other_phone: d.sellerPhone ?? '',
+        address: d.address ?? '', arrive_by: d.arriveBy ?? '', other_phone: d.sellerPhone ? localPhone(d.sellerPhone) : '',
         photo_note: n ? `You added ${n} photo${n === 1 ? '' : 's'}. They stay unless you add new ones here.` : 'Add 1 to 3 photos of the item.',
       }));
       if (status !== 'FAILED') return;
@@ -973,10 +981,39 @@ export class Conversation {
   }
 
   // ----- bank accounts -----
-  private async bankTyped(phone: string, s: Session, text: string) {
+  /**
+   * Account number and bank, typed in the chat. Just the number? We list the banks it can belong to
+   * (most likely first) and they tap one. Returns "number bank" when we have both, or null after asking.
+   */
+  private async withBank(phone: string, s: Session, state: State, text: string): Promise<string | null> {
+    const digits = text.replace(/\D/g, '');
+    const onlyNumber = /^\d{10}$/.test(digits) && !/[a-z]/i.test(text);
+    if (onlyNumber) {
+      const choices = bankChoices(digits, await this.o.provider.listBanks()).slice(0, 9);
+      await this.save(phone, state, { ...s.data, bankNumber: digits });
+      return this.send(phone, msg.pickBank(digits, choices)).then(() => null);
+    }
+    // a bank name after picking "Other": put the number back in front
+    if (!/\d{10}/.test(text) && s.data.bankNumber) return `${s.data.bankNumber} ${text}`;
+    return text;
+  }
+
+  /** A bank tapped from the list (or "Other"). */
+  private async bankPicked(phone: string, user: User, s: Session, code: string) {
+    if (!s.data.bankNumber) return this.send(phone, msg.didntUnderstand());
+    if (code === 'other') return this.send(phone, msg.askBankName());
+    const bank = (await this.o.provider.listBanks()).find((b) => b.code === code);
+    if (!bank) return this.send(phone, msg.askBankName());
+    const text = `${s.data.bankNumber} ${bank.name}`;
+    return s.state === 'DISPATCH' ? this.dispatchTyped(phone, user, s, text, bank) : this.bankTyped(phone, s, text, bank);
+  }
+
+  private async bankTyped(phone: string, s: Session, typed: string, picked?: Bank) {
+    const text = picked ? typed : await this.withBank(phone, s, s.state as State, typed);
+    if (text === null) return;
     const parsed = parseBankInput(text);
     if (!parsed) return this.send(phone, msg.badBank());
-    const bank = matchBank(parsed.bankText, await this.o.provider.listBanks());
+    const bank = picked ?? matchBank(parsed.bankText, await this.o.provider.listBanks());
     if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
     const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
     if (!name) return this.send(phone, msg.accountNotFound());
@@ -1052,7 +1089,7 @@ export class Conversation {
     });
   }
 
-  private async dispatchTyped(phone: string, user: User, s: Session, text: string): Promise<unknown> {
+  private async dispatchTyped(phone: string, user: User, s: Session, text: string, picked?: Bank): Promise<unknown> {
     const d = { ...s.data };
     const role = d.method === 'waybill' ? 'driver' : 'rider';
     if (!d.method) return this.send(phone, msg.askDispatchMethod(d.code));
@@ -1073,9 +1110,11 @@ export class Conversation {
     }
     if (!d.location) return this.dispatchStep(phone, user, { ...d, location: text.length >= 3 ? text.slice(0, 300) : undefined });
     if (d.fee > 0 && !d.account) {
-      const parsed = parseBankInput(text);
+      const full = picked ? text : await this.withBank(phone, s, 'DISPATCH', text);
+      if (full === null) return;
+      const parsed = parseBankInput(full);
       if (!parsed) return this.send(phone, msg.badBank());
-      const bank = matchBank(parsed.bankText, await this.o.provider.listBanks());
+      const bank = picked ?? matchBank(parsed.bankText, await this.o.provider.listBanks());
       if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
       const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
       if (!name) return this.send(phone, msg.accountNotFound());

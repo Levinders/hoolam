@@ -25,7 +25,7 @@ async function sellByChat(seller: string, opts: { buyerPhone?: string; photos?: 
   for (let i = 0; i < (opts.photos ?? 0); i++) await photo(seller);
   await h.tap(seller, opts.photos ? 'sell:photosdone' : 'sell:nophotos');
   if (opts.buyerPhone) await h.say(seller, opts.buyerPhone); else await h.tap(seller, 'sell:nophone');
-  if (/account number and bank/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
+  if (/Send your account number|account number/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
   await h.tap(seller, 'sell:confirm');
   return codeIn(h.last(seller));
 }
@@ -59,10 +59,12 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
     expect(h.last(seller)).toMatch(/📷 1 photo/);
     expect(h.last(seller)).toMatch(/Hoolam fee   −₦400/);
     expect(h.last(seller)).toMatch(/You receive  ₦14,600/);
-    expect(h.last(seller)).toMatch(/The buyer pays ₦15,000/);
+    expect(h.last(seller)).toMatch(/You started the order, so you pay Hoolam's fee/);
+    expect(h.last(seller)).not.toMatch(/Transaction fee|₦15,500/); // the buyer's transaction fee is theirs to see
     await h.tap(seller, 'sell:confirm');
     const d = await deal(codeIn(h.last(seller)));
-    expect(d).toMatchObject({ fee_payer: 'SELLER', buyer_pays_minor: 1_500_000, seller_gets_minor: 1_460_000, fee_minor: 40_000 });
+    expect(d).toMatchObject({ fee_payer: 'SELLER', txn_fee_payer: 'BUYER' });
+    expect([d.buyer_pays_minor, d.seller_gets_minor, d.fee_minor, d.txn_fee_minor].map(Number)).toEqual([1_550_000, 1_460_000, 40_000, 50_000]);
   });
 
   it('with the buyer\'s number: the buyer is alerted, sees photos, pays just the price', async () => {
@@ -71,13 +73,14 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
     expect(h.last(seller)).toMatch(/We've sent the buyer the order/);
     const alerts = await outs(buyer, 'template');
     expect(alerts).toHaveLength(1);
-    expect(alerts[0].body.text).toMatch(/Bayo is selling you Black sneakers, size 42 for ₦15,000/);
+    expect(alerts[0].body.text).toMatch(/Bayo is selling you Black sneakers, size 42 for ₦15,500/);
     expect(alerts[0].body.buttons.map((b: { id: string }) => b.id)).toEqual([`bview:${code}`, `bnotme:${code}`]);
 
     await h.app.chat.handle({ id: `b${++n}`, phone: buyer, name: 'Ada', type: 'button', text: 'View deal', buttonId: `bview:${code}`, mediaId: null });
     expect(await outs(buyer, 'image')).toHaveLength(2);
-    expect(h.last(buyer)).toMatch(/You pay: ₦15,000/);
-    expect(h.last(buyer)).toMatch(/the seller pays it/);
+    expect(h.last(buyer)).toMatch(/Price               ₦15,000\nTransaction fee    ₦500\n\*You pay           ₦15,500\*/);
+    expect(h.last(buyer)).not.toMatch(/Hoolam fee/); // the seller started it, so Hoolam's fee is the seller's
+    expect(h.last(buyer)).toMatch(/\[✕ Cancel order\]/);
     expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
   });
 
@@ -97,7 +100,7 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
     await h.say(seller, 'hi', 'Bayo');
     await h.app.chat.handle({ id: `f${++n}`, phone: seller, name: 'Bayo', type: 'form', text: '', buttonId: null, mediaId: null,
       form: { flow_token: 'sell:v1', item: 'Wig', price: 20000, other_phone: '', photos: [{ id: 'p1', mime_type: 'image/jpeg' }] } });
-    expect(h.last(seller)).toMatch(/account number and bank/);
+    expect(h.last(seller)).toMatch(/Send your account number|account number/);
     await h.say(seller, '0123456789 Kuda'); await h.tap(seller, 'bank:yes');
     expect(h.last(seller)).toMatch(/Check your order/);
     expect(h.last(seller)).toMatch(/📷 1 photo/);
@@ -120,16 +123,17 @@ describe('Change price', () => {
     await h.say(seller, 'The price went up at the market');
     expect(h.last(seller)).toMatch(/where should we pay you/);
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
-    expect(h.last(seller)).toMatch(/We've asked Ada if ₦17,000 works/);
-    expect(h.last(buyer)).toMatch(/Chidi wants a different price/);
+    expect(h.last(seller)).toMatch(/We've asked \*Ada\* if \*₦17,000\* works/);
+    expect(h.last(buyer)).toMatch(/\*Chidi\* updated the price/);
     expect(h.last(buyer)).toMatch(/💬 Reason: The price went up at the market/);
     expect(h.last(buyer)).toMatch(/~₦15,000~ → \*₦17,000\*/);
-    expect(h.last(buyer)).toMatch(/You'd pay \*₦17,400\*/);
+    expect(h.last(buyer)).toMatch(/New price       ₦17,000\nHoolam fee     ₦400\n\*You'd pay       ₦17,400\*/); // the full breakdown
 
     await h.tap(buyer, `cyes:${code}`);
     const d = await deal(code);
-    expect(d).toMatchObject({ status: 'AWAITING_PAYMENT', price_minor: 1_700_000, buyer_pays_minor: 1_740_000, seller_gets_minor: 1_700_000, counter_price_minor: null });
-    expect(h.last(seller)).toMatch(/accepted your price/);
+    expect(d).toMatchObject({ status: 'AWAITING_PAYMENT', price_minor: 1_700_000, buyer_pays_minor: 1_740_000, seller_gets_minor: 1_650_000, counter_price_minor: null }); // seller: ₦17,000 − ₦500 transaction fee
+    expect(h.last(seller)).toMatch(/\*Ada\* accepted your price for order \*HL-[A-Z2-9]{5}\*\. You'll receive \*₦16,500\*/);
+    expect(h.last(seller)).toMatch(/\*Don't ship before we confirm the money is held\.\*/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\]/);
   });
 
@@ -217,7 +221,9 @@ describe('pieces', () => {
   it('fees explain who pays', async () => {
     const p = phone();
     await h.say(p, 'hi'); await h.say(p, '/fees');
-    expect(h.last(p)).toMatch(/Whoever starts the order pays the fee/);
+    expect(h.last(p)).toMatch(/Whoever starts the order pays Hoolam's fee/);
+    expect(h.last(p)).toMatch(/\*Transaction fee\*\n₦500 up to ₦100,000\n₦1,000 up to ₦200,000/);
+    expect(h.last(p)).toMatch(/₦2,500 above ₦400,000/);
   });
 
   it('the buyer alert template is transactional and well-formed', async () => {

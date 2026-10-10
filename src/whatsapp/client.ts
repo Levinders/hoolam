@@ -4,7 +4,7 @@ export interface Button { id: string; title: string } // WhatsApp: max 3 buttons
 export interface ListRow { id: string; title: string; description?: string } // title max 24, description max 72
 export interface ListSection { title: string; rows: ListRow[] }              // section title max 24
 export type Outbound =
-  | { kind: 'text'; text: string }
+  | { kind: 'text'; text: string; noMenu?: boolean }   // noMenu: keep it plain (e.g. a message meant to be forwarded)
   | { kind: 'buttons'; text: string; buttons: Button[] }
   | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string } // max 10 rows; header/footer max 60
   | { kind: 'image'; mediaId: string; caption?: string }                                                      // caption max 1024
@@ -24,6 +24,30 @@ export type SendStatus = 'SENT' | 'DRY_RUN' | 'FAILED' | 'NEEDS_TEMPLATE';
 
 /** WhatsApp rejects template values with new lines, tabs or long runs of spaces. */
 export const templateText = (s: string, max = 120) => s.replace(/[\n\r\t]+/g, ' ').replace(/ {4,}/g, '   ').trim().slice(0, max);
+
+export const MENU_BUTTON: Button = { id: 'menu:open', title: 'Main menu' };
+
+/**
+ * "Main menu" as the last option wherever there's room, so nobody is ever stuck: plain messages get the button,
+ * messages with 1 or 2 buttons get it as the last one, lists get it as the last row. Messages that already have it,
+ * have 3 buttons, are the menu itself, or are too long for a button message stay as they are.
+ */
+export function withMenuOption(msg: Outbound): Outbound {
+  if (msg.kind === 'text') {
+    if (msg.noMenu || msg.text.length > 1024) return msg;
+    return { kind: 'buttons', text: msg.text, buttons: [MENU_BUTTON] };
+  }
+  if (msg.kind === 'buttons') {
+    if (msg.buttons.length >= 3 || msg.buttons.some((b) => b.id === 'menu:open')) return msg;
+    return { ...msg, buttons: [...msg.buttons, MENU_BUTTON] };
+  }
+  if (msg.kind === 'list') {
+    const rows = msg.sections.flatMap((x) => x.rows);
+    if (rows.length >= 10 || rows.some((r) => r.id.startsWith('menu:')) || msg.sections.length >= 10) return msg;
+    return { ...msg, sections: [...msg.sections, { title: 'More', rows: [{ id: 'menu:open', title: '🏠 Main menu' }] }] };
+  }
+  return msg;
+}
 
 /** Throws if a message breaks WhatsApp's limits, so mistakes show up in tests, not on someone's phone. */
 export function checkLimits(msg: Outbound): void {
@@ -78,10 +102,11 @@ export class Messenger {
   templateStatus(name: string): string | null { return this.templates.get(name) ?? null; }
   /** A reworded template's earlier name: used while Meta reviews the new one, if the old one was approved. */
   private readonly previous = new Map<string, string>();
-  private readonly previousParams = new Map<string, number>();
-  setTemplateReplaces(name: string, previousName: string, previousParams?: number) {
+  private readonly previousShape = new Map<string, { params?: number[]; buttons?: number }>();
+  /** `shape`: which of the new values (0-based) and how many buttons the older version takes, when they differ. */
+  setTemplateReplaces(name: string, previousName: string, shape?: { params?: number[]; buttons?: number }) {
     this.previous.set(name, previousName);
-    if (previousParams !== undefined) this.previousParams.set(previousName, previousParams);
+    if (shape && (shape.params || shape.buttons !== undefined)) this.previousShape.set(previousName, shape);
   }
   /** The approved name to send under (the template itself, or the version it replaces), or null if neither is approved. */
   usableTemplate(name: string): string | null {
@@ -95,6 +120,7 @@ export class Messenger {
    * otherwise records the message as NEEDS_TEMPLATE so the team can see it in the console.
    */
   async send(phone: string, msg: Outbound, fallback?: Template): Promise<SendStatus> {
+    msg = withMenuOption(msg);
     checkLimits(msg);
     const s = await this.db.query('SELECT last_inbound_at FROM chat_sessions WHERE phone=$1', [phone]);
     const last: Date | null = s.rows[0]?.last_inbound_at ?? null;
@@ -115,9 +141,13 @@ export class Messenger {
   /** Sends an approved template. Allowed outside the 24-hour window. */
   async sendTemplate(phone: string, tpl: Template): Promise<SendStatus> {
     const t = { ...tpl, name: this.usableTemplate(tpl.name) ?? tpl.name };
-    // the older version may have fewer variables: send only the ones it has
-    const keep = t.name !== tpl.name ? this.previousParams.get(t.name) : undefined;
-    if (keep !== undefined) t.params = t.params.slice(0, keep);
+    // the older version may take different values or fewer buttons: send it what it has
+    const shape = t.name !== tpl.name ? this.previousShape.get(t.name) : undefined;
+    if (shape?.params) t.params = shape.params.map((i) => tpl.params[i] ?? '');
+    if (shape?.buttons !== undefined) {
+      t.buttonPayloads = t.buttonPayloads?.slice(0, shape.buttons);
+      t.buttonTitles = t.buttonTitles?.slice(0, shape.buttons);
+    }
     const to = phone.replace(/^\+/, '');
     const payload = {
       messaging_product: 'whatsapp', to, type: 'template',
