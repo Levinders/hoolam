@@ -44,7 +44,7 @@ export interface FlowOptions {
   /** The seller's WhatsApp form, once it exists on Meta. */
   sellForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** The live "My orders" form (needs the forms endpoint). Returns false when it can't be sent. */
-  ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code'; code?: string }): Promise<boolean> };
+  ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code'; code?: string; mode?: 'buyer' | 'seller' }): Promise<boolean> };
   /** Called when WhatsApp refuses to send a form, so we stop trying until the next restart. */
   onFormRefused?: () => void;
   /** Seller and buyer records. */
@@ -197,7 +197,14 @@ export class Conversation {
           return this.continueBuying(m.phone, { ...s.data, category: code });
 
         // ----- the seller's side of a buyer's deal -----
-        case 'sview': await this.save(m.phone, 'IDLE'); return this.o.deals.showToSeller(code!, user);
+        case 'sview': {
+          await this.save(m.phone, 'IDLE');
+          // a new order for a seller opens in the form (photos, details, Accept / Change price / Decline); the chat is the fallback
+          const d = await this.o.deals.findByCode(code!);
+          if (d?.status === 'AWAITING_SELLER' && d.buyer_id !== user.id && !d.seller_id && this.o.ordersForm
+            && (await this.o.ordersForm.open(m.phone, user, { screen: 'order', code: d.code, mode: 'seller' }))) return;
+          return this.o.deals.showToSeller(code!, user);
+        }
         case 'saccept': await this.o.deals.setMenuMode(user, 'seller'); return this.sellerAccepts(m.phone, user, code!);
         case 'sdecline': {
           await this.save(m.phone, 'IDLE');

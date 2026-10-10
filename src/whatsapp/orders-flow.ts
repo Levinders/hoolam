@@ -108,7 +108,7 @@ export function ordersFlowJson() {
           code: ex('HL-7K2QF'), heading: ex('HL-7K2QF · Paid, money held'), details: ex('*Leather bag*'), hint: ex('👉 Dispatch it now'),
           photo1: ex(PIXEL), photo2: ex(PIXEL), photo3: ex(PIXEL), has_photo1: ex(true), has_photo2: ex(false), has_photo3: ex(false),
           primary: ex('dispatch'), primary_label: ex('Dispatch now'), secondary: ex('cantfulfil'), secondary_label: ex('Can\'t fulfil'), has_secondary: ex(true),
-          page_url: ex('https://hoolam.com'), has_page: ex(true),
+          tertiary: ex('decline'), tertiary_label: ex('Decline order'), has_tertiary: ex(false), show_price: ex(false),
         },
         layout: {
           type: 'SingleColumnLayout',
@@ -119,9 +119,10 @@ export function ordersFlowJson() {
             { type: 'Image', src: '${data.photo3}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo3}', 'alt-text': 'Photo of the item' },
             { type: 'TextBody', text: '${data.details}', markdown: true },
             { type: 'TextCaption', text: '${data.hint}' },
+            { type: 'TextInput', name: 'new_price', label: 'Your price (₦)', 'input-type': 'text', required: false, visible: '${data.show_price}', 'max-chars': 20, 'helper-text': 'Total, delivery included. e.g. 18000 or 18k' },
             { type: 'EmbeddedLink', text: '${data.secondary_label}', visible: '${data.has_secondary}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.secondary}', code: '${data.code}' } } },
-            { type: 'EmbeddedLink', text: 'Open the order page', visible: '${data.has_page}', 'on-click-action': { name: 'open_url', url: '${data.page_url}' } },
-            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.primary}', code: '${data.code}' } } },
+            { type: 'EmbeddedLink', text: '${data.tertiary_label}', visible: '${data.has_tertiary}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.tertiary}', code: '${data.code}' } } },
+            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.primary}', code: '${data.code}', new_price: '${form.new_price}' } } },
           ],
         },
       },
@@ -338,20 +339,33 @@ export class OrdersFlow {
   // ----- one order -----
   private async mine(user: User, code: string): Promise<Deal> {
     const deal = await this.o.deals.findByCode(code);
+    if (deal && this.prospectiveSeller(deal, user)) return deal;
     if (!deal || ![deal.buyer_id, deal.seller_id, deal.counter_seller_id].includes(user.id)) throw new DealError('NOT_FOUND', 'We couldn\'t find that order.');
     return deal;
   }
 
+  /** A buyer's order still waiting for a seller: whoever was sent it (alert or link) can look at it as the seller. */
+  private prospectiveSeller(d: Deal, user: User): boolean {
+    return d.status === 'AWAITING_SELLER' && d.buyer_id !== user.id && !d.seller_id && (!d.counter_seller_id || d.counter_seller_id === user.id);
+  }
+
   private role(deal: Deal, user: User): Mode {
-    return deal.seller_id === user.id || deal.counter_seller_id === user.id ? 'seller' : 'buyer';
+    return deal.seller_id === user.id || deal.counter_seller_id === user.id || this.prospectiveSeller(deal, user) ? 'seller' : 'buyer';
   }
 
   /** The one next step for this person on this order, plus a secondary choice. */
-  next(d: Deal, mode: Mode, user?: User): { primary: string; label: string; hint: string; needsYou: boolean; secondary?: string; secondaryLabel?: string } {
+  next(d: Deal, mode: Mode, user?: User): { primary: string; label: string; hint: string; needsYou: boolean; secondary?: string; secondaryLabel?: string; tertiary?: string; tertiaryLabel?: string } {
     const none = (hint: string) => ({ primary: 'close', label: 'Back to the chat', hint, needsYou: false });
     const handed = !!d.handed_over_at;
-    if (mode === 'seller' && (!user || d.seller_id === user.id || d.counter_seller_id === user.id)) {
-      if (d.status === 'AWAITING_SELLER') return d.counter_seller_id ? none('Waiting for the buyer to answer your price') : { primary: 'accept', label: 'Accept order', hint: 'Accept or decline this order', needsYou: true, secondary: 'decline', secondaryLabel: 'Decline order' };
+    if (mode === 'seller' && (!user || d.seller_id === user.id || d.counter_seller_id === user.id || this.prospectiveSeller(d, user))) {
+      if (d.status === 'AWAITING_SELLER') {
+        if (d.counter_seller_id) return none('Waiting for the buyer to answer your price');
+        const left = d.accept_by ? Math.max(1, Math.round((new Date(d.accept_by).getTime() - Date.now()) / 3600_000)) : null;
+        return {
+          primary: 'accept', label: 'Accept order', hint: `New order: accept, change the price, or decline${left ? ` (within ${left} hour${left === 1 ? '' : 's'})` : ''}`, needsYou: true,
+          secondary: 'counterask', secondaryLabel: 'Change price', tertiary: 'decline', tertiaryLabel: 'Decline order',
+        };
+      }
       if (d.status === 'AWAITING_PAYMENT') return none('Waiting for the buyer to pay');
       if (d.status === 'FUNDED' && !d.dispatched_at) return { primary: 'dispatch', label: 'Dispatch now', hint: 'Paid: dispatch it now', needsYou: true, secondary: 'cantfulfil', secondaryLabel: 'Can\'t fulfil (refund the buyer)' };
       if (d.status === 'SHIPPED' && !handed && d.handover_code) return { primary: 'code', label: 'Enter handover code', hint: 'Enter the handover code at delivery', needsYou: true };
@@ -367,7 +381,7 @@ export class OrdersFlow {
     return none(STATUS_WORDS[d.status] ?? d.status);
   }
 
-  private async orderScreen(user: User, d: Deal, override?: { primary: string; label: string; note: string }): Promise<Res> {
+  private async orderScreen(user: User, d: Deal, override?: { primary: string; label: string; note: string; showPrice?: boolean }): Promise<Res> {
     const mode = this.role(d, user);
     const nx = this.next(d, mode, user);
     const photos = await this.thumbs(d.id);
@@ -388,18 +402,21 @@ export class OrdersFlow {
     ].filter((x, i, a) => x !== '' || (i > 0 && a[i - 1] !== '')).join('\n').trim();
     const pageUrl = this.o.deals.orderPageUrl(d);
     const p = override ?? { primary: nx.primary, label: nx.label, note: '' };
+    const buyerName = mode === 'seller' && d.buyer_id ? (await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [d.buyer_id])).rows[0]?.display_name : null;
+    const intro = mode === 'seller' && d.status === 'AWAITING_SELLER' && buyerName ? `🛒 *${String(buyerName).split(' ')[0]} wants to buy from you*\n\n` : '';
     return {
       screen: 'ORDER',
       data: {
         code: d.code,
         heading: `${d.code} · ${(STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase())}`.slice(0, 80),
-        details: lines.slice(0, 4000),
+        details: (intro + lines + (pageUrl ? `\n\n[Open the order page](${pageUrl})` : '')).slice(0, 4000),
         hint: (override ? override.note : (nx.needsYou ? '👉 ' : '') + nx.hint).slice(0, 400),
         photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
         has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
         primary: p.primary, primary_label: p.label.slice(0, 35),
         secondary: nx.secondary ?? 'none', secondary_label: (nx.secondaryLabel ?? ' ').slice(0, 25), has_secondary: !override && !!nx.secondary,
-        page_url: pageUrl ?? 'https://hoolam.com', has_page: !!pageUrl,
+        tertiary: nx.tertiary ?? 'none', tertiary_label: (nx.tertiaryLabel ?? ' ').slice(0, 25), has_tertiary: !override && !!nx.tertiary,
+        show_price: !!override?.showPrice,
       },
     };
   }
@@ -435,7 +452,24 @@ export class OrdersFlow {
     const code = deal.code;
     switch (action) {
       // ----- seller -----
+      case 'counterask':
+        return this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: `The buyer offered ${this.m(deal.price_minor)}. Type the total that works for you; they accept it or cancel.`, showPrice: true });
+      case 'counter': {
+        const major = parseAmount(String(p.new_price ?? ''));
+        const minor = major ? toMinor(major, this.o.currency) : 0;
+        if (!minor) return this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: '⚠️ Type the price in naira, like 18000 or 18k.', showPrice: true });
+        if (minor > this.o.deals.maxDealMinor) return this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: `⚠️ Orders can be up to ${this.m(this.o.deals.maxDealMinor)} for now.`, showPrice: true });
+        await this.o.deals.setMenuMode(user, 'seller');
+        const acct = await this.o.deals.defaultBankAccount(user.id);
+        if (!acct) {
+          await this.o.setChatState(user.phone, 'SELLER_BANK', { code, counterMinor: minor });
+          return this.done('🏦 One last step', 'Send your account number and bank *in the chat* (for example _0123456789 GTBank_), and we\'ll send the buyer your price.');
+        }
+        await this.o.deals.counterAsSeller(code, user, acct.id, minor);
+        return this.done('✏️ Price sent', `We've asked the buyer if ${this.m(minor)} works. We'll tell you when they answer.`);
+      }
       case 'accept': {
+        await this.o.deals.setMenuMode(user, 'seller');
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
           await this.o.setChatState(user.phone, 'SELLER_BANK', { code });

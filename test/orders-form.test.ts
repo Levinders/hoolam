@@ -138,9 +138,9 @@ describe('my orders, in the form', () => {
 
     const order = await call(t, 'data_exchange', { action: 'open', code });
     expect(order.screen).toBe('ORDER');
-    expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, has_page: true });
+    expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, has_tertiary: false });
     expect(order.data.details).toMatch(/You receive ₦20,000/);
-    expect(order.data.page_url).toMatch(new RegExp(`/o/${code}\\?k=`));
+    expect(order.data.details).toMatch(new RegExp(`\\[Open the order page\\]\\(.*/o/${code}\\?k=`));
 
     expect((await call(t, 'data_exchange', { action: 'dispatch', code })).screen).toBe('DISPATCH');
     const picked = await call(t, 'data_exchange', { action: 'method', code, method: 'pickup' });
@@ -243,5 +243,73 @@ describe('the private order page', () => {
     expect(ok.body).not.toMatch(/handover code/i); // the page is for both sides; only the buyer may know the code
     expect((await h.app.app.inject({ method: 'GET', url: `/o/${code}?k=wrongwrongwrong` })).statusCode).toBe(404);
     expect((await h.app.app.inject({ method: 'GET', url: `/o/${code}` })).statusCode).toBe(404);
+  });
+});
+
+describe('a seller opens a new order in the form', () => {
+  async function newOrder() {
+    const buyer = phone(), seller = phone();
+    await h.say(seller, 'hi', 'Bayo Shoes');
+    await h.say(buyer, 'hi', 'Ada Obi');
+    await h.app.chat.handle({
+      id: `n${seq}`, phone: buyer, name: 'Ada Obi', type: 'form', text: '', buttonId: null, mediaId: null,
+      form: { flow_token: 'buy:v1', item: 'Wig', description: 'Bone straight, 22 inches', category: 'beauty', price: '30000', address: 'GRA', arrive_by: '2099-12-31', other_phone: seller, photos: [{ id: 'w1' }] },
+    });
+    await h.tap(buyer, 'buy:send');
+    return { buyer, seller, code: h.last(buyer).match(/HL-[A-Z2-9]{5}/)![0] };
+  }
+
+  it('shows the order with Accept, Change price and Decline; the buyer can\'t take the seller\'s place', async () => {
+    const { buyer, seller, code } = await newOrder();
+    const r = await call(signToken(h.app.formSecret, seller, 'seller', 'order', code), 'INIT');
+    expect(r.screen).toBe('ORDER');
+    expect(r.data).toMatchObject({ primary: 'accept', primary_label: 'Accept order', secondary: 'counterask', secondary_label: 'Change price', tertiary: 'decline', has_tertiary: true, show_price: false });
+    expect(r.data.details).toMatch(/Ada wants to buy from you/);
+    expect(r.data.details).toMatch(/Bone straight, 22 inches/);
+    expect(r.data.hint).toMatch(/within 4\d hours/);
+    const own = await call(signToken(h.app.formSecret, buyer, 'seller', 'order', code), 'INIT');
+    expect(own.data.primary).not.toBe('accept');
+  });
+
+  it('change price: asks for the bank in the chat first, then the buyer gets the new price', async () => {
+    const { buyer, seller, code } = await newOrder();
+    const t = signToken(h.app.formSecret, seller, 'seller', 'order', code);
+    const ask = await call(t, 'data_exchange', { action: 'counterask', code });
+    expect(ask.data).toMatchObject({ show_price: true, primary: 'counter', has_secondary: false, has_tertiary: false });
+    expect(ask.data.hint).toMatch(/The buyer offered ₦30,000/);
+    const bad = await call(t, 'data_exchange', { action: 'counter', code, new_price: 'abc' });
+    expect(bad.data.hint).toMatch(/Type the price in naira/);
+    const r = await call(t, 'data_exchange', { action: 'counter', code, new_price: '28k' });
+    expect(r.data.title).toBe('🏦 One last step');
+    await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
+    expect(h.last(buyer)).toMatch(/suggests a different price/);
+    expect((await deal(code)).counter_price_minor).toBe(2_800_000);
+  });
+
+  it('decline from the form', async () => {
+    const { buyer, seller, code } = await newOrder();
+    const r = await call(signToken(h.app.formSecret, seller, 'seller', 'order', code), 'data_exchange', { action: 'decline', code });
+    expect(r.data.title).toBe('Order declined');
+    expect((await deal(code)).status).toBe('CANCELLED');
+    expect(h.last(buyer)).toMatch(/seller declined/);
+  });
+
+  it('accept from the form (with a saved bank account)', async () => {
+    const { buyer, seller, code } = await newOrder();
+    await h.tap(seller, 'menu:account'); await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
+    const r = await call(signToken(h.app.formSecret, seller, 'seller', 'order', code), 'data_exchange', { action: 'accept', code });
+    expect(r.data.title).toBe('✅ Order accepted');
+    expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
+    expect(h.last(buyer)).toMatch(/accepted your order/);
+  });
+
+  it('"View order" in the chat opens the form when it\'s available', async () => {
+    const { seller, code } = await newOrder();
+    const opened: unknown[] = [];
+    const chat = h.app.chat as any;
+    const before = chat.o.ordersForm;
+    chat.o.ordersForm = { open: async (_p: string, _u: unknown, at: unknown) => { opened.push(at); return true; } };
+    try { await h.tap(seller, `sview:${code}`); } finally { chat.o.ordersForm = before; }
+    expect(opened).toEqual([{ screen: 'order', code, mode: 'seller' }]);
   });
 });

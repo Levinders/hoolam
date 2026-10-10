@@ -60,18 +60,18 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     await db.query(`INSERT INTO chat_sessions (phone, state, data) VALUES ($1,$2,$3) ON CONFLICT (phone) DO UPDATE SET state=$2, data=$3, updated_at=now()`, [phone, state, JSON.stringify(data)]);
   };
   const orders = new OrdersFlow({ db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log });
-  const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string }): Promise<boolean> => {
+  const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller' }): Promise<boolean> => {
     if (!ordersForm || !settings.formsEnabled()) return false;
-    const mode = at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer';
+    const mode = at.mode ?? (at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer');
     const titles: Record<Entry, [string, string]> = {
       orders: ['📋 My orders', mode === 'seller' ? 'Everything you\'re selling: what needs you first, then the rest.' : 'Everything you\'re buying, and where your money is.'],
-      order: ['📋 Your order', `Order ${at.code}: details, photos and the next step.`],
+      order: at.mode === 'seller' ? ['🛒 New order for you', `Order ${at.code}: see the photos and details, then accept, change the price or decline.`] : ['📋 Your order', `Order ${at.code}: details, photos and the next step.`],
       dispatch: ['🚚 Dispatch', `Order ${at.code}: pickup, rider or waybill. It takes a minute.`],
       code: ['🔑 Handover code', `Order ${at.code}: enter the receiver's 4-digit code.`],
     };
     const [header, text] = titles[at.screen];
     const status = await messenger.send(phone, {
-      kind: 'form', header, text, cta: at.screen === 'dispatch' ? 'Dispatch now' : at.screen === 'code' ? 'Enter code' : 'Open my orders',
+      kind: 'form', header, text, cta: at.screen === 'dispatch' ? 'Dispatch now' : at.screen === 'code' ? 'Enter code' : at.screen === 'order' ? 'View order' : 'Open my orders',
       flowId: ordersForm.flowId, mode: ordersForm.mode, screen: 'FILTER', live: true,
       flowToken: signToken(formSecret, phone, mode, at.screen, at.code ?? '-'),
     });
