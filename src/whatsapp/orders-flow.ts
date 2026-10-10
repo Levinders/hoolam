@@ -57,7 +57,7 @@ export function ordersFlowJson() {
     data_api_version: '3.0',
     routing_model: {
       FILTER: ['ORDERS'],
-      ORDERS: ['ORDER', 'FILTER'],
+      ORDERS: ['ORDER'],
       ORDER: ['DISPATCH', 'CODE', 'DONE'],
       DISPATCH: ['COURIER', 'DONE'],
       COURIER: ['DONE'],
@@ -316,10 +316,13 @@ export class OrdersFlow {
         description: `${d.item.slice(0, 60)}\n${next.needsYou ? '👉 ' + next.hint : STATUS_WORDS[d.status] ?? d.status}`.slice(0, 300),
       };
     });
+    // switching filter happens right here (WhatsApp forms can't route back to the first screen)
+    const others = [['pending', '⏳ Show pending', 'Orders still going'], ['completed', '✅ Show completed', 'Finished, refunded or cancelled'], ['all', '📋 Show all', 'Every order']]
+      .filter(([id]) => id !== filter).map(([id, title, description]) => ({ id: `f-${id}`, title: title!, description: description! }));
     const nav = [
       ...(page < pages ? [{ id: 'next', title: `➡️ Next ${PAGE}`, description: `Orders ${to + 1}–${Math.min(total, to + PAGE)}` }] : []),
       ...(page > 1 ? [{ id: 'prev', title: `⬅️ Previous ${PAGE}`, description: `Orders ${from - PAGE}–${from - 1}` }] : []),
-      { id: 'filter', title: '🔁 Change filter', description: 'Pending, completed or all' },
+      ...others,
     ];
     return {
       screen: 'ORDERS',
@@ -417,7 +420,9 @@ export class OrdersFlow {
     const action = String(p.action ?? '');
     if (action === 'filter') return this.ordersScreen(user, mode, ['pending', 'completed', 'all'].includes(p.filter) ? p.filter : 'pending', 1);
     if (action === 'nav') {
-      if (p.to === 'filter') return this.filterScreen(user, mode);
+      const f = String(p.to ?? '').match(/^f-(pending|completed|all)$/);
+      if (f) return this.ordersScreen(user, mode, f[1]!, 1);
+      if (p.to === 'filter') return this.ordersScreen(user, mode, 'pending', 1);
       return this.ordersScreen(user, mode, p.filter ?? 'pending', Number(p.page || 1) + (p.to === 'next' ? 1 : -1));
     }
     if (action === 'open') {

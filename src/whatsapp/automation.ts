@@ -183,9 +183,10 @@ export const DEAL_TEMPLATES = {
     example: ['HL-7K2QF', '₦15,000'], buttons: ['Dispatch now'],
   },
   orderDispatched: {
-    name: 'hoolam_order_dispatched', label: 'Order dispatched, with handover code (to the buyer)',
-    body: 'Order {{1}} has been dispatched. Your handover code is {{2}}.\n\nGive it only to the rider, driver or seller when the item is in your hands. Your money stays with Hoolam until you are happy.',
-    example: ['HL-7K2QF', '4821'], buttons: ['Show my code', 'Problem'],
+    // No code in the template itself: Meta rejects utility templates that carry codes. "Show my code" brings it up in the chat.
+    name: 'hoolam_order_dispatched_update', replaces: 'hoolam_order_dispatched', label: 'Order dispatched (to the buyer)',
+    body: 'Order {{1}} has been dispatched. Tap below to see the delivery details and your handover code.\n\nGive the code only when the item is in your hands. Your money stays with Hoolam until you are happy.',
+    example: ['HL-7K2QF'], buttons: ['Show my code', 'Problem'],
   },
   handedOver: {
     name: 'hoolam_order_handed_over', label: 'Handed over, check it now (to the buyer)',

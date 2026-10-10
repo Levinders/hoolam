@@ -46,6 +46,14 @@ describe('the form itself', () => {
       for (const t of to) expect(ids).toContain(t);
     }
     expect(json.screens.filter((s: any) => s.terminal).map((s: any) => s.id)).toEqual(['DONE']);
+    // WhatsApp rules: forward routes only, and exactly one entry screen (no inbound edges)
+    const rm = json.routing_model as Record<string, string[]>;
+    for (const [from, to] of Object.entries(rm)) for (const t of to) expect(rm[t] ?? []).not.toContain(from);
+    const inbound = new Set(Object.values(rm).flat());
+    expect(ids.filter((id: string) => !inbound.has(id))).toEqual(['FILTER']);
+    // and no cycles
+    const visit = (id: string, seen: string[]): void => { expect(seen).not.toContain(id); for (const n of rm[id] ?? []) visit(n, [...seen, id]); };
+    visit('FILTER', []);
     for (const s of json.screens) {
       const footers = s.layout.children.filter((c: any) => c.type === 'Footer');
       expect(footers.length).toBe(1);
@@ -126,7 +134,7 @@ describe('my orders, in the form', () => {
     expect(list.data.summary).toBe('Pending · 1–1 of 1');
     expect(list.data.orders[0]).toMatchObject({ id: code, title: `${code} · ₦20,000` });
     expect(list.data.orders[0].description).toMatch(/Leather bag\n👉 Paid: dispatch it now/);
-    expect(list.data.nav.map((n: any) => n.id)).toEqual(['filter']);
+    expect(list.data.nav.map((n: any) => n.id)).toEqual(['f-completed', 'f-all']);
 
     const order = await call(t, 'data_exchange', { action: 'open', code });
     expect(order.screen).toBe('ORDER');
@@ -206,14 +214,15 @@ describe('my orders, in the form', () => {
     expect(p1.data.orders).toHaveLength(20);
     expect(p1.data.orders[0].description).toMatch(/^Item 0\n/);
     expect(p1.data.summary).toBe('Completed · 1–20 of 23');
-    expect(p1.data.nav.map((n: any) => n.id)).toEqual(['next', 'filter']);
+    expect(p1.data.nav.map((n: any) => n.id)).toEqual(['next', 'f-pending', 'f-all']);
     const p2 = await call(t, 'data_exchange', { action: 'nav', to: 'next', filter: 'completed', page: '1' });
     expect(p2.data.orders).toHaveLength(3);
     expect(p2.data.summary).toBe('Completed · 21–23 of 23');
-    expect(p2.data.nav.map((n: any) => n.id)).toEqual(['prev', 'filter']);
+    expect(p2.data.nav.map((n: any) => n.id)).toEqual(['prev', 'f-pending', 'f-all']);
     const back = await call(t, 'data_exchange', { action: 'nav', to: 'prev', filter: 'completed', page: '2' });
     expect(back.data.summary).toBe('Completed · 1–20 of 23');
-    expect((await call(t, 'data_exchange', { action: 'nav', to: 'filter' })).screen).toBe('FILTER');
+    const all = await call(t, 'data_exchange', { action: 'nav', to: 'f-all', filter: 'completed', page: '1' });
+    expect(all.data.summary).toBe('All orders · 1–20 of 23');
   });
 });
 

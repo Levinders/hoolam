@@ -783,7 +783,7 @@ export class DealService {
       const buyer = await this.userById(tx, deal.buyer_id!);
       const info = { code: deal.code, method: d.method, pickupAddress: d.pickupAddress ?? null, courierName: d.courierName ?? null, courierPhone: d.courierPhone ?? null, location: d.location ?? null, page: this.orderPageUrl(deal) };
       out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, fee: fee ? this.money(fee) : null }) });
-      out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, handover }), fallback: dealTemplate('orderDispatched', [deal.code, handover], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
+      out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, handover }), fallback: dealTemplate('orderDispatched', [deal.code], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
     });
   }
 
