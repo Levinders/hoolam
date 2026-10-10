@@ -49,6 +49,8 @@ const ex = (v: unknown) => ({ type: typeof v === 'boolean' ? 'boolean' : 'string
 const exList = (v: Record<string, string>[]) => ({
   type: 'array', items: { type: 'object', properties: Object.fromEntries(Object.keys(v[0]!).map((k) => [k, { type: 'string' }])) }, __example__: v,
 });
+/** Form text is shown as plain text: drop WhatsApp-style *bold* and _italic_ marks. */
+const plain = (t: string) => t.replace(/\*([^*\n]+)\*/g, '$1').replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,])/g, '$1$2');
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 export function ordersFlowJson() {
@@ -117,7 +119,7 @@ export function ordersFlowJson() {
             { type: 'Image', src: '${data.photo1}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo1}', 'alt-text': 'Photo of the item' },
             { type: 'Image', src: '${data.photo2}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo2}', 'alt-text': 'Photo of the item' },
             { type: 'Image', src: '${data.photo3}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo3}', 'alt-text': 'Photo of the item' },
-            { type: 'TextBody', text: '${data.details}', markdown: true },
+            { type: 'TextBody', text: '${data.details}' },
             { type: 'TextCaption', text: '${data.hint}' },
             { type: 'TextInput', name: 'new_price', label: 'Your price (₦)', 'input-type': 'text', required: false, visible: '${data.show_price}', 'max-chars': 20, 'helper-text': 'Total, delivery included. e.g. 18000 or 18k' },
             { type: 'EmbeddedLink', text: '${data.secondary_label}', visible: '${data.has_secondary}', 'on-click-action': { name: 'data_exchange', payload: { action: '${data.secondary}', code: '${data.code}' } } },
@@ -169,7 +171,7 @@ export function ordersFlowJson() {
             { type: 'TextInput', name: 'account_number', label: 'Account number', 'input-type': 'number', required: true, 'init-value': '${data.account_number}', 'max-chars': 10, 'helper-text': '10 digits' },
             { type: 'TextInput', name: 'bank', label: 'Bank', 'input-type': 'text', required: true, 'init-value': '${data.bank}', 'max-chars': 40, 'helper-text': 'e.g. GTBank, Opay, Moniepoint' },
             { type: 'TextCaption', text: '⚠️ We pay exactly the account you give. Hoolam can\'t recover money sent to a wrong account.' },
-            { type: 'TextBody', text: '${data.confirm_text}', markdown: true, visible: '${data.show_confirm}' },
+            { type: 'TextBody', text: '${data.confirm_text}', visible: '${data.show_confirm}' },
             { type: 'OptIn', name: 'confirm', label: 'Yes, this is the right account', required: false, visible: '${data.show_confirm}' },
             { type: 'TextCaption', text: '${data.error}', visible: '${data.has_error}' },
             {
@@ -206,7 +208,7 @@ export function ordersFlowJson() {
           type: 'SingleColumnLayout',
           children: [
             { type: 'TextSubheading', text: '${data.title}' },
-            { type: 'TextBody', text: '${data.message}', markdown: true },
+            { type: 'TextBody', text: '${data.message}' },
             { type: 'Footer', label: 'Back to the chat', 'on-click-action': { name: 'complete', payload: { done: 'yes' } } },
           ],
         },
@@ -419,7 +421,6 @@ export class OrdersFlow {
       mode === 'buyer' && d.handover_code && !d.handed_over_at && d.status === 'SHIPPED' ? `🔑 Your handover code: *${d.handover_code}*` : '',
       d.handed_over_at ? '✅ Handed over' : '',
     ].filter((x, i, a) => x !== '' || (i > 0 && a[i - 1] !== '')).join('\n').trim();
-    const pageUrl = this.o.deals.orderPageUrl(d);
     const p = override ?? { primary: nx.primary, label: nx.label, note: '' };
     const buyerName = mode === 'seller' && d.buyer_id ? (await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [d.buyer_id])).rows[0]?.display_name : null;
     const intro = mode === 'seller' && d.status === 'AWAITING_SELLER' && buyerName ? `🛒 *${String(buyerName).split(' ')[0]} wants to buy from you*\n\n` : '';
@@ -428,7 +429,7 @@ export class OrdersFlow {
       data: {
         code: d.code,
         heading: `${d.code} · ${(STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase())}`.slice(0, 80),
-        details: (intro + lines + (pageUrl ? `\n\n[Open the order page](${pageUrl})` : '')).slice(0, 4000),
+        details: plain(intro + lines).slice(0, 4000),
         hint: (override ? override.note : (nx.needsYou ? '👉 ' : '') + nx.hint).slice(0, 400),
         photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
         has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
@@ -580,7 +581,7 @@ export class OrdersFlow {
         code: d.code, method, heading: rider ? `🛵 Rider for ${d.code}` : `🚌 Waybill for ${d.code}`, is_rider: rider,
         name: String(v.name ?? ''), phone: String(v.phone ?? ''), fee: String(v.fee ?? ''), location: String(v.location ?? ''),
         account_number: String(v.account_number ?? ''), bank: String(v.bank ?? ''),
-        confirm_text: confirmText ?? '', show_confirm: !!confirmText, error: error ?? '', has_error: !!error,
+        confirm_text: plain(confirmText ?? ''), show_confirm: !!confirmText, error: error ?? '', has_error: !!error,
         footer_label: confirmText ? 'Dispatch' : 'Check account',
       },
     };
@@ -621,7 +622,7 @@ export class OrdersFlow {
   }
 
   private done(title: string, message: string): Res {
-    return { screen: 'DONE', data: { title: title.slice(0, 80), message } };
+    return { screen: 'DONE', data: { title: title.slice(0, 80), message: plain(message) } };
   }
 }
 

@@ -140,7 +140,6 @@ describe('my orders, in the form', () => {
     expect(order.screen).toBe('ORDER');
     expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, has_tertiary: false });
     expect(order.data.details).toMatch(/You receive ₦20,000/);
-    expect(order.data.details).toMatch(new RegExp(`\\[Open the order page\\]\\(.*/o/${code}\\?k=`));
 
     expect((await call(t, 'data_exchange', { action: 'dispatch', code })).screen).toBe('DISPATCH');
     const picked = await call(t, 'data_exchange', { action: 'method', code, method: 'pickup' });
@@ -155,7 +154,7 @@ describe('my orders, in the form', () => {
     const check = await call(t, 'data_exchange', base);
     expect(check.screen).toBe('COURIER');
     expect(check.data).toMatchObject({ show_confirm: true, footer_label: 'Dispatch' });
-    expect(check.data.confirm_text).toMatch(/\*TEST ACCOUNT HOLDER\*/);
+    expect(check.data.confirm_text).toMatch(/belongs to TEST ACCOUNT HOLDER/);
     expect((await deal(code)).status).toBe('FUNDED'); // nothing saved until confirmed
     const done = await call(t, 'data_exchange', { ...base, confirm: true });
     expect(done.screen).toBe('DONE');
@@ -181,7 +180,7 @@ describe('my orders, in the form', () => {
     const order = await call(t, 'INIT');
     expect(order.screen).toBe('ORDER');
     expect(order.data).toMatchObject({ primary: 'showcode', secondary: 'problem' });
-    expect(order.data.details).toMatch(/Your handover code: \*\d{4}\*/);
+    expect(order.data.details).toMatch(/Your handover code: \d{4}/);
     await h.tap(seller, `hcode:${code}`); await h.say(seller, (await deal(code)).handover_code);
     const again = await call(t, 'data_exchange', { action: 'open', code });
     expect(again.data).toMatchObject({ primary: 'happy', primary_label: 'I\'m happy' });
