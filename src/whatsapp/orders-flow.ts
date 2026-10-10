@@ -56,7 +56,7 @@ export function ordersFlowJson() {
     version: '7.3',
     data_api_version: '3.0',
     routing_model: {
-      FILTER: ['ORDERS'],
+      FILTER: ['ORDERS', 'DONE'],
       ORDERS: ['ORDER'],
       ORDER: ['DISPATCH', 'CODE', 'DONE'],
       DISPATCH: ['COURIER', 'DONE'],
@@ -242,19 +242,38 @@ export class OrdersFlow {
 
   /** One request from the form (already decrypted). Always answers with a screen; never throws. */
   async handle(req: { action?: string; screen?: string; data?: Record<string, any>; flow_token?: string }): Promise<Record<string, unknown>> {
+    const started = Date.now();
+    const out = await this.answer(req);
+    const r = out as { screen?: string; data?: Record<string, unknown> };
+    // one line per request, so a problem on a phone can be matched to what the server answered
+    this.o.log?.(`orders form: ${req.action ?? '?'}${req.data?.action ? ':' + req.data.action : ''} on ${req.screen ?? '-'} → ${r.screen ?? JSON.stringify(r.data).slice(0, 60)} (${Date.now() - started} ms, ${JSON.stringify(out).length} bytes)`);
+    return out;
+  }
+
+  private async answer(req: { action?: string; screen?: string; data?: Record<string, any>; flow_token?: string }): Promise<Record<string, unknown>> {
     if (req.action === 'ping') return { data: { status: 'active' } };
-    if (req.data?.error) { this.o.log?.(`orders form reported an error: ${JSON.stringify(req.data).slice(0, 300)}`); return { data: { acknowledged: true } }; }
+    if (req.data?.error || req.data?.error_message) {
+      // WhatsApp tells us when it couldn't use one of our answers: this line says exactly why
+      this.o.log?.(`orders form: WhatsApp REJECTED our answer: ${JSON.stringify(req.data).slice(0, 500)}`);
+      return { data: { acknowledged: true } };
+    }
     const t = readToken(this.o.secret, req.flow_token ?? '');
-    if (!t) return this.wrap(this.done('⌛ This has expired', 'Open *My orders* again from the menu.'));
-    const user = await this.user(t.phone);
-    if (!user) return this.wrap(this.done('⌛ This has expired', 'Open *My orders* again from the menu.'));
+    const user = t ? await this.user(t.phone) : null;
+    if (!t || !user) {
+      this.o.log?.(`orders form: token not accepted (${String(req.flow_token ?? '').slice(0, 12)}…)`);
+      return this.wrap(this.done('⌛ This has expired', 'Open *My orders* again from the menu.'));
+    }
     try {
       if (req.action === 'INIT') return this.wrap(await this.init(user, t));
       if (req.action === 'BACK') return this.wrap(await this.filterScreen(user, t.mode));
       return this.wrap(await this.exchange(user, t.mode, req.data ?? {}));
     } catch (e) {
       const why = e instanceof DealError ? (e.message !== e.reason ? e.message : 'That step isn\'t available for this order any more.') : 'Something went wrong on our side. Please try again.';
-      if (!(e instanceof DealError)) this.o.log?.(`orders form: ${(e as Error).stack ?? e}`);
+      if (!(e instanceof DealError)) this.o.log?.(`orders form error: ${(e as Error).stack ?? e}`);
+      // stay on a screen WhatsApp allows us to go to from here
+      if (req.screen === 'ORDERS') {
+        try { const r = await this.ordersScreen(user, t.mode, 'pending', 1); r.data.summary = `⚠️ ${why}`.slice(0, 80); return this.wrap(r); } catch { /* fall through */ }
+      }
       return this.wrap(this.done('😕 Not done', why));
     }
   }
