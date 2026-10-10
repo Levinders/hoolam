@@ -1189,6 +1189,27 @@ export class DealService {
       await this.o.messenger.send(row.phone, msg.buyerNudge(row.code), dealTemplate('confirmReminder', [row.code, this.text(Number(row.buyer_pays_minor))], [`happy:${row.code}`, `problem:${row.code}`]));
       nudged++;
     }
+    // Paid but not dispatched: remind the seller once.
+    const waiting = await this.o.db.query(
+      `SELECT d.code, d.item, u.phone FROM deals d JOIN users u ON u.id=d.seller_id
+       WHERE d.status='FUNDED' AND d.started_by='BUYER' AND d.dispatched_at IS NULL AND d.dispatch_reminded_at IS NULL
+         AND d.funded_at < now() - make_interval(hours => $1) LIMIT 50`,
+      [this.o.settings?.dispatchRemindHours() ?? 12]);
+    for (const row of waiting.rows) {
+      await this.o.db.query('UPDATE deals SET dispatch_reminded_at=now() WHERE code=$1', [row.code]);
+      await this.o.messenger.send(row.phone, msg.sellerDispatchReminder(row.code, row.item, false), dealTemplate('dispatchReminder', [row.code], [`dispatch:${row.code}`]));
+      nudged++;
+    }
+    // Still not dispatched after the date the buyer expected: give the buyer their options, once.
+    const late = await this.o.db.query(
+      `SELECT d.code, d.item, u.phone FROM deals d JOIN users u ON u.id=d.buyer_id
+       WHERE d.status='FUNDED' AND d.dispatched_at IS NULL AND d.overdue_notified_at IS NULL AND d.arrive_by IS NOT NULL
+         AND (d.arrive_by + 1)::timestamp AT TIME ZONE 'Africa/Lagos' < now() LIMIT 50`);
+    for (const row of late.rows) {
+      await this.o.db.query('UPDATE deals SET overdue_notified_at=now() WHERE code=$1', [row.code]);
+      await this.o.messenger.send(row.phone, msg.buyerOverdue(row.code, row.item), dealTemplate('overdue', [row.code], [`remind:${row.code}`, `refundme:${row.code}`]));
+      nudged++;
+    }
     const stale = await this.o.db.query(
       `SELECT id FROM deals WHERE status IN ('AWAITING_BUYER','AWAITING_PAYMENT') AND updated_at < now() - make_interval(hours => $1) LIMIT 100`,
       [opts.expireUnpaidAfterHours ?? 72]);

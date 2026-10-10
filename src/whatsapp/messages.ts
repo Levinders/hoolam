@@ -631,6 +631,11 @@ export const msg = {
     text: `⏰ Order ${code} (${item.slice(0, 60)}) is paid and waiting to be dispatched.` + (fromBuyer ? '\n\nThe buyer sent you a reminder.' : ''),
     buttons: [{ id: `dispatch:${code}`, title: '🚚 Dispatch now' }, { id: `srefund:${code}`, title: '❌ Can\'t fulfil' }],
   }),
+  buyerOverdue: (code: string, item: string): Outbound => ({
+    kind: 'buttons',
+    text: `⏰ Order ${code} (${item.slice(0, 60)}) hasn't been dispatched yet, and the date you expected it has passed.\n\nYour money is still held safely by Hoolam. What would you like to do?`,
+    buttons: [{ id: `remind:${code}`, title: '🔔 Send reminder' }, { id: `refundme:${code}`, title: '💸 Refund me' }, { id: 'menu:open', title: 'Wait a bit' }],
+  }),
   reminderSent: (code: string): Outbound => withMenu(`🔔 Reminder sent to the seller for order ${code}.`),
   confirmSellerRefund: (code: string): Outbound => ({
     kind: 'buttons',

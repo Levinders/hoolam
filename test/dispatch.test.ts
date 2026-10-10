@@ -220,3 +220,18 @@ describe('dispatch', () => {
     ]) expect(() => checkLimits(m)).not.toThrow();
   });
 });
+
+describe('reminders', () => {
+  it('a seller who hasn\'t dispatched is reminded once; a late order gives the buyer their options once', async () => {
+    const { buyer, seller, code } = await paidBuyerOrder({ arriveBy: '2026-01-01' });
+    await h.db.query(`UPDATE deals SET funded_at=now() - interval '13 hours' WHERE code=$1`, [code]);
+    await h.app.deals.sweep({ nudgeAfterHours: 9999 });
+    const sellerMsgs = () => h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n');
+    expect(sellerMsgs()).toMatch(new RegExp(`Order ${code} \\(Leather bag\\) is paid and waiting to be dispatched`));
+    expect(h.last(buyer)).toMatch(/hasn't been dispatched yet, and the date you expected it has passed/);
+    expect(h.last(buyer)).toMatch(/\[🔔 Send reminder\] \[💸 Refund me\] \[Wait a bit\]/);
+    const before = h.transcript.length;
+    await h.app.deals.sweep({ nudgeAfterHours: 9999 });
+    expect(h.transcript.slice(before).filter((t) => t.phone === seller || t.phone === buyer)).toHaveLength(0);
+  });
+});
