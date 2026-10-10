@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startHarness, type Harness } from '../scripts/harness.js';
 import { decryptResponseForTest, encryptRequestForTest, flowKeys } from '../src/whatsapp/flow-crypto.js';
-import { ordersFlowJson, readToken, signToken } from '../src/whatsapp/orders-flow.js';
+import { ordersFlowJson, readToken, rowTitle, signToken } from '../src/whatsapp/orders-flow.js';
+import { buyEditFlowJson } from '../src/whatsapp/buy-flow.js';
 import { ensureOrdersFlow, registerFlowsKey } from '../src/whatsapp/automation.js';
 import { toPayload } from '../src/whatsapp/client.js';
 
@@ -151,14 +152,15 @@ describe('my orders, in the form', () => {
     const list = await call(t, 'data_exchange', { action: 'filter', filter: 'pending' });
     expect(list.screen).toBe('ORDERS');
     expect(list.data.summary).toBe('Pending · 1–1 of 1');
-    expect(list.data.orders[0]).toMatchObject({ id: code, title: `${code} · ₦20,000` });
+    expect(list.data.orders[0].id).toBe(code);
+    expect(list.data.orders[0].title).toMatch(new RegExp(`^\\S+ · ${code} · ₦20,000$`)); // the buyer's name first
     expect(list.data.orders[0].description).toMatch(/Leather bag\n👉 Paid: dispatch it now/);
     expect(list.data.nav.map((n: any) => n.id)).toEqual(['f-completed', 'f-all']);
 
     const order = await call(t, 'data_exchange', { action: 'open', code });
     expect(order.screen).toBe('ORDER');
     expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, has_tertiary: false });
-    expect(order.data.details).toMatch(/You receive ₦20,000/);
+    expect(order.data.key).toMatch(/You receive ₦20,000/);
 
     expect((await call(t, 'data_exchange', { action: 'dispatch', code })).screen).toBe('DISPATCH');
     const picked = await call(t, 'data_exchange', { action: 'method', code, method: 'pickup' });
@@ -202,7 +204,7 @@ describe('my orders, in the form', () => {
     const order = await call(t, 'INIT');
     expect(order.screen).toBe('ORDER');
     expect(order.data).toMatchObject({ primary: 'showcode', secondary: 'problem' });
-    expect(order.data.details).toMatch(/Your handover code: \d{4}/);
+    expect(order.data.key).toMatch(/Your handover code: \d{4}/);
     await h.tap(seller, `hcode:${code}`); await h.say(seller, (await deal(code)).handover_code);
     const again = await call(t, 'data_exchange', { action: 'open', code });
     expect(again.data).toMatchObject({ primary: 'happy', primary_label: 'I\'m happy' });
@@ -286,8 +288,11 @@ describe('a seller opens a new order in the form', () => {
     const r = await call(signToken(h.app.formSecret, seller, 'seller', 'order', code), 'INIT');
     expect(r.screen).toBe('ORDER');
     expect(r.data).toMatchObject({ primary: 'accept', primary_label: 'Accept order', secondary: 'counterask', secondary_label: 'Change price', tertiary: 'decline', has_tertiary: true, show_price: false });
-    expect(r.data.details).toMatch(/Ada wants to buy from you/);
-    expect(r.data.details).toMatch(/Bone straight, 22 inches/);
+    expect(r.data.heading).toMatch(/Ada wants to buy from you/);
+    expect(r.data.item).toBe(`Wig (${code})`);
+    expect(r.data.about).toMatch(/Bone straight, 22 inches/);
+    expect(r.data.key).toMatch(/💰 Total price ₦30,000\n💸 You receive/);
+    expect(r.data.key).toMatch(/📍 Deliver to: GRA/);
     expect(r.data.hint).toMatch(/within 4\d hours/);
     const own = await call(signToken(h.app.formSecret, buyer, 'seller', 'order', code), 'INIT');
     expect(own.data.primary).not.toBe('accept');
@@ -299,13 +304,24 @@ describe('a seller opens a new order in the form', () => {
     const ask = await call(t, 'data_exchange', { action: 'counterask', code });
     expect(ask.data).toMatchObject({ show_price: true, primary: 'counter', has_secondary: false, has_tertiary: false });
     expect(ask.data.hint).toMatch(/The buyer offered ₦30,000/);
-    const bad = await call(t, 'data_exchange', { action: 'counter', code, new_price: 'abc' });
-    expect(bad.data.hint).toMatch(/Type the price in naira/);
-    const r = await call(t, 'data_exchange', { action: 'counter', code, new_price: '28k' });
+    const bad = await call(t, 'data_exchange', { op: 'counter', code, new_price: 'abc', reason: 'Market price' });
+    expect(bad.data).toMatchObject({ has_warn: true, show_price: true });
+    expect(bad.data.warn).toMatch(/Type the price in naira/);
+    const noWhy = await call(t, 'data_exchange', { op: 'counter', code, new_price: '28k', reason: ' ' });
+    expect(noWhy.data.warn).toMatch(/Tell the buyer why/);
+    const r = await call(t, 'data_exchange', { op: 'counter', code, new_price: '28k', reason: 'Fabric cost went up this week' });
     expect(r.data.title).toBe('🏦 One last step');
+    expect(r.data).toMatchObject({ has_important: true, important: 'Then we send the buyer your new price.' });
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
-    expect(h.last(buyer)).toMatch(/suggests a different price/);
-    expect((await deal(code)).counter_price_minor).toBe(2_800_000);
+    expect(h.last(buyer)).toMatch(/wants a different price/);
+    expect(h.last(buyer)).toMatch(/💬 Reason: Fabric cost went up this week/);
+    const d = await deal(code);
+    expect(d.counter_price_minor).toBe(2_800_000);
+    expect(d.counter_reason).toBe('Fabric cost went up this week');
+    // the buyer sees it in the form too
+    const seen = await call(signToken(h.app.formSecret, buyer, 'buyer', 'order', code), 'INIT');
+    expect(seen.data.key).toMatch(/Seller's new price ₦28,000/);
+    expect(seen.data.info).toMatch(/Reason: Fabric cost went up this week/);
   });
 
   it('decline from the form', async () => {
@@ -333,5 +349,88 @@ describe('a seller opens a new order in the form', () => {
     chat.o.ordersForm = { open: async (_p: string, _u: unknown, at: unknown) => { opened.push(at); return true; } };
     try { await h.tap(seller, `sview:${code}`); } finally { chat.o.ordersForm = before; }
     expect(opened).toEqual([{ screen: 'order', code, mode: 'seller' }]);
+  });
+});
+
+describe('the buyer checks their order before it goes to the seller', () => {
+  async function filledIn() {
+    const buyer = phone(), seller = phone();
+    await h.say(buyer, 'hi', 'Ada Obi');
+    await h.app.chat.handle({
+      id: `p${++seq}`, phone: buyer, name: 'Ada Obi', type: 'form', text: '', buttonId: null, mediaId: null,
+      form: { flow_token: 'buy:v1', item: 'Wig', description: 'Bone straight, 22 inches', category: 'beauty', price: '30000', address: 'GRA', arrive_by: '2099-12-31', other_phone: seller, photos: [{ id: 'w1' }] },
+    });
+    return { buyer, seller, t: signToken(h.app.formSecret, buyer, 'buyer', 'preview', '-', 24) };
+  }
+
+  it('opens in the form when it\'s available', async () => {
+    const opened: unknown[] = [];
+    const chat = h.app.chat as any;
+    const before = chat.o.ordersForm;
+    chat.o.ordersForm = { open: async (_p: string, _u: unknown, at: unknown) => { opened.push(at); return true; } };
+    try { await filledIn(); } finally { chat.o.ordersForm = before; }
+    expect(opened).toEqual([{ screen: 'preview', item: 'Wig', totalMinor: 3_000_000 }]);
+  });
+
+  it('shows everything, with the seller\'s number in full, and sends it', async () => {
+    const { buyer, seller, t } = await filledIn();
+    const r = await call(t, 'INIT');
+    expect(r.screen).toBe('ORDER');
+    expect(r.data).toMatchObject({ heading: '🛒 Check your order', item: 'Wig', primary: 'bsend', primary_label: 'Send to seller', secondary: 'bedit', tertiary: 'brestart', has_warn: true });
+    expect(r.data.about).toMatch(/Bone straight, 22 inches/);
+    expect(r.data.key).toMatch(/💰 Total price ₦30,000/);
+    expect(r.data.key).toMatch(/📍 Deliver to: GRA/);
+    expect(r.data.key).toContain(`Seller's WhatsApp: ${seller.replace('+234', '0').replace(/^(\d{4})(\d{3})(\d{4})$/, '$1 $2 $3')}`);
+    const sent = await call(t, 'data_exchange', { op: 'bsend', code: 'preview' });
+    expect(sent.data.title).toBe('📨 Sent to the seller');
+    expect(h.last(buyer)).toMatch(/HL-[A-Z2-9]{5}/);
+    // a second tap doesn't send it twice
+    const again = await call(t, 'data_exchange', { op: 'bsend', code: 'preview' });
+    expect(again.data.title).toBe('Already sent');
+    const stale = await call(t, 'INIT');
+    expect(stale.data.heading).toBe('Nothing to check');
+  });
+
+  it('edit (in the chat when the edit form isn\'t there): change one thing, then the order shows again', async () => {
+    const { buyer, t } = await filledIn();
+    const r = await call(t, 'data_exchange', { op: 'bedit', code: 'preview' });
+    expect(r.data.title).toBe('✏️ Edit your order');
+    expect(h.last(buyer)).toMatch(/What do you want to change/);
+    await h.tap(buyer, 'bfix:price');
+    await h.say(buyer, '25000');
+    expect(h.last(buyer)).toMatch(/💰 Total price  ₦25,000/);
+    expect(h.last(buyer)).toMatch(/Bone straight/); // the rest is kept
+  });
+
+  it('the edit form keeps the photos unless new ones are added', async () => {
+    const { buyer } = await filledIn();
+    await h.app.chat.handle({
+      id: `p${++seq}`, phone: buyer, name: 'Ada Obi', type: 'form', text: '', buttonId: null, mediaId: null,
+      form: { flow_token: 'buyedit:v1', item: 'Wig, 24 inches', description: 'Bone straight', category: 'beauty', price: '32000', address: 'GRA', arrive_by: '2099-12-31', other_phone: '08031234567', photos: [] },
+    });
+    expect(h.last(buyer)).toMatch(/\*Wig, 24 inches\*/);
+    expect(h.last(buyer)).toMatch(/📷 1 photo/);
+    expect(h.last(buyer)).toMatch(/₦32,000/);
+  });
+
+  it('the edit form is the buyer\'s form, filled in, with photos optional', () => {
+    const json = buyEditFlowJson('X') as any;
+    const item = json.screens[0];
+    expect(Object.keys(item.data)).toEqual(expect.arrayContaining(['item', 'description', 'category', 'price', 'address', 'arrive_by', 'other_phone', 'photo_note']));
+    const fields = item.layout.children[1].children.filter((c: any) => c.name);
+    for (const f of fields) expect(f['init-value']).toBe(`\${data.${f.name}}`);
+    const picker = json.screens[2].layout.children[2].children[0];
+    expect(picker['min-uploaded-photos']).toBe(0);
+  });
+});
+
+describe('the order list', () => {
+  it('names the other person, then the order code and amount, in 30 characters', () => {
+    expect(rowTitle('Ada Obi', '+2348031234567', 'seller', 'HL-7K2QF', '₦20,000')).toBe('Ada · HL-7K2QF · ₦20,000');
+    const noName = rowTitle(null, '+2348031234567', 'seller', 'HL-7K2QF', '₦20,000');
+    expect(noName).toMatch(/^0803\d*…? · HL-7K2QF · ₦20,000$/);
+    expect(noName.length).toBeLessThanOrEqual(30);
+    expect(rowTitle(null, null, 'buyer', 'HL-7K2QF', '₦20,000')).toBe('Seller · HL-7K2QF · ₦20,000');
+    expect(rowTitle('Oluwaseunfunmi', null, 'seller', 'HL-7K2QF', '₦1,200,000').length).toBeLessThanOrEqual(30);
   });
 });

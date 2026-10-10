@@ -103,19 +103,27 @@ function dealFlowJson(kind: Kind, bannerBase64: string) {
   };
 }
 
-/** The buyer's form: three short screens, every answer required. */
-function buyerFlowJson(bannerBase64: string) {
+/**
+ * The buyer's form: three short screens, every answer required.
+ * `edit`: the same form filled in with their answers (opened from "Edit order"); photos are optional there,
+ * because the ones they already added are kept unless they add new ones.
+ */
+function buyerFlowJson(bannerBase64: string, edit = false) {
   const ex = (v: string) => ({ type: 'string', __example__: v });
   const itemData = { item: ex('Nike Air Force 1'), description: ex('White, size 43, new in box'), category: ex('shoes'), price: ex('45000') };
-  const deliveryData = { ...itemData, address: ex('12 Woji Road, Port Harcourt'), arrive_by: ex('2026-10-20'), other_phone: ex('08012345678') };
+  const later = { address: ex('12 Woji Road, Port Harcourt'), arrive_by: ex('2026-10-20'), other_phone: ex('08012345678') };
+  const note = edit ? { photo_note: ex('You added 2 photos. They stay unless you add new ones here.') } : {};
+  const deliveryData = { ...itemData, ...(edit ? later : {}), ...note };
+  const photosData = { ...itemData, ...later, ...note };
   const carry = (keys: string[], from: 'form' | 'data') => Object.fromEntries(keys.map((k) => [k, `\${${from}.${k}}`]));
+  const init = (k: string) => (edit ? { 'init-value': `\${data.${k}}` } : {});
   return {
     version: '7.3',
     screens: [
       {
         id: 'ITEM',
-        title: 'Buy safely',
-        data: {},
+        title: edit ? 'Edit your order' : 'Buy safely',
+        data: edit ? photosData : {},
         layout: {
           type: 'SingleColumnLayout',
           children: [
@@ -123,12 +131,15 @@ function buyerFlowJson(bannerBase64: string) {
             {
               type: 'Form', name: 'form',
               children: [
-                { type: 'TextSubheading', text: 'What are you buying?' },
-                { type: 'TextInput', name: 'item', label: 'Item name', 'input-type': 'text', required: true, 'max-chars': 80, 'helper-text': 'e.g. Nike Air Force 1' },
-                { type: 'TextArea', name: 'description', label: 'Description', required: true, 'max-length': 600, 'helper-text': 'Size, colour, model, condition' },
-                { type: 'Dropdown', name: 'category', label: 'Category', required: true, 'data-source': CATEGORIES.map((c) => ({ id: c.id, title: c.title })) },
-                { type: 'TextInput', name: 'price', label: 'Total price (₦)', 'input-type': 'text', required: true, 'max-chars': 20, 'helper-text': 'The agreed price, delivery included if any. e.g. 15000 or 15k' },
-                { type: 'Footer', label: 'Continue', 'on-click-action': { name: 'navigate', next: { type: 'screen', name: 'DELIVERY' }, payload: carry(Object.keys(itemData), 'form') } },
+                { type: 'TextSubheading', text: edit ? 'Change what you need' : 'What are you buying?' },
+                { type: 'TextInput', name: 'item', label: 'Item name', 'input-type': 'text', required: true, 'max-chars': 80, 'helper-text': 'e.g. Nike Air Force 1', ...init('item') },
+                { type: 'TextArea', name: 'description', label: 'Description', required: true, 'max-length': 600, 'helper-text': 'Size, colour, model, condition', ...init('description') },
+                { type: 'Dropdown', name: 'category', label: 'Category', required: true, 'data-source': CATEGORIES.map((c) => ({ id: c.id, title: c.title })), ...init('category') },
+                { type: 'TextInput', name: 'price', label: 'Total price (₦)', 'input-type': 'text', required: true, 'max-chars': 20, 'helper-text': 'The agreed price, delivery included if any. e.g. 15000 or 15k', ...init('price') },
+                {
+                  type: 'Footer', label: 'Continue',
+                  'on-click-action': { name: 'navigate', next: { type: 'screen', name: 'DELIVERY' }, payload: { ...carry(Object.keys(itemData), 'form'), ...(edit ? carry([...Object.keys(later), 'photo_note'], 'data') : {}) } },
+                },
               ],
             },
           ],
@@ -137,7 +148,7 @@ function buyerFlowJson(bannerBase64: string) {
       {
         id: 'DELIVERY',
         title: 'Delivery',
-        data: itemData,
+        data: deliveryData,
         layout: {
           type: 'SingleColumnLayout',
           children: [
@@ -145,12 +156,15 @@ function buyerFlowJson(bannerBase64: string) {
               type: 'Form', name: 'form',
               children: [
                 { type: 'TextSubheading', text: 'Where and when?' },
-                { type: 'TextArea', name: 'address', label: 'Delivery address', required: true, 'max-length': 300, 'helper-text': 'Street, area and city' },
-                { type: 'DatePicker', name: 'arrive_by', label: 'When are you expecting it?', required: true },
-                { type: 'TextInput', name: 'other_phone', label: 'Seller\'s WhatsApp', 'input-type': 'phone', required: true, 'helper-text': 'We\'ll send them your order' },
+                { type: 'TextArea', name: 'address', label: 'Delivery address', required: true, 'max-length': 300, 'helper-text': 'Street, area and city', ...init('address') },
+                { type: 'DatePicker', name: 'arrive_by', label: 'When are you expecting it?', required: true, ...init('arrive_by') },
+                { type: 'TextInput', name: 'other_phone', label: 'Seller\'s WhatsApp', 'input-type': 'phone', required: true, 'helper-text': 'We\'ll send them your order', ...init('other_phone') },
                 {
                   type: 'Footer', label: 'Continue',
-                  'on-click-action': { name: 'navigate', next: { type: 'screen', name: 'PHOTOS' }, payload: { ...carry(Object.keys(itemData), 'data'), ...carry(['address', 'arrive_by', 'other_phone'], 'form') } },
+                  'on-click-action': {
+                    name: 'navigate', next: { type: 'screen', name: 'PHOTOS' },
+                    payload: { ...carry(Object.keys(itemData), 'data'), ...carry(Object.keys(later), 'form'), ...(edit ? carry(['photo_note'], 'data') : {}) },
+                  },
                 },
               ],
             },
@@ -161,22 +175,22 @@ function buyerFlowJson(bannerBase64: string) {
         id: 'PHOTOS',
         title: 'Add photos',
         terminal: true,
-        data: deliveryData,
+        data: photosData,
         layout: {
           type: 'SingleColumnLayout',
           children: [
             { type: 'TextSubheading', text: '📷 Photos of the item' },
-            { type: 'TextBody', text: 'A screenshot of the seller\'s post works. It\'s your proof of what was promised.' },
+            { type: 'TextBody', text: edit ? '${data.photo_note}' : 'A screenshot of the seller\'s post works. It\'s your proof of what was promised.' },
             {
               type: 'Form', name: 'form',
               children: [
                 {
                   type: 'PhotoPicker', name: 'photos', label: 'Add pictures',
                   description: 'From your gallery or camera (max 25 MB)',
-                  'photo-source': 'camera_gallery', 'max-file-size-kb': 25600, 'min-uploaded-photos': 1, 'max-uploaded-photos': 3,
+                  'photo-source': 'camera_gallery', 'max-file-size-kb': 25600, 'min-uploaded-photos': edit ? 0 : 1, 'max-uploaded-photos': 3,
                 },
                 { type: 'TextCaption', text: '💡 Nothing to pay yet. You pay after the seller accepts.' },
-                { type: 'Footer', label: 'Review my order', 'on-click-action': { name: 'complete', payload: { ...carry(Object.keys(deliveryData), 'data'), photos: '${form.photos}' } } },
+                { type: 'Footer', label: 'Review my order', 'on-click-action': { name: 'complete', payload: { ...carry([...Object.keys(itemData), ...Object.keys(later)], 'data'), photos: '${form.photos}' } } },
               ],
             },
           ],
@@ -188,11 +202,15 @@ function buyerFlowJson(bannerBase64: string) {
 
 const banner = () => readFileSync(BANNER).toString('base64');
 export function buyFlowJson(bannerBase64 = banner()) { return buyerFlowJson(bannerBase64); }
+export function buyEditFlowJson(bannerBase64 = banner()) { return buyerFlowJson(bannerBase64, true); }
 export function sellFlowJson(bannerBase64 = banner()) { return dealFlowJson('sell', bannerBase64); }
 
 /** The form's name on Meta. Changes whenever the form changes, because published forms can't be edited. */
 export function buyFlowName(json: object = buyFlowJson()): string {
   return 'hoolam_buy_' + createHash('sha256').update(JSON.stringify(json)).digest('hex').slice(0, 8);
+}
+export function buyEditFlowName(json: object = buyEditFlowJson()): string {
+  return 'hoolam_buyedit_' + createHash('sha256').update(JSON.stringify(json)).digest('hex').slice(0, 8);
 }
 export function sellFlowName(json: object = sellFlowJson()): string {
   return 'hoolam_sell_' + createHash('sha256').update(JSON.stringify(json)).digest('hex').slice(0, 8);

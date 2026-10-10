@@ -133,7 +133,7 @@ describe('where buyers see it', () => {
     await h.say(buyer, 'Loafers'); await h.say(buyer, 'Brown, size 41'); await h.tap(buyer, 'cat:shoes');
     await h.say(buyer, '12000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'buy:nophotos');
     expect(h.last(buyer)).toMatch(/Check your order/);
-    expect(h.last(buyer)).toMatch(/We'll send it to \+234 807/);
+    expect(h.last(buyer)).toMatch(/Seller's WhatsApp: \*0807 /);
     await h.tap(buyer, 'buy:send');
     expect((await lastBody(seller)).text).toMatch(/\[template hoolam_new_order_request\]/);
   });

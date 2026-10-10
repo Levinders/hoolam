@@ -17,7 +17,7 @@ import { STATUS_WORDS } from './messages.js';
  * Every action does exactly what the matching chat button does; the chat gets the usual messages.
  */
 
-export type Entry = 'orders' | 'order' | 'dispatch' | 'code';
+export type Entry = 'orders' | 'order' | 'dispatch' | 'code' | 'preview'; // preview: the buyer's order before it's sent
 type Mode = 'buyer' | 'seller';
 const PAGE = 20;
 
@@ -51,6 +51,11 @@ const exList = (v: Record<string, string>[]) => ({
 });
 /** Form text is shown as plain text: drop WhatsApp-style *bold* and _italic_ marks. */
 const plain = (t: string) => t.replace(/\*([^*\n]+)\*/g, '$1').replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,])/g, '$1$2');
+/** A small, light copy of a photo for a form (Meta allows ~300 KB per image; we keep each well under). */
+async function thumb(bytes: Buffer): Promise<string | null> {
+  try { return (await sharp(bytes).rotate().resize(640, 640, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()).toString('base64'); }
+  catch { return null; }
+}
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 /**
@@ -59,6 +64,15 @@ const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAA
  *  - 'ORDER':  one order on its own (opened from an alert: new order, dispatch now, enter code)
  */
 export type FormStart = 'FILTER' | 'ORDER';
+/** "Ada · HL-7K2QF · ₦20,000" in at most 30 characters (WhatsApp's limit): the name gives way first. */
+export function rowTitle(name: string | null, phone: string | null, mode: 'buyer' | 'seller', code: string, amount: string): string {
+  const who = name?.trim().split(/\s+/)[0] || (phone ? phone.replace(/^\+234/, '0') : mode === 'seller' ? 'Buyer' : 'Seller');
+  const rest = ` · ${code} · ${amount}`;
+  const room = 30 - rest.length;
+  if (room < 3) return `${code} · ${amount}`.slice(0, 30);
+  return (who.length <= room ? who : who.slice(0, room - 1) + '…') + rest;
+}
+
 export function ordersFlowJson(start: FormStart = 'FILTER') {
   const full = fullOrdersFlowJson();
   if (start === 'FILTER') return full;
@@ -102,7 +116,7 @@ function fullOrdersFlowJson() {
         id: 'ORDERS', title: 'My orders',
         data: {
           summary: ex('Pending · 1–20 of 34'), filter: ex('pending'), page: ex('1'),
-          orders: exList([{ id: 'HL-7K2QF', title: 'HL-7K2QF · ₦20,500', description: 'Leather bag\n👉 Dispatch it now' }]),
+          orders: exList([{ id: 'HL-7K2QF', title: 'Ada · HL-7K2QF · ₦20,500', description: 'Leather bag\n👉 Dispatch it now' }]),
           nav: exList([{ id: 'next', title: '➡️ Next 20', description: 'Older orders' }]),
         },
         layout: {
@@ -124,7 +138,8 @@ function fullOrdersFlowJson() {
       {
         id: 'ORDER', title: 'Order',
         data: {
-          code: ex('HL-7K2QF'), heading: ex('HL-7K2QF · Paid, money held'), details: ex('*Leather bag*'), hint: ex('👉 Dispatch it now'),
+          code: ex('HL-7K2QF'), heading: ex('HL-7K2QF · Paid, money held'), item: ex('Leather bag'), about: ex('Brown, medium size'), has_about: ex(true),
+          key: ex('💰 Total price ₦20,000'), info: ex('🛵 Rider Musa'), has_info: ex(false), hint: ex('👉 Dispatch it now'), warn: ex(''), has_warn: ex(false),
           photo1: ex(PIXEL), photo2: ex(PIXEL), photo3: ex(PIXEL), has_photo1: ex(true), has_photo2: ex(false), has_photo3: ex(false),
           primary: ex('dispatch'), primary_label: ex('Dispatch now'), secondary: ex('cantfulfil'), secondary_label: ex('Can\'t fulfil'), has_secondary: ex(true),
           tertiary: ex('decline'), tertiary_label: ex('Decline order'), has_tertiary: ex(false), show_price: ex(false),
@@ -136,12 +151,17 @@ function fullOrdersFlowJson() {
             { type: 'Image', src: '${data.photo1}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo1}', 'alt-text': 'Photo of the item' },
             { type: 'Image', src: '${data.photo2}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo2}', 'alt-text': 'Photo of the item' },
             { type: 'Image', src: '${data.photo3}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo3}', 'alt-text': 'Photo of the item' },
-            { type: 'TextBody', text: '${data.details}' },
+            { type: 'TextBody', text: '${data.item}', 'font-weight': 'bold' },
+            { type: 'TextBody', text: '${data.about}', visible: '${data.has_about}' },
+            { type: 'TextBody', text: '${data.key}', 'font-weight': 'bold' },
+            { type: 'TextBody', text: '${data.info}', visible: '${data.has_info}' },
             { type: 'TextCaption', text: '${data.hint}' },
+            { type: 'TextBody', text: '${data.warn}', 'font-weight': 'bold', visible: '${data.has_warn}' },
             { type: 'TextInput', name: 'new_price', label: 'Your price (₦)', 'input-type': 'text', required: false, visible: '${data.show_price}', 'max-chars': 20, 'helper-text': 'Total, delivery included. e.g. 18000 or 18k' },
+            { type: 'TextArea', name: 'reason', label: 'Why the new price?', required: false, visible: '${data.show_price}', 'max-length': 150, 'helper-text': 'The buyer sees this. Max 150 characters' },
             { type: 'EmbeddedLink', text: '${data.secondary_label}', visible: '${data.has_secondary}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.secondary}', code: '${data.code}' } } },
             { type: 'EmbeddedLink', text: '${data.tertiary_label}', visible: '${data.has_tertiary}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.tertiary}', code: '${data.code}' } } },
-            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.primary}', code: '${data.code}', new_price: '${form.new_price}' } } },
+            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.primary}', code: '${data.code}', new_price: '${form.new_price}', reason: '${form.reason}' } } },
           ],
         },
       },
@@ -162,7 +182,7 @@ function fullOrdersFlowJson() {
               'on-select-action': { name: 'data_exchange', payload: { op: 'method', code: '${data.code}', method: '${form.method}' } },
             },
             { type: 'TextArea', name: 'pickup_address', label: 'Pickup address', required: false, 'max-length': 300, visible: '${data.show_pickup}', 'init-value': '${data.pickup_address}', 'helper-text': 'Where the buyer collects it' },
-            { type: 'TextCaption', text: '${data.error}', visible: '${data.has_error}' },
+            { type: 'TextBody', text: '${data.error}', 'font-weight': 'bold', visible: '${data.has_error}' },
             {
               type: 'Footer', label: 'Continue',
               'on-click-action': { name: 'data_exchange', payload: { op: 'dispatch_submit', code: '${data.code}', method: '${form.method}', pickup_address: '${form.pickup_address}' } },
@@ -188,9 +208,9 @@ function fullOrdersFlowJson() {
             { type: 'TextInput', name: 'account_number', label: 'Account number', 'input-type': 'number', required: true, 'init-value': '${data.account_number}', 'max-chars': 10, 'helper-text': '10 digits' },
             { type: 'TextInput', name: 'bank', label: 'Bank', 'input-type': 'text', required: true, 'init-value': '${data.bank}', 'max-chars': 40, 'helper-text': 'e.g. GTBank, Opay, Moniepoint' },
             { type: 'TextCaption', text: '⚠️ We pay exactly the account you give. Hoolam can\'t recover money sent to a wrong account.' },
-            { type: 'TextBody', text: '${data.confirm_text}', visible: '${data.show_confirm}' },
+            { type: 'TextBody', text: '${data.confirm_text}', 'font-weight': 'bold', visible: '${data.show_confirm}' },
             { type: 'OptIn', name: 'confirm', label: 'Yes, this is the right account', required: false, visible: '${data.show_confirm}' },
-            { type: 'TextCaption', text: '${data.error}', visible: '${data.has_error}' },
+            { type: 'TextBody', text: '${data.error}', 'font-weight': 'bold', visible: '${data.has_error}' },
             {
               type: 'Footer', label: '${data.footer_label}',
               'on-click-action': {
@@ -211,21 +231,23 @@ function fullOrdersFlowJson() {
           type: 'SingleColumnLayout',
           children: [
             { type: 'TextSubheading', text: '${data.heading}' },
-            { type: 'TextBody', text: 'Type the 4-digit code the receiver gave you. Only hand over the item to the person with the right code.' },
+            { type: 'TextBody', text: 'Type the 4-digit code the receiver gives you.' },
+            { type: 'TextBody', text: 'Only hand over the item to the person with the right code.', 'font-weight': 'bold' },
             { type: 'TextInput', name: 'digits', label: 'Handover code', 'input-type': 'passcode', required: true, 'max-chars': 4, 'min-chars': 4 },
-            { type: 'TextCaption', text: '${data.error}', visible: '${data.has_error}' },
+            { type: 'TextBody', text: '${data.error}', 'font-weight': 'bold', visible: '${data.has_error}' },
             { type: 'Footer', label: 'Confirm handover', 'on-click-action': { name: 'data_exchange', payload: { op: 'code', code: '${data.code}', digits: '${form.digits}' } } },
           ],
         },
       },
       {
         id: 'DONE', title: 'Hoolam', terminal: true,
-        data: { title: ex('✅ Done'), message: ex('We\'ve sent the details in the chat.') },
+        data: { title: ex('✅ Done'), message: ex('We\'ve sent the details in the chat.'), important: ex(''), has_important: ex(false) },
         layout: {
           type: 'SingleColumnLayout',
           children: [
             { type: 'TextSubheading', text: '${data.title}' },
             { type: 'TextBody', text: '${data.message}' },
+            { type: 'TextBody', text: '${data.important}', 'font-weight': 'bold', visible: '${data.has_important}' },
             { type: 'Footer', label: 'Back to the chat', 'on-click-action': { name: 'complete', payload: { done: 'yes' } } },
           ],
         },
@@ -245,6 +267,11 @@ export interface OrdersFlowOptions {
   secret: string;
   /** Puts a chat into a typed-answer state (e.g. the seller's bank account), so the chat carries on. */
   setChatState: (phone: string, state: string, data: Record<string, unknown>) => Promise<void>;
+  /** The buyer's order before it's sent (from the chat), and the chat's Send / Edit / Start again. */
+  buyPreview?: (phone: string) => Promise<{ item: string; about: string; key: string; info: string; photos: string[] } | null>;
+  buyAction?: (phone: string, action: 'send' | 'edit' | 'restart') => Promise<void>;
+  /** Downloads photos people sent (for the buyer's preview). */
+  media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
   log?: (line: string) => void;
 }
 
@@ -313,6 +340,7 @@ export class OrdersFlow {
 
   private async init(user: User, t: { mode: Mode; entry: Entry; code: string | null }): Promise<Res> {
     if (t.entry === 'orders') return this.filterScreen(user, t.mode);
+    if (t.entry === 'preview') return this.previewScreen(user);
     if (!t.code) return this.notice('ORDER', '😕 Can\'t open this', 'Open My orders from the menu.');
     // dispatch / code alerts open the order itself: its main button is the step they came for
     return this.orderScreen(user, await this.mine(user, t.code));
@@ -363,7 +391,13 @@ export class OrdersFlow {
     const total = (await this.o.db.query(`SELECT count(*)::int AS n FROM deals WHERE ${col} ${where}`, [user.id])).rows[0].n as number;
     const pages = Math.max(1, Math.ceil(total / PAGE));
     page = Math.min(Math.max(1, page), pages);
-    const rows: Deal[] = (await this.o.db.query(`SELECT * FROM deals WHERE ${col} ${where} ORDER BY created_at DESC LIMIT ${PAGE} OFFSET $2`, [user.id, (page - 1) * PAGE])).rows;
+    // the other person's name helps tell orders apart: the buyer's for a seller, the seller's for a buyer
+    const other = mode === 'seller' ? 'd.buyer_id' : 'COALESCE(d.seller_id, d.counter_seller_id)';
+    const rows: (Deal & { other_name: string | null; other_phone: string | null })[] = (await this.o.db.query(
+      `SELECT d.*, u.display_name AS other_name, COALESCE(u.phone, d.invited_phone) AS other_phone
+       FROM deals d LEFT JOIN users u ON u.id = ${other}
+       WHERE ${col.replace(/(seller_id|counter_seller_id|buyer_id)/g, 'd.$1')} ${where.replace('status', 'd.status')}
+       ORDER BY d.created_at DESC LIMIT ${PAGE} OFFSET $2`, [user.id, (page - 1) * PAGE])).rows;
     const name = filter === 'pending' ? 'Pending' : filter === 'completed' ? 'Completed' : 'All orders';
     const from = total ? (page - 1) * PAGE + 1 : 0, to = Math.min(total, page * PAGE);
     const orders = rows.map((d) => {
@@ -371,7 +405,7 @@ export class OrdersFlow {
       const amount = mode === 'seller' ? d.seller_gets_minor : d.buyer_pays_minor;
       return {
         id: d.code,
-        title: `${d.code} · ${this.m(amount)}`.slice(0, 30),
+        title: rowTitle(d.other_name, d.other_phone, mode, d.code, this.m(amount)),
         description: `${d.item.slice(0, 60)}\n${next.needsYou ? '👉 ' + next.hint : STATUS_WORDS[d.status] ?? d.status}`.slice(0, 300),
       };
     });
@@ -439,35 +473,47 @@ export class OrdersFlow {
     return none(STATUS_WORDS[d.status] ?? d.status);
   }
 
-  private async orderScreen(user: User, d: Deal, override?: { primary: string; label: string; note: string; showPrice?: boolean }): Promise<Res> {
+  private async orderScreen(user: User, d: Deal, override?: { primary: string; label: string; note: string; showPrice?: boolean; warn?: string }): Promise<Res> {
     const mode = this.role(d, user);
     const nx = this.next(d, mode, user);
     const photos = await this.thumbs(d.id);
-    const lines = [
-      `*${d.item}*`,
-      d.description ?? '',
-      d.category ? `🏷️ ${categoryTitle(d.category)}` : '',
-      '',
-      mode === 'seller' ? `💰 Total price ${this.m(d.price_minor)}\n💸 You receive ${this.m(d.seller_gets_minor)}${Number(d.delivery_fee_minor) ? `, minus ${this.m(Number(d.delivery_fee_minor))} delivery` : ''}`
-        : `💰 Total price ${this.m(d.price_minor)}\n🧾 Hoolam fee ${this.m(d.buyer_pays_minor - d.price_minor)}\n💳 You pay ${this.m(d.buyer_pays_minor)}`,
-      d.delivery_address ? `📍 ${d.delivery_address}` : '',
+    const fee = Number(d.delivery_fee_minor);
+    const countered = d.status === 'AWAITING_SELLER' && d.counter_price_minor;
+    // bold: the money, where and when, codes. Plain: everything else.
+    const key = [
+      mode === 'seller' ? `💰 Total price ${this.m(d.price_minor)}` : `💰 Total price ${this.m(d.price_minor)}`,
+      mode === 'seller' ? `💸 You receive ${this.m(d.seller_gets_minor)}${fee ? `, minus ${this.m(fee)} for delivery` : ''}` : '',
+      mode === 'buyer' && d.status !== 'AWAITING_SELLER' ? `🧾 Hoolam fee ${this.m(d.buyer_pays_minor - d.price_minor)}` : '',
+      mode === 'buyer' && d.status !== 'AWAITING_SELLER' ? `💳 You pay ${this.m(d.buyer_pays_minor)}` : '',
+      countered ? (mode === 'seller' ? `✏️ Your new price ${this.m(d.counter_price_minor!)}` : `✏️ Seller's new price ${this.m(d.counter_price_minor!)}`) : '',
+      d.delivery_address ? `📍 Deliver to: ${d.delivery_address}` : '',
       d.arrive_by ? `📅 Expected by ${dayText(String(d.arrive_by))}` : '',
-      d.dispatch_method === 'PICKUP' ? `📍 Pickup at ${d.pickup_address ?? ''}` : '',
-      d.dispatch_method === 'RIDER' ? `🛵 Rider ${d.courier_name ?? ''} ${d.courier_phone ?? ''}`.trim() : '',
-      d.dispatch_method === 'WAYBILL' ? `🚌 Waybill driver ${d.courier_phone ?? ''}`.trim() : '',
-      mode === 'buyer' && d.handover_code && !d.handed_over_at && d.status === 'SHIPPED' ? `🔑 Your handover code: *${d.handover_code}*` : '',
+      d.dispatch_method === 'PICKUP' ? `📍 Pickup at: ${d.pickup_address ?? ''}` : '',
+      mode === 'buyer' && d.handover_code && !d.handed_over_at && d.status === 'SHIPPED' ? `🔑 Your handover code: ${d.handover_code}` : '',
       d.handed_over_at ? '✅ Handed over' : '',
-    ].filter((x, i, a) => x !== '' || (i > 0 && a[i - 1] !== '')).join('\n').trim();
+    ].filter(Boolean).join('\n');
+    const info = [
+      countered && d.counter_reason ? `💬 Reason: ${d.counter_reason}` : '',
+      d.dispatch_method === 'RIDER' ? `🛵 Rider: ${d.courier_name ?? ''} ${d.courier_phone ?? ''}`.trim() : '',
+      d.dispatch_method === 'WAYBILL' ? `🚌 Waybill driver: ${d.courier_phone ?? ''}`.trim() : '',
+    ].filter(Boolean).join('\n');
+    const about = [d.description ?? '', d.category ? `🏷️ ${categoryTitle(d.category)}` : ''].filter(Boolean).join('\n');
     const p = override ?? { primary: nx.primary, label: nx.label, note: '' };
     const buyerName = mode === 'seller' && d.buyer_id ? (await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [d.buyer_id])).rows[0]?.display_name : null;
-    const intro = mode === 'seller' && d.status === 'AWAITING_SELLER' && buyerName ? `🛒 *${String(buyerName).split(' ')[0]} wants to buy from you*\n\n` : '';
+    const heading = mode === 'seller' && d.status === 'AWAITING_SELLER' && buyerName
+      ? `🛒 ${String(buyerName).split(' ')[0]} wants to buy from you`
+      : `${d.code} · ${(STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase())}`;
     return {
       screen: 'ORDER',
       data: {
         code: d.code,
-        heading: `${d.code} · ${(STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase())}`.slice(0, 80),
-        details: plain(intro + lines).slice(0, 4000),
-        hint: (override ? override.note : (nx.needsYou ? '👉 ' : '') + nx.hint).slice(0, 400),
+        heading: heading.slice(0, 80),
+        item: plain(`${d.item}${heading.startsWith(d.code) ? '' : ` (${d.code})`}`).slice(0, 300),
+        about: plain(about).slice(0, 2000), has_about: !!about,
+        key: plain(key).slice(0, 2000),
+        info: plain(info).slice(0, 1000), has_info: !!info,
+        hint: plain(override ? override.note : (nx.needsYou ? '👉 ' : '') + nx.hint).slice(0, 400) || ' ',
+        warn: plain(override?.warn ?? ''), has_warn: !!override?.warn,
         photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
         has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
         primary: p.primary, primary_label: p.label.slice(0, 35),
@@ -478,13 +524,42 @@ export class OrdersFlow {
     };
   }
 
+  /** The buyer's order before it's sent: photos, details, then Send to seller / Edit order / Start again. */
+  private async previewScreen(user: User): Promise<Res> {
+    const p = await this.o.buyPreview?.(user.phone);
+    if (!p) return this.notice('ORDER', 'Nothing to check', 'This order has already been sent, or was started again. Check the chat.');
+    const photos: string[] = [];
+    for (const id of p.photos.slice(0, 3)) {
+      try {
+        const d = await this.o.media?.download(id);
+        const t = d ? await thumb(d.bytes) : null;
+        if (t) photos.push(t);
+      } catch { /* skip a photo we can't fetch */ }
+    }
+    return {
+      screen: 'ORDER',
+      data: {
+        code: 'preview', heading: '🛒 Check your order',
+        item: plain(p.item).slice(0, 300), about: plain(p.about).slice(0, 2000), has_about: !!p.about,
+        key: plain(p.key).slice(0, 2000), info: plain(p.info).slice(0, 1000), has_info: !!p.info,
+        hint: 'Is everything right? Send it to the seller, or change it first.', warn: 'Nothing to pay yet. You pay after the seller accepts.', has_warn: true,
+        photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
+        has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
+        primary: 'bsend', primary_label: 'Send to seller',
+        secondary: 'bedit', secondary_label: 'Edit order', has_secondary: true,
+        tertiary: 'brestart', tertiary_label: 'Start again', has_tertiary: true,
+        show_price: false,
+      },
+    };
+  }
+
   /** Small, light copies of the order photos (Meta allows ~300 KB per image; we keep each well under). */
   private async thumbs(dealId: string): Promise<string[]> {
     const r = await this.o.db.query(`SELECT bytes FROM deal_photos WHERE deal_id=$1 AND kind='ITEM' AND bytes IS NOT NULL ORDER BY id LIMIT 3`, [dealId]);
     const out: string[] = [];
     for (const row of r.rows) {
-      try { out.push((await sharp(row.bytes).rotate().resize(640, 640, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()).toString('base64')); }
-      catch { /* skip a photo we can't read */ }
+      const t = await thumb(row.bytes);
+      if (t) out.push(t);
     }
     return out;
   }
@@ -511,6 +586,15 @@ export class OrdersFlow {
       if (!p.code || p.code === 'none') return this.ordersScreen(user, mode, p.filter ?? 'pending', Number(p.page || 1));
       return this.orderScreen(user, await this.mine(user, p.code));
     }
+    // ----- the buyer's order before it's sent -----
+    if (action === 'bsend' || action === 'bedit' || action === 'brestart') {
+      const waiting = await this.o.buyPreview?.(user.phone);
+      if (!waiting && action !== 'brestart') return this.done('Already sent', 'This order has already been sent, or was started again. Check the chat.');
+      await this.o.buyAction?.(user.phone, action === 'bsend' ? 'send' : action === 'bedit' ? 'edit' : 'restart');
+      if (action === 'bsend') return this.done('📨 Sent to the seller', 'Your order code and the link for the seller are in the chat. We\'ll tell you when the seller answers.', 'Nothing to pay yet. You pay after the seller accepts.');
+      if (action === 'bedit') return this.done('✏️ Edit your order', 'We\'ve sent it to the chat with your answers filled in.', 'Open it in the chat, change what you need, then review again.');
+      return this.done('🔄 Start again', 'We\'ve sent a new order form to the chat.');
+    }
     if (action === 'close' || action === 'none') return this.done('👍 All set', 'You can come back to *My orders* any time from the menu.');
 
     const deal = await this.mine(user, String(p.code ?? ''));
@@ -518,30 +602,33 @@ export class OrdersFlow {
     switch (action) {
       // ----- seller -----
       case 'counterask':
-        return this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: `The buyer offered ${this.m(deal.price_minor)}. Type the total that works for you; they accept it or cancel.`, showPrice: true });
+        return this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: `The buyer offered ${this.m(deal.price_minor)}. Type the total that works for you and why. The buyer accepts it or cancels.`, showPrice: true });
       case 'counter': {
         const major = parseAmount(String(p.new_price ?? ''));
         const minor = major ? toMinor(major, this.o.currency) : 0;
-        if (!minor) return this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: '⚠️ Type the price in naira, like 18000 or 18k.', showPrice: true });
-        if (minor > this.o.deals.maxDealMinor) return this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: `⚠️ Orders can be up to ${this.m(this.o.deals.maxDealMinor)} for now.`, showPrice: true });
+        const reason = String(p.reason ?? '').replace(/\s+/g, ' ').trim();
+        const again = (warn: string) => this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: `The buyer offered ${this.m(deal.price_minor)}.`, showPrice: true, warn });
+        if (!minor) return again('⚠️ Type the price in naira, like 18000 or 18k.');
+        if (minor > this.o.deals.maxDealMinor) return again(`⚠️ Orders can be up to ${this.m(this.o.deals.maxDealMinor)} for now.`);
+        if (reason.length < 3) return again('⚠️ Tell the buyer why, in a few words.');
         await this.o.deals.setMenuMode(user, 'seller');
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
-          await this.o.setChatState(user.phone, 'SELLER_BANK', { code, counterMinor: minor });
-          return this.done('🏦 One last step', 'Send your account number and bank *in the chat* (for example _0123456789 GTBank_), and we\'ll send the buyer your price.');
+          await this.o.setChatState(user.phone, 'SELLER_BANK', { code, counterMinor: minor, counterReason: reason.slice(0, 150) });
+          return this.done('🏦 One last step', 'Send your account number and bank in the chat (for example 0123456789 GTBank).', 'Then we send the buyer your new price.');
         }
-        await this.o.deals.counterAsSeller(code, user, acct.id, minor);
-        return this.done('✏️ Price sent', `We've asked the buyer if ${this.m(minor)} works. We'll tell you when they answer.`);
+        await this.o.deals.counterAsSeller(code, user, acct.id, minor, reason);
+        return this.done('✏️ Price sent', `We've asked the buyer if ${this.m(minor)} works, and told them why. We'll tell you when they answer.`);
       }
       case 'accept': {
         await this.o.deals.setMenuMode(user, 'seller');
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
           await this.o.setChatState(user.phone, 'SELLER_BANK', { code });
-          return this.done('🏦 One last step', 'Send your account number and bank *in the chat* (for example _0123456789 GTBank_), and the order is accepted.');
+          return this.done('🏦 One last step', 'Send your account number and bank in the chat (for example 0123456789 GTBank).', 'Then the order is accepted.');
         }
         await this.o.deals.acceptAsSeller(code, user, acct.id);
-        return this.done('✅ Order accepted', 'We\'ve asked the buyer to pay. We\'ll tell you the moment the money is held. Don\'t send anything before then.');
+        return this.done('✅ Order accepted', 'We\'ve asked the buyer to pay. We\'ll tell you the moment the money is held.', 'Don\'t send anything before then.');
       }
       case 'decline':
         await this.o.deals.declineAsSeller(code, user);
@@ -556,18 +643,18 @@ export class OrdersFlow {
           const fresh = await this.mine(user, code);
           return this.codeScreen(fresh, `❌ That code doesn't match. ${5 - fresh.handover_tries} tries left.`);
         }
-        if (r === 'locked') return this.done('🔒 Paused', 'Too many wrong codes. A rep will help you finish the handover. Tap *Talk to a rep* in the menu.');
+        if (r === 'locked') return this.done('🔒 Paused', 'Too many wrong codes. A rep will help you finish the handover.', 'Tap Talk to a rep in the menu.');
         return this.done('Nothing to do', 'This order isn\'t waiting for a handover code.');
       }
       case 'cantfulfil':
-        return this.orderScreen(user, deal, { primary: 'refundconfirm', label: 'Yes, refund the buyer', note: '⚠️ The buyer gets all their money back, Hoolam\'s fee included. This can\'t be undone. Use the back arrow to keep the order.' });
+        return this.orderScreen(user, deal, { primary: 'refundconfirm', label: 'Yes, refund the buyer', note: 'The buyer gets all their money back, Hoolam\'s fee included. Use the back arrow to keep the order.', warn: '⚠️ This can\'t be undone.' });
       case 'refundconfirm':
         await this.o.deals.refundPaidOrder(code, 'seller', user);
         return this.done('💸 Refund started', 'The buyer is being refunded. We\'ve told them.');
       // ----- buyer -----
       case 'pay':
         await this.o.deals.requestPayment(code, user);
-        return this.done('💳 Payment details sent', 'We\'ve sent the account to pay into *in the chat*. Your money stays with Hoolam until you\'re happy.');
+        return this.done('💳 Payment details sent', 'Your money stays with Hoolam until you\'re happy.', 'The account to pay into is in the chat.');
       case 'cancel':
         await this.o.deals.cancelByBuyer(code, user);
         return this.done('Order cancelled', 'No money moved.');
@@ -579,13 +666,13 @@ export class OrdersFlow {
       case 'problem':
         await this.o.deals.openDispute(code, user);
         await this.o.setChatState(user.phone, 'DISPUTE_DETAIL', { code });
-        return this.done('🚩 Money frozen', 'Tell us what\'s wrong *in the chat*: type it or send a photo. A rep looks at it.');
+        return this.done('🚩 Money frozen', 'A rep looks at it.', 'Tell us what\'s wrong in the chat: type it or send a photo.');
       case 'remind':
         await this.o.deals.remindSeller(code, user);
         return this.done('🔔 Reminder sent', 'We\'ve reminded the seller to dispatch your order.');
       case 'refundme': {
         const r = await this.o.deals.refundPaidOrder(code, 'buyer', user);
-        return this.done('💸 Refund', r === 'refunding' ? 'Your refund is on its way.' : 'Send your account number and bank *in the chat*, and we\'ll refund you straight away.');
+        return this.done('💸 Refund', r === 'refunding' ? 'Your refund is on its way.' : 'We need your account to send the refund.', 'Send your account number and bank in the chat.');
       }
       case 'dispatch_submit': return this.dispatchSubmit(user, deal, p);
       case 'courier': return this.courier(user, deal, p);
@@ -613,7 +700,7 @@ export class OrdersFlow {
       const address = String(p.pickup_address ?? '').trim();
       if (address.length < 3) return this.dispatchScreen(deal, 'Type the pickup address.', p);
       await this.o.deals.dispatch(deal.code, user, { method: 'PICKUP', pickupAddress: address });
-      return this.done('✅ Ready for pickup', 'We\'ve sent the buyer the address and their handover code. *Ask for the code before you hand over the item*, then enter it in My orders or the chat.');
+      return this.done('✅ Ready for pickup', 'We\'ve sent the buyer the address and their handover code. Enter the code in My orders or the chat.', 'Ask for the code before you hand over the item.');
     }
     return this.courierScreen(deal, method as 'rider' | 'waybill', { location: deal.delivery_address ?? '' }, null, null);
   }
@@ -658,7 +745,7 @@ export class OrdersFlow {
       method: method === 'rider' ? 'RIDER' : 'WAYBILL', courierName: method === 'rider' ? String(p.name).trim() : null, courierPhone: phone,
       location, feeMinor: fee, account: { bank_code: bank.code, bank_name: bank.name, account_number: number, account_name: name },
     });
-    return this.done('✅ Dispatched', `We've sent the buyer the ${role}'s details and their handover code.\n\n*Tell your ${role}: ask the receiver for their 4-digit code and send it to you.* Then enter it in My orders or the chat. The ${role} is paid the moment it's right.`);
+    return this.done('✅ Dispatched', `We've sent the buyer the ${role}'s details and their handover code. Enter the code in My orders or the chat. The ${role} is paid the moment it's right.`, `Tell your ${role}: ask the receiver for their 4-digit code and send it to you.`);
   }
 
   private codeScreen(d: Deal, error: string | null): Res {
@@ -666,8 +753,9 @@ export class OrdersFlow {
     return { screen: 'CODE', data: { code: d.code, heading: `🔑 ${d.code} · ${d.item}`.slice(0, 80), error: error ?? '', has_error: !!error } };
   }
 
-  private done(title: string, message: string): Res {
-    return { screen: 'DONE', data: { title: title.slice(0, 80), message: plain(message) } };
+  /** The last screen. `important` is shown in bold under the message. */
+  private done(title: string, message: string, important = ''): Res {
+    return { screen: 'DONE', data: { title: title.slice(0, 80), message: plain(message), important: plain(important), has_important: !!important } };
   }
 }
 

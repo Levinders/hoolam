@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { buyFlowJson, buyFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
+import { buyEditFlowJson, buyEditFlowName, buyFlowJson, buyFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
 import { ordersFlowJson } from './orders-flow.js';
 import type { Template } from './client.js';
 
@@ -118,7 +118,11 @@ export const BUYER_ALERT = {
   buttons: ['View order', 'Not me'],
 };
 
-export interface TemplateDef { name: string; body: string; example: string[]; footer?: string; buttons?: string[]; replaces?: string }
+export interface TemplateDef {
+  name: string; body: string; example: string[]; footer?: string; buttons?: string[]; replaces?: string;
+  /** How many variables the replaced version has, when the new one adds some (extra values are left off when sending it). */
+  replacesParams?: number;
+}
 
 /**
  * Order updates Hoolam starts when the other person last wrote more than 24 hours ago (WhatsApp then only
@@ -133,9 +137,9 @@ export const DEAL_TEMPLATES = {
     example: ['HL-7K2QF', '₦15,300'], buttons: ['Pay now'],
   },
   counterOffer: {
-    name: 'hoolam_order_new_price', replaces: 'hoolam_counter_offer', label: 'New price from the seller (to the buyer)',
-    body: 'The seller replied to your order {{1}} with a new price. You would pay {{2}} in total.\n\nYou only pay if you accept.',
-    example: ['HL-7K2QF', '₦18,400'], buttons: ['Accept new price', 'Cancel order'],
+    name: 'hoolam_order_new_price_reason', replaces: 'hoolam_order_new_price', replacesParams: 2, label: 'New price from the seller, with the reason (to the buyer)',
+    body: 'The seller replied to your order {{1}} with a new price. You would pay {{2}} in total.\n\nTheir reason: {{3}}\n\nYou only pay if you accept.',
+    example: ['HL-7K2QF', '₦18,400', 'The price went up at the market'], buttons: ['Accept new price', 'Cancel order'],
   },
   paymentReceived: {
     name: 'hoolam_order_paid', replaces: 'hoolam_payment_received', label: 'Buyer paid (to the seller)',
@@ -276,6 +280,11 @@ export async function ensureTemplate(o: MetaSetupOptions, t: TemplateDef, label:
 /** Makes sure the buyer's form exists on Meta. Returns its id, or null (then the chat questions are used). */
 export async function ensureBuyFlow(o: MetaSetupOptions, json = buyFlowJson()): Promise<string | null> {
   return ensureFlow(o, json, buyFlowName(json), 'buyer form');
+}
+
+/** The buyer's form filled in with their answers, for "Edit order". */
+export async function ensureBuyEditFlow(o: MetaSetupOptions, json = buyEditFlowJson()): Promise<string | null> {
+  return ensureFlow(o, json, buyEditFlowName(json), 'buyer edit form');
 }
 
 /** Makes sure the seller's form exists on Meta. */

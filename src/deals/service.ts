@@ -19,7 +19,7 @@ export interface Deal {
   price_minor: number; fee_minor: number; buyer_pays_minor: number; seller_gets_minor: number;
   seller_account_id: string | null; status: Status; created_at: Date; funded_at: Date | null; shipped_at: Date | null;
   started_by: 'SELLER' | 'BUYER'; invited_phone: string | null; arrive_by: string | Date | null; accept_by: Date | null;
-  fee_payer: 'BUYER' | 'SELLER'; counter_price_minor: number | null; counter_seller_id: string | null; counter_account_id: string | null;
+  fee_payer: 'BUYER' | 'SELLER'; counter_price_minor: number | null; counter_reason?: string | null; counter_seller_id: string | null; counter_account_id: string | null;
   shipping_note: string | null;
   description: string | null; category: string | null; delivery_fee_minor: number | string;
   delivery_address: string | null; dispatch_method: 'PICKUP' | 'RIDER' | 'WAYBILL' | null; pickup_address: string | null;
@@ -506,8 +506,9 @@ export class DealService {
 
 
   // ---------- Change price: the seller suggests a different price on a buyer's deal ----------
-  async counterAsSeller(code: string, seller: User, accountId: string, newPriceMinor: number): Promise<void> {
+  async counterAsSeller(code: string, seller: User, accountId: string, newPriceMinor: number, reason: string): Promise<void> {
     if (newPriceMinor > this.maxDealMinor) throw new DealError('TOO_BIG');
+    reason = reason.replace(/\s+/g, ' ').trim().slice(0, 150);
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.status !== 'AWAITING_SELLER') { out.push({ phone: seller.phone, message: deal.seller_id ? msg.dealHasSeller(deal.code) : msg.dealClosed(deal.code) }); return; }
@@ -515,12 +516,12 @@ export class DealService {
       if (deal.counter_seller_id && deal.counter_seller_id !== seller.id) { out.push({ phone: seller.phone, message: msg.dealHasSeller(deal.code) }); return; }
       const acct = await tx.query('SELECT 1 FROM bank_accounts WHERE id=$1 AND user_id=$2', [accountId, seller.id]);
       if (!acct.rowCount) throw new DealError('NOT_ALLOWED');
-      await tx.query('UPDATE deals SET counter_price_minor=$2, counter_seller_id=$3, counter_account_id=$4, updated_at=now() WHERE id=$1', [deal.id, newPriceMinor, seller.id, accountId]);
-      await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', `Suggested a new price: ${newPriceMinor}`]);
+      await tx.query('UPDATE deals SET counter_price_minor=$2, counter_seller_id=$3, counter_account_id=$4, counter_reason=$5, updated_at=now() WHERE id=$1', [deal.id, newPriceMinor, seller.id, accountId, reason || null]);
+      await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', `Suggested a new price: ${newPriceMinor}${reason ? `. Reason: ${reason}` : ''}`]);
       const buyer = await this.userById(tx, deal.buyer_id!);
       const q = quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer');
       out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor)) });
-      out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor)), fallback: dealTemplate('counterOffer', [deal.code, this.text(q.buyerPaysMinor)], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
+      out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor), reason), fallback: dealTemplate('counterOffer', [deal.code, this.text(q.buyerPaysMinor), reason || 'not given'], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
     });
   }
 

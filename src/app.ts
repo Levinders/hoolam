@@ -6,7 +6,7 @@ import { DealError, DealService } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { ALL_TEMPLATES, ensureBuyFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { Media } from './whatsapp/media.js';
@@ -26,6 +26,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Messenger } from './whatsapp/client.js';
+import { msg } from './whatsapp/messages.js';
 import { Conversation } from './whatsapp/flow.js';
 import { parseInbound, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
 
@@ -38,7 +39,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const messenger = new Messenger(db, {
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
-  for (const t of ALL_TEMPLATES) if (t.replaces) messenger.setTemplateReplaces(t.name, t.replaces);
+  for (const t of ALL_TEMPLATES) if (t.replaces) messenger.setTemplateReplaces(t.name, t.replaces, t.replacesParams);
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider.sandbox;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
@@ -55,23 +56,33 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // ---------- "My orders": the live form and its encrypted endpoint ----------
   let ordersForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   let orderForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // one order on its own
+  let buyEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the buyer's form, filled in
   let keys: FlowKeys | null = null;
   const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
   const setChatState = async (phone: string, state: string, data: Record<string, unknown>) => {
     await db.query(`INSERT INTO chat_sessions (phone, state, data) VALUES ($1,$2,$3) ON CONFLICT (phone) DO UPDATE SET state=$2, data=$3, updated_at=now()`, [phone, state, JSON.stringify(data)]);
   };
-  const orders = new OrdersFlow({ db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log });
-  const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller' }): Promise<boolean> => {
+  const orders = new OrdersFlow({
+    db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log, media,
+    // the buyer's order before it's sent: read from the chat, and Send / Edit / Start again work exactly like the chat buttons
+    buyPreview: (phone) => chat.buyPreview(phone),
+    buyAction: (phone, action) => chat.handle({ id: `form-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: `buy:${action}`, mediaId: null }),
+  });
+  const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller'; item?: string; totalMinor?: number }): Promise<boolean> => {
     const form = at.screen === 'orders' ? ordersForm : orderForm;
     if (!form || !settings.formsEnabled()) return false;
     const mode = at.mode ?? (at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer');
-    const titles: Record<Entry, [string, string]> = {
+    const titles: Record<Exclude<Entry, 'preview'>, [string, string]> = {
       orders: ['📋 My orders', mode === 'seller' ? 'Everything you\'re selling: what needs you first, then the rest.' : 'Everything you\'re buying, and where your money is.'],
       order: at.mode === 'seller' ? ['🛒 New order for you', `Order ${at.code}: see the photos and details, then accept, change the price or decline.`] : ['📋 Your order', `Order ${at.code}: details, photos and the next step.`],
       dispatch: ['🚚 Dispatch', `Order ${at.code}: pickup, rider or waybill. It takes a minute.`],
       code: ['🔑 Handover code', `Order ${at.code}: enter the receiver's 4-digit code.`],
     };
-    const [header, text] = titles[at.screen];
+    if (at.screen === 'preview') {
+      const status = await messenger.send(phone, msg.buyReview(form.flowId, form.mode, signToken(formSecret, phone, 'buyer', 'preview', '-', 24), at.item ?? '', { minor: at.totalMinor ?? 0, currency: c.CURRENCY }));
+      return status !== 'FAILED';
+    }
+    const [header, text] = titles[at.screen as Exclude<Entry, 'preview'>];
     const status = await messenger.send(phone, {
       kind: 'form', header, text, cta: at.screen === 'dispatch' ? 'Dispatch now' : at.screen === 'code' ? 'Enter code' : at.screen === 'order' ? 'View order' : 'Open my orders',
       flowId: form.flowId, mode: form.mode, screen: at.screen === 'orders' ? 'FILTER' : 'ORDER', live: true,
@@ -83,6 +94,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const chat = new Conversation({
     db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL, media,
     buyForm: () => (settings.formsEnabled() ? buyForm : null), sellForm: () => (settings.formsEnabled() ? sellForm : null),
+    buyEditForm: () => (settings.formsEnabled() && buyForm ? buyEditForm : null),
     onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
     ordersForm: { open: openOrders },
   });
@@ -486,6 +498,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (c.WHATSAPP_BUY_FORM) {
         const buyId = await ensureBuyFlow(o);
         buyForm = buyId ? { flowId: buyId, mode: c.WHATSAPP_FORM_MODE } : null;
+        const editId = await ensureBuyEditFlow(o);
+        buyEditForm = editId ? { flowId: editId, mode: c.WHATSAPP_FORM_MODE } : null;
         const sellId = await ensureSellFlow(o);
         sellForm = sellId ? { flowId: sellId, mode: c.WHATSAPP_FORM_MODE } : null;
       }

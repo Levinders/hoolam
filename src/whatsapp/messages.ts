@@ -65,6 +65,8 @@ const STORY =
 /** A message with a "Main menu" button under it, so nobody is left at a dead end. */
 /** "+2348012345678" → "+234 801 ••• 5678" */
 const maskPhone = (p: string) => p.length > 8 ? `${p.slice(0, 4)} ${p.slice(4, 7)} ••• ${p.slice(-4)}` : p;
+/** +2348117663890 → 0811 766 3890 (the way people write Nigerian numbers). */
+export const localPhone = (p: string) => { const l = p.replace(/^\+234/, '0'); return /^0\d{10}$/.test(l) ? `${l.slice(0, 4)} ${l.slice(4, 7)} ${l.slice(7)}` : p; };
 const first = (name: string | null) => (name ? ' ' + name.split(' ')[0] : '');
 const withMenu = (text: string): Outbound => ({ kind: 'buttons', text, buttons: [{ id: 'menu:open', title: 'Main menu' }] });
 
@@ -330,12 +332,40 @@ export const msg = {
       (d.description ? `${d.description}\n` : '') +
       (d.category ? `🏷️ ${d.category}\n` : '') +
       (d.photos ? `📷 ${d.photos} photo${d.photos > 1 ? 's' : ''}\n` : '') +
-      (d.address ? `📍 ${d.address}\n` : '') +
-      (d.arriveBy ? `📅 Expecting it by ${d.arriveBy}\n` : '') +
-      `📨 ${d.sellerPhone ? `We'll send it to ${maskPhone(d.sellerPhone)}` : 'You\'ll get a link for the seller'}\n\n` +
-      `*Total price  ${m(d.total)}*\n_Delivery included, if any._\n\n` +
+      (d.address ? `📍 Deliver to: *${d.address}*\n` : '') +
+      (d.arriveBy ? `📅 Expected by *${d.arriveBy}*\n` : '') +
+      `📨 ${d.sellerPhone ? `Seller's WhatsApp: *${localPhone(d.sellerPhone)}*` : 'You\'ll get a link for the seller'}\n\n` +
+      `*💰 Total price  ${m(d.total)}*\n_Delivery included, if any._\n\n` +
       `🧾 Hoolam's fee is added when the seller accepts: ${d.feeRule}.\n\n💡 Nothing to pay yet.`,
-    buttons: [{ id: 'buy:send', title: '📨 Send to seller' }, { id: 'buy:restart', title: '✏️ Start again' }],
+    buttons: [{ id: 'buy:send', title: '📨 Send to seller' }, { id: 'buy:edit', title: '✏️ Edit order' }, { id: 'buy:restart', title: '🔄 Start again' }],
+  }),
+  /** The order to check, in the form: photos, details, then Send / Edit / Start again. */
+  buyReview: (flowId: string, mode: 'draft' | 'published', flowToken: string, item: string, total: Money): Outbound => ({
+    kind: 'form',
+    header: '🛒 Check your order',
+    text: `*${item}*\n💰 Total price *${m(total)}*\n\nLook over the photos and details, then send it to the seller. You can still change anything.\n\n💡 Nothing to pay yet.`,
+    cta: 'Review order',
+    flowId, flowToken, screen: 'ORDER', mode, live: true,
+  }),
+  /** The buyer's form again, filled in with their answers. */
+  buyEditForm: (flowId: string, mode: 'draft' | 'published', data: Record<string, string>): Outbound => ({
+    kind: 'form',
+    header: '✏️ Edit your order',
+    text: 'Your answers are filled in. Change what you need, then tap *Review my order*.',
+    cta: 'Edit order',
+    flowId, flowToken: 'buyedit:v1', screen: 'ITEM', mode, data,
+  }),
+  /** Chat version of "Edit order": pick the one thing to change. */
+  askWhatToChange: (): Outbound => ({
+    kind: 'list', text: '✏️ What do you want to change?', button: 'Choose',
+    sections: [{
+      title: 'Your order',
+      rows: [
+        { id: 'bfix:item', title: 'Item name' }, { id: 'bfix:description', title: 'Description' }, { id: 'bfix:category', title: 'Category' },
+        { id: 'bfix:price', title: 'Total price' }, { id: 'bfix:address', title: 'Delivery address' }, { id: 'bfix:photos', title: 'Photos' },
+        { id: 'bfix:seller', title: 'Seller\'s WhatsApp' },
+      ],
+    }],
   }),
 
   // chat version of the new questions (when the form can't be used)
@@ -405,12 +435,16 @@ export const msg = {
   ),
 
   // ----- Change price -----
-  askCounterPrice: (current: Money): Outbound => ({ kind: 'text', text: `✏️ What price works for you? (in naira)\n\nThe buyer offered ${m(current)}.` }),
+  askCounterPrice: (current: Money): Outbound => ({ kind: 'text', text: `✏️ What price works for you? (in naira)\n\nThe buyer offered *${m(current)}*.` }),
+  askCounterReason: (price: Money): Outbound => ({ kind: 'text', text: `💬 Why *${m(price)}*? Tell the buyer in a few words (max 150 characters).\n\nFor example: _The price went up at the market_` }),
+  badCounterReason: (): Outbound => ({ kind: 'text', text: '💬 Please type a short reason for the buyer (3 to 150 characters).' }),
   counterSent: (code: string, buyerName: string, price: Money): Outbound => withMenu(`✏️ Sent. We've asked ${buyerName} if ${m(price)} works.\n\nWe'll tell you when they answer. (Order ${code})`),
   counterWaiting: (code: string): Outbound => withMenu(`⏳ Order ${code}: we're waiting for the buyer to answer your price.`),
-  buyerCounterOffer: (code: string, sellerName: string, item: string, oldPrice: Money, newPrice: Money, newTotal: Money): Outbound => ({
+  buyerCounterOffer: (code: string, sellerName: string, item: string, oldPrice: Money, newPrice: Money, newTotal: Money, reason = ''): Outbound => ({
     kind: 'buttons',
-    text: `✏️ ${sellerName} suggests a different price\n\n*${item}*\n~${m(oldPrice)}~ → *${m(newPrice)}*\nYou'd pay *${m(newTotal)}*\n\n💡 You only pay if you accept. (Order ${code})`,
+    text: `✏️ ${sellerName} wants a different price\n\n*${item}*\n~${m(oldPrice)}~ → *${m(newPrice)}*\n` +
+      (reason ? `💬 Reason: ${reason}\n` : '') +
+      `\nYou'd pay *${m(newTotal)}*\n\n💡 You only pay if you accept. (Order *${code}*)`,
     buttons: [{ id: `cyes:${code}`, title: '✅ Accept new price' }, { id: `cancel:${code}`, title: '✕ Cancel order' }],
   }),
   sellerCounterAccepted: (code: string, buyerName: string, youGet: Money): Outbound => withMenu(

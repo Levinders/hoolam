@@ -9,7 +9,7 @@ import { CATEGORIES, categoryTitle, isCategory } from '../deals/categories.js';
 import type { Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
 import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
-import { msg, STATUS_WORDS } from './messages.js';
+import { localPhone, msg, STATUS_WORDS } from './messages.js';
 import { readBuyForm } from './buy-flow.js';
 import { normalizePhone } from './inbound.js';
 import { matchBank, parseBankInput } from './banks.js';
@@ -27,7 +27,7 @@ type State =
   | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE'
   | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_DESC' | 'BUY_CATEGORY' | 'BUY_PRICE' | 'BUY_ADDRESS' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
-  | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SHIP_PROOF'
+  | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SELLER_COUNTER_REASON' | 'SHIP_PROOF'
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
   | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE';
 interface Session { state: State; data: Record<string, any>; isNew: boolean }
@@ -41,10 +41,12 @@ export interface FlowOptions {
   testMode?: boolean;
   /** The buyer's WhatsApp form, once it exists on Meta. Null = ask in the chat instead. */
   buyForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
+  /** The buyer's form filled in with their answers ("Edit order"). Null = change things in the chat instead. */
+  buyEditForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** The seller's WhatsApp form, once it exists on Meta. */
   sellForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** The live "My orders" form (needs the forms endpoint). Returns false when it can't be sent. */
-  ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code'; code?: string; mode?: 'buyer' | 'seller' }): Promise<boolean> };
+  ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code' | 'preview'; code?: string; item?: string; totalMinor?: number; mode?: 'buyer' | 'seller' }): Promise<boolean> };
   /** Called when WhatsApp refuses to send a form, so we stop trying until the next restart. */
   onFormRefused?: () => void;
   /** Seller and buyer records. */
@@ -189,9 +191,11 @@ export class Conversation {
         case 'buy':
           if (code === 'send') return this.finishBuying(m.phone, s, user);
           if (code === 'restart') return this.startBuying(m.phone);
+          if (code === 'edit') return this.editBuying(m.phone, s);
           if (code === 'nophotos' || code === 'photosdone') return this.continueBuying(m.phone, { ...s.data, photosDone: true });
           if (code === 'nophone') return this.continueBuying(m.phone, { ...s.data, sellerPhone: null });
           return;
+        case 'bfix': return this.fixBuying(m.phone, s, code!);
         case 'cat':
           if (s.state !== 'BUY_CATEGORY' || !isCategory(code)) return this.continueBuying(m.phone, s.data);
           return this.continueBuying(m.phone, { ...s.data, category: code });
@@ -247,7 +251,10 @@ export class Conversation {
     if (m.type === 'form') {
       const token = String(m.form?.flow_token ?? '');
       if (token.startsWith('o1.')) return; // "My orders" closed: everything it did was already sent in the chat
-      return token.startsWith('sell') ? this.sellFormSubmitted(m.phone, user, m.form ?? {}) : this.buyFormSubmitted(m.phone, user, m.form ?? {});
+      if (token.startsWith('sell')) return this.sellFormSubmitted(m.phone, user, m.form ?? {});
+      // an edited order keeps its photos unless new ones were added
+      const kept = token.startsWith('buyedit') && Array.isArray(s.data.photos) ? s.data.photos : [];
+      return this.buyFormSubmitted(m.phone, user, m.form ?? {}, kept);
     }
 
     // ----- voice notes: Phase 2 -----
@@ -332,12 +339,18 @@ export class Conversation {
         if (!major) return this.send(m.phone, msg.badPrice());
         const counterMinor = toMinor(major, this.o.currency);
         if (counterMinor > this.maxDeal(user)) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
+        await this.save(m.phone, 'SELLER_COUNTER_REASON', { code: s.data.code, counterMinor });
+        return this.send(m.phone, msg.askCounterReason({ minor: counterMinor, currency: this.o.currency }));
+      }
+      case 'SELLER_COUNTER_REASON': {
+        const reason = text.replace(/\s+/g, ' ').trim();
+        if (reason.length < 3 || reason.length > 150) return this.send(m.phone, msg.badCounterReason());
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (acct) {
           await this.save(m.phone, 'IDLE');
-          return this.o.deals.counterAsSeller(s.data.code, user, acct.id, counterMinor);
+          return this.o.deals.counterAsSeller(s.data.code, user, acct.id, s.data.counterMinor, reason);
         }
-        await this.save(m.phone, 'SELLER_BANK', { code: s.data.code, counterMinor });
+        await this.save(m.phone, 'SELLER_BANK', { code: s.data.code, counterMinor: s.data.counterMinor, counterReason: reason });
         return this.send(m.phone, msg.askSellerBank());
       }
       case 'SHIP_PROOF': {
@@ -834,9 +847,10 @@ export class Conversation {
   }
 
   /** The answers from the WhatsApp form. Anything missing or wrong is asked again in the chat. */
-  private async buyFormSubmitted(phone: string, user: User, form: Record<string, unknown>) {
+  private async buyFormSubmitted(phone: string, user: User, form: Record<string, unknown>, keptPhotos: BuyDraft['photos'] = []) {
     const f = readBuyForm(form);
-    const d: BuyDraft = { photos: f.photos, photosDone: f.photos.length > 0, arriveBy: f.arriveBy };
+    const photos = f.photos.length ? f.photos : keptPhotos ?? [];
+    const d: BuyDraft = { photos, photosDone: photos.length > 0, arriveBy: f.arriveBy };
     if (f.item) d.item = f.item.slice(0, 200);
     if (f.description) d.description = f.description.slice(0, 600);
     if (isCategory(f.category)) d.category = f.category;
@@ -873,11 +887,64 @@ export class Conversation {
     if (!d.item || !d.priceMinor) return this.startBuying(phone);
     this.o.deals.previewDeal(d.priceMinor, 'buyer'); // checks the limit
     await this.save(phone, 'BUY_CONFIRM', d as Record<string, any>);
+    // the order to check opens in the form (photos, details, Send / Edit / Start again); the chat summary is the fallback
+    const user = (await this.o.db.query('SELECT * FROM users WHERE phone=$1', [phone])).rows[0] as User | undefined;
+    if (user && this.o.ordersForm && (await this.o.ordersForm.open(phone, user, { screen: 'preview', item: d.item, totalMinor: d.priceMinor }))) return;
     return this.send(phone, msg.buySummary({
       item: d.item, description: d.description ?? null, category: categoryTitle(d.category), address: d.address ?? null,
       photos: d.photos?.length ?? 0, arriveBy: d.arriveBy ? dayText(d.arriveBy) : null, sellerPhone: d.sellerPhone ?? null,
       total: { minor: d.priceMinor, currency: this.o.currency }, feeRule: this.feeRuleText(),
     }));
+  }
+
+  /** "Edit order": the buyer's form filled in with their answers, or (no form) pick one thing to change in the chat. */
+  private async editBuying(phone: string, s: Session) {
+    const d = s.data as BuyDraft;
+    if (s.state !== 'BUY_CONFIRM' || !d.item || !d.priceMinor) return this.startBuying(phone);
+    const form = this.o.buyEditForm?.() ?? null;
+    if (form) {
+      const n = d.photos?.length ?? 0;
+      const status = await this.send(phone, msg.buyEditForm(form.flowId, form.mode, {
+        item: d.item, description: d.description ?? '', category: d.category ?? '', price: String(d.priceMinor / 100),
+        address: d.address ?? '', arrive_by: d.arriveBy ?? '', other_phone: d.sellerPhone ?? '',
+        photo_note: n ? `You added ${n} photo${n === 1 ? '' : 's'}. They stay unless you add new ones here.` : 'Add 1 to 3 photos of the item.',
+      }));
+      if (status !== 'FAILED') return;
+    }
+    return this.send(phone, msg.askWhatToChange());
+  }
+
+  /** Chat version of "Edit order": forget one answer and ask for it again, then show the order again. */
+  private async fixBuying(phone: string, s: Session, what: string) {
+    const d = { ...(s.data as BuyDraft) };
+    if (s.state !== 'BUY_CONFIRM' || !d.item || !d.priceMinor) return this.startBuying(phone);
+    if (what === 'item') delete d.item;
+    else if (what === 'description') delete d.description;
+    else if (what === 'category') delete d.category;
+    else if (what === 'price') delete d.priceMinor;
+    else if (what === 'address') delete d.address;
+    else if (what === 'photos') { d.photos = []; d.photosDone = false; }
+    else if (what === 'seller') delete d.sellerPhone;
+    return this.continueBuying(phone, d);
+  }
+
+  /** The order a buyer is checking, for the review form. Null when there's nothing waiting to be sent. */
+  async buyPreview(phone: string): Promise<{ item: string; about: string; key: string; info: string; photos: string[] } | null> {
+    const r = await this.o.db.query('SELECT state, data FROM chat_sessions WHERE phone=$1', [phone]);
+    const d = (r.rows[0]?.data ?? {}) as BuyDraft;
+    if (r.rows[0]?.state !== 'BUY_CONFIRM' || !d.item || !d.priceMinor) return null;
+    return {
+      item: d.item,
+      about: [d.description ?? '', d.category ? `🏷️ ${categoryTitle(d.category)}` : ''].filter(Boolean).join('\n'),
+      key: [
+        `💰 Total price ${formatMoney(d.priceMinor, this.o.currency)}`,
+        d.address ? `📍 Deliver to: ${d.address}` : '',
+        d.arriveBy ? `📅 Expected by ${dayText(d.arriveBy)}` : '',
+        d.sellerPhone ? `📨 Seller's WhatsApp: ${localPhone(d.sellerPhone)}` : '📨 You\'ll get a link for the seller',
+      ].filter(Boolean).join('\n'),
+      info: `Delivery is included in the total, if any.\n🧾 Hoolam's fee is added when the seller accepts: ${this.feeRuleText()}.`,
+      photos: (d.photos ?? []).map((p) => p.mediaId),
+    };
   }
 
   private async finishBuying(phone: string, s: Session, user: User) {
@@ -932,7 +999,7 @@ export class Conversation {
     const acct = await this.o.deals.saveBankAccount(user.id, pendingAccount);
     if (accepting) {
       await this.save(phone, 'IDLE');
-      if (rest.counterMinor) return this.o.deals.counterAsSeller(rest.code, user, acct.id, rest.counterMinor);
+      if (rest.counterMinor) return this.o.deals.counterAsSeller(rest.code, user, acct.id, rest.counterMinor, rest.counterReason ?? '');
       return this.o.deals.acceptAsSeller(rest.code, user, acct.id);
     }
     if (selling) return this.showSellSummary(phone, { ...rest, accountId: acct.id });

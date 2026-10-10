@@ -221,6 +221,7 @@ export function Deal() {
                 <dt>Buyer pays</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.buyer_pays_minor, cur)}</dd>
                 <dt>Seller receives</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.seller_gets_minor, cur)}</dd>
                 {d.counter_price_minor && <><dt>New price asked</dt><dd className="money">{money(d.counter_price_minor, cur)} <span className="pill gold plain">Waiting for buyer</span></dd></>}
+                {d.counter_reason && <><dt>Seller's reason</dt><dd>{d.counter_reason}</dd></>}
                 {d.accept_by && d.status === 'AWAITING_SELLER' && <><dt>Seller must accept</dt><dd>{ago(d.accept_by)} <span className="muted small">({dateTime(d.accept_by)})</span></dd></>}
                 {d.arrive_by && <><dt>Expected by</dt><dd>{d.arrive_by}</dd></>}
                 {d.dispatch_method && <><dt>Dispatch</dt><dd>

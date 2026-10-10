@@ -8,7 +8,7 @@ export type Outbound =
   | { kind: 'buttons'; text: string; buttons: Button[] }
   | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string } // max 10 rows; header/footer max 60
   | { kind: 'image'; mediaId: string; caption?: string }                                                      // caption max 1024
-  | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string; live?: boolean }; // live: the form asks our endpoint for its first screen
+  | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string; live?: boolean; data?: Record<string, unknown> }; // live: the form asks our endpoint for its first screen; data: fills in a form's first screen
 
 /** A pre-approved template: the only way to message someone who hasn't written to us in the last 24 hours. */
 export interface Template {
@@ -78,7 +78,11 @@ export class Messenger {
   templateStatus(name: string): string | null { return this.templates.get(name) ?? null; }
   /** A reworded template's earlier name: used while Meta reviews the new one, if the old one was approved. */
   private readonly previous = new Map<string, string>();
-  setTemplateReplaces(name: string, previousName: string) { this.previous.set(name, previousName); }
+  private readonly previousParams = new Map<string, number>();
+  setTemplateReplaces(name: string, previousName: string, previousParams?: number) {
+    this.previous.set(name, previousName);
+    if (previousParams !== undefined) this.previousParams.set(previousName, previousParams);
+  }
   /** The approved name to send under (the template itself, or the version it replaces), or null if neither is approved. */
   usableTemplate(name: string): string | null {
     if (this.templateStatus(name) === 'APPROVED') return name;
@@ -111,6 +115,9 @@ export class Messenger {
   /** Sends an approved template. Allowed outside the 24-hour window. */
   async sendTemplate(phone: string, tpl: Template): Promise<SendStatus> {
     const t = { ...tpl, name: this.usableTemplate(tpl.name) ?? tpl.name };
+    // the older version may have fewer variables: send only the ones it has
+    const keep = t.name !== tpl.name ? this.previousParams.get(t.name) : undefined;
+    if (keep !== undefined) t.params = t.params.slice(0, keep);
     const to = phone.replace(/^\+/, '');
     const payload = {
       messaging_product: 'whatsapp', to, type: 'template',
@@ -171,7 +178,7 @@ export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
           name: 'flow',
           parameters: {
             flow_message_version: '3', flow_id: msg.flowId, flow_token: msg.flowToken, flow_cta: msg.cta, mode: msg.mode,
-            ...(msg.live ? { flow_action: 'data_exchange' } : { flow_action: 'navigate', flow_action_payload: { screen: msg.screen } }),
+            ...(msg.live ? { flow_action: 'data_exchange' } : { flow_action: 'navigate', flow_action_payload: { screen: msg.screen, ...(msg.data ? { data: msg.data } : {}) } }),
           },
         },
       },

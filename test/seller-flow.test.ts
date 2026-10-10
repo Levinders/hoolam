@@ -112,12 +112,17 @@ describe('Change price', () => {
     await h.say(seller, `View ${code}`, 'Chidi');
     await h.tap(seller, `scounter:${code}`);
     expect(h.last(seller)).toMatch(/What price works for you/);
-    expect(h.last(seller)).toMatch(/offered ₦15,000/);
+    expect(h.last(seller)).toMatch(/offered \*₦15,000\*/);
     await h.say(seller, '17k');
+    expect(h.last(seller)).toMatch(/Why \*₦17,000\*\?/);
+    await h.say(seller, 'ok');
+    expect(h.last(seller)).toMatch(/3 to 150 characters/);
+    await h.say(seller, 'The price went up at the market');
     expect(h.last(seller)).toMatch(/where should we pay you/);
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
     expect(h.last(seller)).toMatch(/We've asked Ada if ₦17,000 works/);
-    expect(h.last(buyer)).toMatch(/Chidi suggests a different price/);
+    expect(h.last(buyer)).toMatch(/Chidi wants a different price/);
+    expect(h.last(buyer)).toMatch(/💬 Reason: The price went up at the market/);
     expect(h.last(buyer)).toMatch(/~₦15,000~ → \*₦17,000\*/);
     expect(h.last(buyer)).toMatch(/You'd pay \*₦17,400\*/);
 
@@ -132,7 +137,7 @@ describe('Change price', () => {
     const buyer = phone(), s1 = phone(), s2 = phone();
     const code = await buyByChat(buyer);
     await h.say(s1, 'hi'); await h.tap(s1, 'menu:account'); await h.say(s1, '0123456789 Opay'); await h.tap(s1, 'bank:yes');
-    await h.say(s1, `View ${code}`); await h.tap(s1, `scounter:${code}`); await h.say(s1, '16000');
+    await h.say(s1, `View ${code}`); await h.tap(s1, `scounter:${code}`); await h.say(s1, '16000'); await h.say(s1, 'Delivery costs more');
     await h.say(s2, `View ${code}`);
     expect(h.last(s2)).toMatch(/already has a seller/);
     await h.say(s1, `View ${code}`);
@@ -143,7 +148,7 @@ describe('Change price', () => {
     const buyer = phone(), seller = phone();
     const code = await buyByChat(buyer);
     await h.say(seller, 'hi'); await h.tap(seller, 'menu:account'); await h.say(seller, '0123456789 Opay'); await h.tap(seller, 'bank:yes');
-    await h.say(seller, `View ${code}`); await h.tap(seller, `scounter:${code}`); await h.say(seller, '16000');
+    await h.say(seller, `View ${code}`); await h.tap(seller, `scounter:${code}`); await h.say(seller, '16000'); await h.say(seller, 'Delivery costs more');
     await h.tap(buyer, `cancel:${code}`);
     expect((await deal(code)).status).toBe('CANCELLED');
     expect(h.last(seller)).toMatch(/cancelled order/);

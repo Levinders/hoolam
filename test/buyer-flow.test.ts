@@ -132,9 +132,9 @@ describe('a buyer starts a deal in the chat', () => {
     await h.tap(buyer, 'buy:nophotos');
     await h.tap(buyer, 'buy:nophone');
     expect(h.last(buyer)).toMatch(/Check your order/);
-    expect(h.last(buyer)).toMatch(/\*Total price  ₦20,000\*/);
+    expect(h.last(buyer)).toMatch(/\*💰 Total price  ₦20,000\*/);
     expect(h.last(buyer)).toMatch(/Hoolam's fee is added when the seller accepts: 2\.5% of the total \(at least ₦300, at most ₦5,000\)/);
-    expect(h.last(buyer)).toMatch(/📍 12 Woji Road, Port Harcourt/);
+    expect(h.last(buyer)).toMatch(/📍 Deliver to: \*12 Woji Road, Port Harcourt\*/);
     expect(h.last(buyer)).toMatch(/Nothing to pay yet/);
     expect(h.last(buyer)).toMatch(/\[📨 Send to seller\]/);
   });
@@ -257,9 +257,9 @@ describe('buyer side, edges', () => {
     expect(h.last(buyer)).toMatch(/18k plated, pair/);
     expect(h.last(buyer)).toMatch(/🏷️ Bags & accessories/);
     expect(h.last(buyer)).toMatch(/📷 2 photos/);
-    expect(h.last(buyer)).toMatch(/📍 8 Delta Bakery Road, Woji/);
-    expect(h.last(buyer)).toMatch(/Expecting it by Fri 9 Oct/);
-    expect(h.last(buyer)).toMatch(/\*Total price  ₦12,000\*/);
+    expect(h.last(buyer)).toMatch(/📍 Deliver to: \*8 Delta Bakery Road, Woji\*/);
+    expect(h.last(buyer)).toMatch(/Expected by \*Fri 9 Oct\*/);
+    expect(h.last(buyer)).toMatch(/\*💰 Total price  ₦12,000\*/);
     expect(h.last(buyer)).not.toMatch(/You pay/);
     await h.tap(buyer, 'buy:send');
     const d = await deal(codeIn(h.last(buyer)));
@@ -274,6 +274,7 @@ describe('buyer side, edges', () => {
     // the seller suggests a new price; the fee follows it, and the buyer sees the breakdown
     await h.tap(seller, `scounter:${d.code}`);
     await h.say(seller, '14000');
+    await h.say(seller, 'Seller paid less at the market');
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
     await h.tap(buyer, `cyes:${d.code}`);
     expect(h.last(buyer)).toMatch(/Total price    ₦14,000\nHoolam fee     ₦400\n\*You pay        ₦14,400\*/);
@@ -289,7 +290,7 @@ describe('buyer side, edges', () => {
     expect(h.last(buyer)).toMatch(/Describe it/); // description missing
     await h.say(buyer, 'Mama Gold, sealed');
     expect(h.last(buyer)).toMatch(/Check your order/);
-    expect(h.last(buyer)).toMatch(/Expecting it by Mon 12 Oct/);
+    expect(h.last(buyer)).toMatch(/Expected by \*Mon 12 Oct\*/);
   });
 
   it('the form: a bad price is asked again in the chat', async () => {
