@@ -810,7 +810,11 @@ export class DealService {
       await this.o.messenger.send(buyer.phone, msg.dealStatusNow(deal.code, deal.status));
       return;
     }
-    await this.o.messenger.send(buyer.phone, msg.handoverCode(deal.code, deal.handover_code, deal.dispatch_method));
+    // the delivery details with the code (this is what "Delivery details" on the dispatched alert brings up)
+    await this.o.messenger.send(buyer.phone, msg.buyerDispatched({
+      code: deal.code, method: deal.dispatch_method ?? 'PICKUP', pickupAddress: deal.pickup_address, courierName: deal.courier_name,
+      courierPhone: deal.courier_phone, location: deal.courier_location, handover: deal.handover_code, page: this.orderPageUrl(deal, 'buyer'),
+    }));
   }
 
   /**
