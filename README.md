@@ -1,5 +1,7 @@
 # Hoolam backend: Phase 1
 
+**How the whole system works (flows, fees, forms, templates, console, keys and platforms): see [docs/SYSTEM.md](docs/SYSTEM.md).** It is updated as the last step of every change.
+
 Safe deals on WhatsApp. Hoolam holds the buyer's money until they're happy, then pays the seller.
 
 This is the Phase 1 core loop for **Nigeria (NGN)**, with **Monnify (Moniepoint)** as the first payment partner:
