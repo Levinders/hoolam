@@ -120,7 +120,7 @@ Everything passes through the one server: messages come in from Meta, money move
 | Area | Tables |
 | --- | --- |
 | People | `users`, `bank_accounts`, `user_photos`, `alert_refusals` (who said Not me to whom) |
-| Orders | `deals`, `deal_events`, `deal_photos`, `deal_notes`, `deal_ratings`, `disputes` |
+| Orders | `deals` (incl. `handover_by`: seller or courier; `courier_alert`: sent, not-sent, skipped), `deal_events`, `deal_photos`, `deal_notes`, `deal_ratings`, `disputes` |
 | Money | `payment_intents`, `payouts`, `ledger_entries` |
 | WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages`, `media` |
 | Team | `staff`, `staff_invites`, `staff_sessions`, `audit_log`, `support_requests`, `inbox_dismissals` |
@@ -227,26 +227,28 @@ The top row runs until the money is held; the bottom row runs right to left from
 - **Seller (📨 template when needed):** "**New order request** on **Hoolam**" with buyer, item and total price on bold lines; **View order** · **Not me**.
 - **Not me** closes this order only. That buyer can't alert that number again; everyone else still can. The console shows it on both people's pages.
 
+**Names are always bold** in the chat (buyers, sellers, riders, the greeting). Wherever a fee applies, the person sees the full breakdown, not just the total: the seller sees Total price, their fee (Transaction fee or Hoolam fee), the rider's fee once there is one, and **You receive**; the buyer sees Total price, their fee and **You pay** (or **You paid**).
+
 ### 4. The seller looks at it
 
 - **View order** opens the single-order form: "🛒 Ada wants to buy from you", photos, item (HL-X), description, category; in bold the total price, "Transaction fee −₦500", "You receive", deliver to, expected by; the accept-by hint.
 - **Chat fallback:** the photos, then the card (buyer, item, total in bold; buyer's record; description; address and date; total / transaction fee / You receive, minus a rider's fee if they send one; how it works; accept within N hours).
 - **Accept** · **Update price** · **Decline**:
-  - **Accept:** with a payout account it's done ("✅ Order accepted… **Don't send anything before then.**"); without one they send the account number in the chat, pick the bank, confirm the name, then it's accepted.
-  - **Update price:** "Your price (₦)" and "Why the new price?" (required, up to 150 characters). Chat asks the price, then the reason.
+  - **Accept:** with a payout account it's done ("✅ **Ada** · Order **HL-X** accepted", Total price / Transaction fee / **You receive**, "minus the rider's fee, if you send one", "**Don't ship before then.**"); without one they send the account number in the chat, pick the bank, confirm the name, then it's accepted.
+  - **Update price:** "Your price (₦)" and "Why the new price?" (required, up to 150 characters). Chat asks the price, then the reason. The seller then sees "If they accept:" with Total price / Transaction fee / **You receive** at the new price.
   - **Decline:** closes it. In the chat, a seller alerted by number picks **Not interested** or **Wrong number** (the same as Not me).
 - **No answer in time** (console: Seller has to accept within, 48 h): the order closes, the buyer is told, 📨 if needed.
 
 ### 5. The buyer answers a price update
 
 - "✏️ **Bayo** updated the price": the item, old price crossed out → **new price**, "💬 Reason: …", New price / Hoolam fee / **You'd pay**. **Accept new price** · **Cancel order**. 📨 if needed.
-- **Accept:** the order goes on at the new price. The seller gets "🎉 **Ada** accepted your price for order **HL-X**. You'll receive **₦X**… **Don't ship before we confirm the money is held.**"
+- **Accept:** the order goes on at the new price. The seller gets "🎉 **Ada** accepted your new price for order **HL-X**." with Total price / Transaction fee / **You receive**, then "**Don't ship before we confirm the money is held.**"
 
 ### 6. Paying
 
-- **Buyer (📨 if needed):** "🎉 **Bayo** **accepted your order!**", the seller's trust line, the item, Total price / Hoolam fee / **You pay**, "**Your money stays with Hoolam until you have your item and you're happy.** (Order **HL-X**)". **Pay now** · **Seller's record** · **Cancel order**.
-- **Pay now:** "Transfer exactly ₦X to:" a one-time account number, bank and name, valid for the minutes shown; **New account number** if it expires.
-- **Payment lands:** buyer gets "✅ Received **₦X**. **Your money is held safely by Hoolam.** We've told Bayo to send your item…"; seller gets "💰 **Ada** has paid for order **HL-X**. Your **₦X** is held safely by Hoolam. Dispatch it now…" with **Dispatch now** · **Can't fulfil** (📨 if needed).
+- **Buyer (📨 if needed):** "🎉 **Bayo** **accepted your order!**", the seller's trust line, "🔗 Their trust card: hoolam…/s/bayo" (when the seller's public page is on), the item, Total price / Hoolam fee / **You pay**, "**Your money stays with Hoolam until you have your item and you're happy.** (Order **HL-X**)". **Pay now** · **Seller's record** · **Cancel order**.
+- **Pay now:** "💳 Transfer exactly **₦X** to:" a one-time account number (bold), bank and name, and "⏳ **This account number works until 4:42 PM today** (Nigeria time)" (the exact time, since WhatsApp can't show a countdown); **New account number** if it expires.
+- **Payment lands:** buyer gets "✅ Received **₦X**. **Your money is held safely by Hoolam.**", Total price / Hoolam fee / **You paid**, "We've told **Bayo** to send your item…"; seller gets "💰 **Ada** has paid for order **HL-X**. Your **₦X** is held safely by Hoolam." with Total price / Transaction fee / **You receive**, "Dispatch it now…", **Dispatch now** · **Can't fulfil** (📨 if needed).
 - **Not paid** within the console's window (72 h): the order closes.
 
 Dispatch, handover, payment to the seller, problems and refunds continue below.
@@ -266,8 +268,8 @@ Sellers can also start an order and send the buyer a safe-pay link; this route w
 2. **Payout account** if they have none: account number, pick the bank, confirm the name (full number shown).
 3. **Check your order:** item, photos, buyer's WhatsApp, Price / Hoolam fee / **You receive**, "You started the order, so you pay Hoolam's fee." **Create order** · **Start again**.
 4. **Order ready:** the link to send the buyer. If a number was given, the buyer gets 📨 "Payment request on Hoolam" with **View order** · **Not me** (Not me works per person, as for sellers).
-5. **The buyer opens it:** photos, then "🛒 Order **HL-X** from **Bayo**", the seller's trust line, Price / Transaction fee / **You pay**, "**Your money stays with Hoolam, not the seller.**" **Pay now** · **Seller's record** · **Cancel order**. The seller is told the buyer opened it.
-6. **Paid:** the seller gets "💰 Good news: **Ada** has paid for order **HL-X**. Your **₦X** is held safely by Hoolam. Ship the item now…" with **I've sent it**.
+5. **The buyer opens it:** photos, then "🛒 Order **HL-X** from **Bayo**", the seller's trust line, the trust card link (when their page is on), Total price / Transaction fee / **You pay**, "**Your money stays with Hoolam, not the seller.**" **Pay now** · **Seller's record** · **Cancel order**. The seller is told the buyer opened it.
+6. **Paid:** the seller gets "💰 Good news: **Ada** has paid for order **HL-X**. Your **₦X** is held safely by Hoolam.", Total price / Hoolam fee / **You receive**, "Ship the item now…" with **I've sent it**.
 7. **Shipped:** the seller can add proof (a photo or a tracking number); the buyer gets "Your item is on the way" with **I'm happy** · **Problem**. Release and problems work as for buyer orders.
 
 ### My trust card and public page
@@ -280,36 +282,39 @@ Sellers can also start an order and send the buyer a safe-pay link; this route w
 
 ## Dispatch, handover, release and problems
 
-Once the buyer has paid, the seller says how the item travels, the buyer gets a 4-digit handover code, and the right code pays the rider at once; the seller is paid when the buyer is happy or automatically after the console's window.
+Once the buyer has paid, the seller says how the item travels, the buyer gets a 4-digit handover code, and the right code pays the rider at once; the seller is paid when the buyer is happy or automatically after the console's window. The code can be entered by the seller, or by the rider or driver themselves from their own WhatsApp.
 
 ### 7. Dispatch
 
-- **Dispatch now** opens the order, then the dispatch screen: "Ada · HL-X · item", then 📍 Pickup / 🛵 Dispatch rider / 🚌 Waybill.
+- **Dispatch now** opens the order (Order summary headed "👤 **Ada** · HL-X · Paid, money held": the buyer's name first, then the order ID, photos and the rest), then the dispatch screen: "Ada · HL-X · item", then 📍 Pickup / 🛵 Dispatch rider / 🚌 Waybill.
 - **Pickup:** the pickup address is required. Seller sees "✅ Ready for pickup… **Ask for the code before you hand over the item.**"
 - **Rider or waybill** ("🛵 Ada · HL-X"), every field required:
   1. Rider's name (rider only), Rider's / Driver's number, delivery fee (less than what the seller receives), delivering to (prefilled with the buyer's address), account number. **Continue**.
   2. **Bank** from a list: OPay, Moniepoint, PalmPay, Kuda, GTBank, Fidelity and Zenith always first, then only the banks that account number can belong to (the Nigerian account-number check), then "My bank isn't listed" with a box to type it. **Check account**.
   3. The name is looked up and shown in bold with the full number: "This account belongs to MUSA IBRAHIM (OPay 8031234567). The rider's fee of ₦2,000 goes here once the handover code is right." Tick **Yes, this is the right account**. **Dispatch**.
 - **Chat fallback:** the same questions one at a time; for the account, send just the number and pick the bank from a list (or "Other bank" and type it), then confirm.
-- **Seller after dispatching:** "✅ **Ada** · **HL-X** is dispatched with Musa", the rider's fee, "**Tell your rider: ask the receiver for their 4-digit handover code…**", the order page. **Enter code** · Main menu.
+- **Seller after dispatching:** "✅ **Ada** · **HL-X** is dispatched with **Musa**", the rider's fee, Total price / Transaction fee / Rider's fee / **You receive**, then "🔑 **Musa must get the 4-digit handover code from Ada** before handing over the item. It proves it's the right person." If Musa was sent the delivery message: "📲 We've sent **Musa** a WhatsApp message, so they can enter the code themselves and get their fee straight away. Or they can share it with you, and you tap **Enter code**." If not: "When **Musa** shares the code with you, tap **Enter code**." The order page. **Enter code** · Main menu.
+- **Rider or driver (at dispatch):** when their number can be reached, they get the delivery: "🛵 **Delivery on Hoolam** from **Bayo Kicks**", 👤 Receiver: **Ada**, 📞 the buyer's number, 📍 where to deliver, 💸 their delivery fee and 🏦 the account it's paid to (the one the seller entered), "**Ask Ada for their 4-digit handover code when you hand over the item.**" **Enter code**. They never see the code itself; it has to come from the buyer.
+  - **Reached how:** the chat message if they wrote to Hoolam in the last 24 hours, otherwise the template `hoolam_delivery_for_rider` (📨, button **Confirm delivery**; no code anywhere in it).
+  - **Not sent when:** the template isn't approved yet and they haven't written to Hoolam, or the number is the buyer's or the seller's own. Then only the seller enters the code, as before. The console's order page shows which happened.
 - **Can't fulfil:** "The buyer gets all their money back… This can't be undone." **Yes, refund buyer** · **Keep the order**.
 - **Not dispatched** after the console's time (12 h): "⏰ **Ada** · **HL-X** (item) is paid and waiting to be dispatched" with Dispatch now · Can't fulfil. 📨 if needed.
 
 ### 8. The buyer is told
 
-- **Chat:** pickup address, or the rider's name, number and drop-off, or the driver's number and location; "🔑 Your handover code: **1234**. Give it only to the rider when the item is in your hands"; the order page. **Show my code** · **Problem**.
+- **Chat:** "Order HL-X from **Bayo**", the pickup address, or the rider's name, number and drop-off, or the driver's number and location; "🔑 Your handover code: **1234**", "**Give your code to the rider when you have the item.** Not before." (pickup: "**Give it to the seller only when the item is in your hands.**"); the order page. **Show my code** · **Problem**.
 - **📨 Template** (no code in it, Meta rejects codes): "Good news: your order HL-X has been dispatched…" with **Delivery details** · **Problem**. Delivery details sends the full chat message above, code included.
 - **Expected date passed, not dispatched:** "⏰ …hasn't been dispatched yet…" with **Send reminder** · **Refund me** · **Wait a bit**. 📨 if needed.
 
 ### 9. Handover
 
-- The seller taps **Enter code** (a form screen, or the chat) and types the receiver's 4 digits.
-- **Right code:** the rider or driver is paid their fee at once. Seller: "✅ Code correct… You'll be paid when the buyer taps I'm happy, or automatically after 24 hours" (the console's time). Buyer: "📦 Order HL-X has been handed over to you. Open it and check it now…" with **I'm happy** · **Problem** (📨 if needed).
-- **Wrong code:** "❌ That code doesn't match… N tries left." After the console's number of tries (5), the order locks and a rep finishes the handover.
+- **Two ways in, same code:** the seller taps **Enter code** (a form screen, or the chat), or the rider/driver taps **Enter code** (or **Confirm delivery** on the template) in their own chat: "🔑 Type the 4-digit handover code **Ada** gave you." Whoever enters the right code first confirms the handover; the other is then told it's already done. Only the seller and the rider/driver on that order can enter it.
+- **Right code:** the rider or driver is paid their fee at once. Seller: "✅ Code correct" (or "✅ **Musa** entered the right code"), "Order **HL-X** is with **Ada**", Total price / Transaction fee / Rider's fee / **You receive**, "You'll be paid when **Ada** taps I'm happy, or automatically after 24 hours" (the console's time). Rider (if they entered it): "✅ **Delivery confirmed.** **Ada** has the item… We're sending your **₦2,000** to **MUSA IBRAHIM**, OPay 9876543210 now", and when it lands, "💸 **Your delivery fee is sent**" (chat only, while their chat is open). Buyer: "📦 Order HL-X has been handed over to you. Open it and check it now…" with **I'm happy** · **Problem** (📨 if needed). Seller, when the transfer lands: "🛵 Delivery fee sent: ₦2,000 to **MUSA IBRAHIM** (OPay) for **Ada** · order **HL-X**."
+- **Wrong code:** "❌ That code doesn't match… N tries left." The tries are shared by the seller and the rider/driver. After the console's number of tries (5), the order locks for everyone (both are told) and a rep finishes the handover.
 
 ### 10. Finishing
 
-- **I'm happy**, or the console's window passes with no problem: the seller is paid what's still held, minus their transaction fee and the rider's fee. Buyer: "✅ Done. We're paying Bayo now… To help other buyers like you, how was Bayo?" Seller: "You've been paid. ₦X has been sent to your bank account" (📨 if needed).
+- **I'm happy**, or the console's window passes with no problem: the seller is paid what's still held, minus their transaction fee and the rider's fee. Buyer: "✅ Done. We're paying Bayo now… To help other buyers like you, how was Bayo?" Seller: "💸 **You've been paid** for **Ada** · order **HL-X**." with Total price / Transaction fee / Rider's fee / **Paid to you**, "It's been sent to your GTBank account" (📨 if needed, shorter).
 - **No code ever entered:** the buyer is asked "Has your item arrived?" after the console's reminder time (24 h); after the flag time (72 h) the order appears in the console's Needs action.
 
 ### 11. Problems and refunds
@@ -320,7 +325,8 @@ Once the buyer has paid, the seller says how the item travels, the buyer gets a 
 
 ### 12. My orders and the private order page
 
-- **My orders** (form): Pending / Completed / All with counts, then 20 per page; each row reads "**Bayo · HL-X · ₦X**" (the other person's name, the code, the amount) with the item and next step; opening one shows the Order summary with only its next action.
+- **My orders** (form): Pending / Completed / All with counts, then 20 per page; each row reads "**Bayo · HL-X · ₦X**" (the other person's name, the code, the amount) with the item and next step; opening one shows the Order summary, headed with the other person's name, the code and the status, with only its next action.
+- **My orders** (chat fallback): each line starts with the other person's name in bold, then the code and item, the amount and status.
 - **Private order page** (`/o/HL-X?k=…`): photos, a status timeline, delivery details and that person's own money lines (the buyer's link and the seller's link differ). It never shows the handover code.
 
 ## WhatsApp forms (Flows)
@@ -375,6 +381,7 @@ WhatsApp only lets Hoolam message someone who hasn't written in 24 hours with a 
 | `hoolam_order_closed` | `hoolam_deal_closed` | Buyer: the seller didn't answer in time | Start another |
 | `hoolam_order_declined` | `hoolam_seller_declined` | Buyer: the seller declined | Start another |
 | `hoolam_support_update` |  | Buyer or seller: a message typed in the console |  |
+| `hoolam_delivery_for_rider` |  | Rider or driver at dispatch: receiver's name (bold), number, address, their fee and payout account | Confirm delivery |
 
 **Rejected before:** `hoolam_order_dispatched` and `hoolam_order_dispatched_update` (both mentioned the handover code). They can stay in Meta; nothing uses them.
 
@@ -387,7 +394,7 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 | Page | What it's for |
 | --- | --- |
 | Home | Needs action (stuck orders, waiting messages, open problems, support), today's numbers, fees earned |
-| Orders | Every order with filters; an order shows its timeline, photos, people, money (both fees), dispatch details, notes and messages |
+| Orders | Every order with filters; an order shows its timeline, photos, people, money (both fees), dispatch details (incl. whether the rider/driver was sent the delivery message, and who entered the code), notes and messages |
 | Problems | Open disputes with the buyer's evidence; release or refund |
 | Money | Ledger balances (held, owed, fees earned), payouts, retries, OTP approvals, export |
 | Buyers & sellers | Each person's record, orders, bank accounts, trust card, who they said "Not me" to, order limit, pause, **Message them** |
@@ -417,7 +424,7 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 The website reads its live values (fees, both transaction fee tables, the largest order, timings, Hoolam's number, contact details, images) from the server's `/site.json`, so it always matches the bot. The console rebuilds it through `SITE_DEPLOY_HOOK` when those change.
 
 - **Home page (hoolam.com):** how it works, the worked example (a ₦10,000 order: buyer pays ₦10,300, seller receives ₦9,500), a fee calculator (who starts the order; Hoolam fee and transaction fee; what the buyer pays and the seller gets), FAQ, and "Chat on WhatsApp" buttons. Light theme only.
-- **Legal pages** (`/legal/...`): terms, holding agreement (how money is held, released, refunded, the fees and who pays, the auto-release window), disputes, money, privacy, cookies, acceptable use, delete your data. Values are filled in at build time. Effective date: 11 October 2026 (transaction fee added). The holding agreement promises 7 days' notice before important changes such as fees.
+- **Legal pages** (`/legal/...`): terms, holding agreement (how money is held, released, refunded, the fees and who pays, the auto-release window), disputes, money, privacy, cookies, acceptable use, delete your data. Values are filled in at build time. Effective date: 11 October 2026 (transaction fee added; riders and drivers can enter the handover code; privacy says what the rider sees). The holding agreement promises 7 days' notice before important changes such as fees.
 - **Footer:** company name, RC number and address (fixed), Hoolam's WhatsApp and phone in the 0803… format, email and socials from the console.
 - **Seller pages** (`/s/<slug>`) and **share images** are served by the server.
 - **Private order pages** (`/o/HL-X?k=…`): one link for the buyer, one for the seller, each showing only that person's own fee; order links sent before 11 October 2026 open a neutral version with neither fee. Not indexed by search engines; the handover code never appears.
@@ -442,7 +449,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 ### Running and testing (developers)
 
-- `npm run dev` (local server), `npm test` (Vitest, a real embedded Postgres, 248 tests), `npm run typecheck`, `npm run build`, `npm run build:site`.
+- `npm run dev` (local server), `npm test` (Vitest, a real embedded Postgres, 253 tests), `npm run typecheck`, `npm run build`, `npm run build:site`.
 - `npm run chat` plays a WhatsApp chat in the terminal; `npm run console:demo` fills a demo console.
 - **Test mode** (`PAYMENT_PROVIDER=fake`, `ALLOW_SELF_DEAL=true`): one phone can be buyer and seller, and typing "paid" stands in for a transfer.
 
@@ -452,12 +459,15 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 - The free Render plan sleeps after 15 minutes idle (about a minute to wake).
 - Templates need Meta's approval; until then, people outside their 24 hours only get messages through older approved versions, or not at all (they wait in Needs action).
 - Voice notes aren't understood yet.
+- A rider or driver only gets the delivery message (and can only enter the code) once Meta approves `hoolam_delivery_for_rider`, unless they wrote to Hoolam in the last 24 hours. Until then the seller enters the code.
+- The trust card link only shows to buyers when the seller has turned their public page on (Share my link); sellers who never shared it show the trust line and **Seller's record** only.
 - The selling route's redesign is still to be specified.
 
 ## Change log
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 11 Oct 2026 | Riders and drivers enter the handover code from their own WhatsApp (new template, shared tries); full money breakdowns at every step; exact pay-account end time; seller's trust card link; buyer's name first on the order summary and in My orders; every name bold; migration 015 | f74f198 |
 | 11 Oct 2026 | Console support messages any time (template); Not me is per person, old blocked list cleared; backup forms with every field required; reply times, unpaid window and code tries in the console; chat asks the expected date; Hoolam's number as the example; GTBank, Fidelity, Zenith always listed; full account numbers; buyer's name first in dispatch messages; new rating line | bf20d2a |
 | 11 Oct 2026 | Dispatched template reworded without the code; Delivery details shows the full message | f17c186 |
 | 11 Oct 2026 | Transaction fees (seller and buyer bands); Main menu on every message; Update price; local phone numbers; bank picker; bolder alerts; separate buyer and seller order page links | c023316 |
