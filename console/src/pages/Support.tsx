@@ -5,6 +5,7 @@ import { post } from '../api';
 import { useAuth } from '../auth';
 import { ACTIONS, ago, dateTime, phone } from '../format';
 import { useData } from '../hooks';
+import { SupportText } from './SupportMessage';
 import { Avatar, Button, Empty, ErrorBanner, Pager, Seg, SkeletonRows, useToast } from '../ui';
 
 export function Support() {
@@ -98,8 +99,8 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
       </div>
       {can('support.reply') && (
         <form style={{ padding: 14, borderTop: '1px solid var(--line-2)', display: 'flex', flexDirection: 'column', gap: 8 }} onSubmit={(e) => { e.preventDefault(); send(false); }}>
-          <textarea className="input" rows={3} placeholder={data.windowOpen ? 'Write a reply. It starts with “From the Hoolam team”.' : 'They haven\'t messaged in 24 hours, so WhatsApp won\'t deliver a reply. Ask them to message Hoolam first.'} value={text} onChange={(e) => setText(e.target.value)} aria-label="Reply" />
-          <div className="row"><span className="small muted">Sent on WhatsApp and saved to the audit trail.</span><span className="spacer" />
+          <SupportText value={text} onChange={setText} label="Reply" placeholder="Write a reply. They see it as a message from Hoolam support." />
+          <div className="row"><span className="small muted">Sent on WhatsApp as Hoolam support, any time. Saved to the audit trail.</span><span className="spacer" />
             <Button type="button" busy={busy} disabled={text.trim().length < 2} onClick={() => send(true)}>Send and close</Button>
             <Button variant="primary" icon={Send} busy={busy} disabled={text.trim().length < 2}>Send</Button>
           </div>

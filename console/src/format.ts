@@ -109,6 +109,7 @@ export const ACTIONS: Record<string, string> = {
   'payout.retry': 'Retried a payout',
   'money.export': 'Exported orders (CSV)',
   'support.reply': 'Replied to a support message',
+  'person.message': 'Messaged them as Hoolam support',
   'support.close': 'Closed a support message',
   'support.reopen': 'Reopened a support message',
   'user.pause': 'Paused an account',

@@ -131,7 +131,7 @@ describe('where buyers see it', () => {
     await h.tap(buyer, `buyfrom:${sid}`);
     expect(h.last(buyer)).toMatch(/You're buying from \*Bayo\*/);
     await h.say(buyer, 'Loafers'); await h.say(buyer, 'Brown, size 41'); await h.tap(buyer, 'cat:shoes');
-    await h.say(buyer, '12000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'buy:nophotos');
+    await h.say(buyer, '12000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3'); await h.tap(buyer, 'buy:nophotos');
     expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/Seller's WhatsApp: \*0807\d{7}\*/);
     await h.tap(buyer, 'buy:send');
@@ -143,7 +143,7 @@ describe('ratings', () => {
   it('one tap, once, only by the buyer; a 👎 comment stays private', async () => {
     const seller = await newSeller(); const buyer = phone();
     const code = await completeDeal(seller, buyer);
-    expect(h.last(buyer)).toMatch(/How was Bayo\?/);
+    expect(h.last(buyer)).toMatch(/To help other buyers like you, how was Bayo\?/);
     expect(h.last(buyer)).toMatch(/\[👍 Great\] \[👎 Not great\]/);
     await h.tap(seller, `rateup:${code}`); // the seller can't rate themselves
     expect((await h.app.trust.seller(await userId(seller)))!.rated).toBe(0);

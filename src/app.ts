@@ -26,7 +26,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Messenger } from './whatsapp/client.js';
-import { msg } from './whatsapp/messages.js';
+import { configureMessages, msg } from './whatsapp/messages.js';
+import { localPhone } from './phone.js';
 import { Conversation } from './whatsapp/flow.js';
 import { parseInbound, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
 
@@ -44,6 +45,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const testMode = c.ALLOW_SELF_DEAL && provider.sandbox;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
   const settings = new Settings(db, c);
+  // messages mention reply times and use Hoolam's number as the example: always the console's current values
+  configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
   const siteMedia = new SiteMedia(db);
   const siteSync = new SiteSync(c.SITE_DEPLOY_HOOK, log);
   const deals = new DealService({
@@ -57,6 +60,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   let ordersForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   let orderForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // one order on its own
   let buyEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the buyer's form, filled in
+  const backupForms = { list: false, one: false }; // true when Meta refused the main forms and the backups are in use
   let keys: FlowKeys | null = null;
   const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
   const setChatState = async (phone: string, state: string, data: Record<string, unknown>) => {
@@ -67,6 +71,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     // the buyer's order before it's sent: read from the chat, and Send / Edit / Start again work exactly like the chat buttons
     buyPreview: (phone) => chat.buyPreview(phone),
     buyAction: (phone, action) => chat.handle({ id: `form-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: `buy:${action}`, mediaId: null }),
+    hoolamNumber: () => settings.waNumber(),
+    backupForms: () => backupForms,
+    openOrder: (user, code, screen) => openOrders(user.phone, user, { screen, code }),
   });
   const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller'; item?: string; totalMinor?: number }): Promise<boolean> => {
     const form = at.screen === 'orders' ? ordersForm : orderForm;
@@ -97,6 +104,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     buyEditForm: () => (settings.formsEnabled() && buyForm ? buyEditForm : null),
     onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
     ordersForm: { open: openOrders },
+    hoolamNumber: () => settings.waNumber(),
   });
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
@@ -141,7 +149,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       txn: settings.txnFees(), // flat transaction fee bands (naira): seller's when the buyer starts, buyer's when the seller starts
       maxDeal: settings.maxDealMinor() / unit,
       contact: settings.contact(),
-      timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: 72, autoReleaseMinutes: settings.autoReleaseMinutes() },
+      timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: settings.unpaidCloseHours(), autoReleaseMinutes: settings.autoReleaseMinutes(), repReplyMinutes: settings.repReplyMinutes(), problemReplyHours: settings.problemReplyHours() },
       // logo and pictures set in Console → Settings: slot → { url, v }. Missing slots keep the website's drawings.
       images: Object.fromEntries(Object.entries(siteMedia.current()).map(([k, v]) => [k, { url: siteMedia.url(c.PUBLIC_BASE_URL, k), v }])),
     });
@@ -515,9 +523,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         if (await registerFlowsKey(o, keys.publicKeyPem)) {
           const endpoint = `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/flows/endpoint`;
           // if Meta refuses a newer form feature, fall back to the plain version so My orders keeps working
-          const id = (await ensureOrdersFlow(o, endpoint)) ?? (await ensureOrdersFlow(o, endpoint, ordersFlowJson('FILTER', true)));
+          const ex = localPhone(settings.waNumber()) || undefined; // Hoolam's number as the example in phone hints
+          let id = await ensureOrdersFlow(o, endpoint, ordersFlowJson('FILTER', false, ex));
+          if (!id) { id = await ensureOrdersFlow(o, endpoint, ordersFlowJson('FILTER', true, ex)); backupForms.list = !!id; if (id) log('orders form: using the backup version'); }
           ordersForm = id ? { flowId: id, mode: c.WHATSAPP_FORM_MODE } : null;
-          const one = (await ensureOrderFlow(o, endpoint)) ?? (await ensureOrderFlow(o, endpoint, ordersFlowJson('ORDER', true)));
+          let one = await ensureOrderFlow(o, endpoint, ordersFlowJson('ORDER', false, ex));
+          if (!one) { one = await ensureOrderFlow(o, endpoint, ordersFlowJson('ORDER', true, ex)); backupForms.one = !!one; if (one) log('order form: using the backup version'); }
           orderForm = one ? { flowId: one, mode: c.WHATSAPP_FORM_MODE } : null;
         }
       }
@@ -549,7 +560,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   app.addHook('onClose', async () => siteSync.stop());
   return {
     app, load, deals, chat, messenger, trust, settings, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
-    setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; }, setOrdersForm: (f: typeof ordersForm) => { ordersForm = f; }, setOrderForm: (f: typeof orderForm) => { orderForm = f; },
+    setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; }, setOrdersForm: (f: typeof ordersForm) => { ordersForm = f; }, setOrderForm: (f: typeof orderForm) => { orderForm = f; }, backupForms,
   };
 }
 

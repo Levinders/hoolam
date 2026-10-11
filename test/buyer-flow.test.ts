@@ -25,7 +25,7 @@ async function buyByChat(buyer: string, opts: { sellerPhone?: string; photos?: n
   await h.tap(buyer, 'menu:buy');
   await h.say(buyer, 'Black sneakers, size 42');
   await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
-  await h.say(buyer, opts.price ?? '15k'); await h.say(buyer, '12 Woji Road, Port Harcourt');
+  await h.say(buyer, opts.price ?? '15k'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3');
   for (let i = 0; i < (opts.photos ?? 0); i++) await photo(buyer);
   await h.tap(buyer, opts.photos ? 'buy:photosdone' : 'buy:nophotos');
   if (opts.sellerPhone) await h.say(buyer, opts.sellerPhone); else await h.tap(buyer, 'buy:nophone');
@@ -97,6 +97,10 @@ describe('a buyer starts a deal in the chat', () => {
     await h.say(buyer, '15k');
     expect(h.last(buyer)).toMatch(/What's the delivery address/);
     await h.say(buyer, '12 Woji Road, Port Harcourt');
+    expect(h.last(buyer)).toMatch(/When are you expecting it\?[\s\S]*\[Tomorrow\] \[In 3 days\] \[In a week\]/);
+    await h.say(buyer, 'whenever');
+    expect(h.last(buyer)).toMatch(/couldn't read that date/);
+    await h.say(buyer, '25/12');
     expect(h.last(buyer)).toMatch(/Send up to 3/);
     await photo(buyer);
     expect(h.last(buyer)).toMatch(/Photo saved/);
@@ -128,7 +132,7 @@ describe('a buyer starts a deal in the chat', () => {
     await h.tap(buyer, 'menu:buy');
     await h.say(buyer, 'Wig');
     await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
-    await h.say(buyer, '20000'); await h.say(buyer, '12 Woji Road, Port Harcourt');
+    await h.say(buyer, '20000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3');
     await h.tap(buyer, 'buy:nophotos');
     await h.tap(buyer, 'buy:nophone');
     expect(h.last(buyer)).toMatch(/Check your order/);
@@ -143,7 +147,7 @@ describe('a buyer starts a deal in the chat', () => {
     const buyer = phone();
     await h.say(buyer, 'hi');
     await h.tap(buyer, 'menu:buy');
-    await h.say(buyer, 'Bag'); await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other'); await h.say(buyer, '9000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'buy:nophotos');
+    await h.say(buyer, 'Bag'); await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other'); await h.say(buyer, '9000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3'); await h.tap(buyer, 'buy:nophotos');
     await h.say(buyer, 'not a number');
     expect(h.last(buyer)).toMatch(/couldn't read that number/);
     await h.say(buyer, 'skip');
@@ -203,19 +207,21 @@ describe('the seller answers', () => {
     expect(h.last(seller)).toMatch(/declined. No money moved/);
   });
 
-  it('"Not me": the number is never alerted again', async () => {
-    const buyer = phone(), stranger = phone();
+  it('"Not me": that buyer can\'t alert the number again, but everyone else still can', async () => {
+    const buyer = phone(), stranger = phone(), other = phone();
     const code = await buyByChat(buyer, { sellerPhone: stranger });
     await h.tap(stranger, `snotme:${code}`);
     expect((await deal(code)).status).toBe('CANCELLED');
     expect(h.last(buyer)).toMatch(/says it isn't the seller/);
-    expect(h.last(stranger)).toMatch(/won't send you order alerts again/);
+    expect(h.last(stranger)).toMatch(/that person can't send you order alerts again/);
 
-    const before = (await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='template'`, [stranger])).rows[0].c;
+    const alerts = async () => (await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='template'`, [stranger])).rows[0].c;
+    const before = await alerts();
     await buyByChat(buyer, { sellerPhone: stranger });
-    const after = (await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='template'`, [stranger])).rows[0].c;
-    expect(after).toBe(before);
-    expect(h.last(buyer)).toMatch(/asked us not to message it/);
+    expect(await alerts()).toBe(before); // the same buyer: not alerted
+    expect(h.last(buyer)).toMatch(/said it isn't your seller last time/);
+    await buyByChat(other, { sellerPhone: stranger });
+    expect(await alerts()).toBe(before + 1); // someone else: alerted as normal
   });
 
   it('without a number: the seller opens the forwarded link and accepts with their saved bank', async () => {
@@ -304,6 +310,8 @@ describe('buyer side, edges', () => {
     await submitForm(buyer, { item: 'Laptop', description: 'HP, 16GB', category: 'electronics', price: '900000', address: 'GRA, Port Harcourt', other_phone: '08031112222', photos: [{ id: 'l1' }] });
     expect(h.last(buyer)).toMatch(/up to ₦50,000/);
     await h.say(buyer, '45000');
+    expect(h.last(buyer)).toMatch(/When are you expecting it/); // no date came with the form: asked too
+    await h.tap(buyer, 'bdate:7');
     expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/Total price  ₦45,000/);
   });

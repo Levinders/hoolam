@@ -4,12 +4,12 @@ import { balance, post } from '../ledger.js';
 import type { Currency } from '../money.js';
 import { DEFAULT_TXN_BANDS, quote, type FeePayer, type Quote, type TxnFees } from '../pricing.js';
 import type { PaymentProvider, PayoutResult } from '../payments/provider.js';
-import type { Messenger, Outbound, Template } from '../whatsapp/client.js';
+import type { Messenger, Outbound, SendStatus, Template } from '../whatsapp/client.js';
 import type { Media } from '../whatsapp/media.js';
 import type { Trust } from '../trust.js';
 import type { Settings } from '../settings.js';
 import type { PricingRules } from '../pricing.js';
-import { BUYER_ALERT, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
+import { BUYER_ALERT, DEAL_TEMPLATES, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
 import { categoryTitle } from './categories.js';
 import { msg } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
@@ -54,6 +54,8 @@ export interface BuyerDealInput {
 export type SellerAlert = 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed';
 
 export const SELLER_ALERT_TEMPLATE = SELLER_ALERT.name;
+/** Longest message the team can send from the console (WhatsApp template values must be one paragraph). */
+export const SUPPORT_MESSAGE_MAX = 600;
 
 /** The order page key for one side: each sees their own fee. The bare view token still opens a neutral page. */
 export function viewKey(viewToken: string, viewer: 'buyer' | 'seller'): string {
@@ -343,13 +345,12 @@ export class DealService {
     }
   }
 
-  /** One alert, once, to the buyer's number the seller typed. Never to someone who tapped "Not me". */
+  /** One alert, once, to the buyer's number the seller typed. Not if that number said "Not me" to this seller before. */
   private async alertBuyer(deal: Deal, seller: User): Promise<SellerAlert> {
     const phone = deal.invited_phone;
     if (!phone || !this.alertsOn()) return 'none';
     if (phone === seller.phone && !this.o.testMode) return 'own-number';
-    const out = await this.o.db.query('SELECT 1 FROM contact_optouts WHERE phone=$1', [phone]);
-    if (out.rowCount) return 'opted-out';
+    if (await this.refused(phone, seller.id)) return 'opted-out';
     const name = firstName(seller.display_name) ?? 'A seller';
     const total = msg.moneyText(this.money(deal.buyer_pays_minor));
     const status = await this.o.messenger.sendTemplate(phone, {
@@ -363,11 +364,20 @@ export class DealService {
     return 'sent';
   }
 
-  /** "Not me" on a seller's alert: wrong number. Close the deal and never alert that number again. */
+  /** Did this number say "Not me" to this person before? Then they can't alert it again (everyone else still can). */
+  private async refused(phone: string, fromUserId: string): Promise<boolean> {
+    return !!(await this.o.db.query('SELECT 1 FROM alert_refusals WHERE phone=$1 AND from_user_id=$2', [phone, fromUserId])).rowCount;
+  }
+  private async refuse(tx: Tx, phone: string, fromUserId: string | null, code: string) {
+    if (!fromUserId) return;
+    await tx.query('INSERT INTO alert_refusals (phone, from_user_id, deal_code) VALUES ($1,$2,$3) ON CONFLICT (phone, from_user_id) DO NOTHING', [phone, fromUserId, code]);
+  }
+
+  /** "Not me" on a seller's alert: wrong number. Close the order; that seller can't alert this number again. */
   async buyerNotMe(code: string, viewer: User): Promise<void> {
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
-      await tx.query('INSERT INTO contact_optouts (phone, reason) VALUES ($1,$2) ON CONFLICT (phone) DO NOTHING', [viewer.phone, `Not me on ${deal.code}`]);
+      if (deal.invited_phone === viewer.phone) await this.refuse(tx, viewer.phone, deal.seller_id, deal.code);
       out.push({ phone: viewer.phone, message: msg.sellerNotMeOk() });
       if (deal.status !== 'AWAITING_BUYER' || deal.invited_phone !== viewer.phone) return;
       await this.move(tx, deal, 'CANCELLED', 'buyer', 'Not me: the alerted number is not the buyer');
@@ -426,13 +436,12 @@ export class DealService {
     return { deal, link, alert };
   }
 
-  /** One alert, once, to the number the buyer typed. Never to someone who tapped "Not me". */
+  /** One alert, once, to the number the buyer typed. Not if that number said "Not me" to this buyer before. */
   private async alertSeller(deal: Deal, buyer: User): Promise<SellerAlert> {
     const phone = deal.invited_phone;
     if (!phone || !this.alertsOn()) return 'none';
     if (phone === buyer.phone && !this.o.testMode) return 'own-number';
-    const out = await this.o.db.query('SELECT 1 FROM contact_optouts WHERE phone=$1', [phone]);
-    if (out.rowCount) return 'opted-out';
+    if (await this.refused(phone, buyer.id)) return 'opted-out';
     const name = firstName(buyer.display_name) ?? 'A buyer';
     const price = msg.moneyText(this.money(deal.price_minor));
     const status = await this.o.messenger.sendTemplate(phone, {
@@ -556,13 +565,11 @@ export class DealService {
     });
   }
 
-  /** The seller says no, or "Not me" (wrong number: we never alert that number again). */
+  /** The seller says no, or "Not me" (wrong number: that buyer can't alert this number again). */
   async declineAsSeller(code: string, viewer: User, notMe = false): Promise<void> {
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
-      if (notMe) {
-        await tx.query('INSERT INTO contact_optouts (phone, reason) VALUES ($1,$2) ON CONFLICT (phone) DO NOTHING', [viewer.phone, `Not me on ${deal.code}`]);
-      }
+      if (notMe && deal.invited_phone === viewer.phone) await this.refuse(tx, viewer.phone, deal.buyer_id, deal.code);
       if (deal.status !== 'AWAITING_SELLER') {
         out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.dealClosed(deal.code) });
         return;
@@ -767,6 +774,8 @@ export class DealService {
   }
 
   autoReleaseMinutes(): number { return this.o.settings?.autoReleaseMinutes() ?? 1440; }
+  /** Wrong handover codes allowed before the order locks (console → Limits). */
+  handoverTries(): number { return this.o.settings?.handoverCodeTries() ?? 5; }
 
   /** The seller says how the item will reach the buyer. Gives the buyer a 4-digit handover code. */
   async dispatch(code: string, seller: User, d: DispatchInput): Promise<void> {
@@ -797,7 +806,7 @@ export class DealService {
       await this.move(tx, deal, 'SHIPPED', 'seller', `Dispatched: ${d.method}${fee ? `, delivery fee ${fee}` : ''}`);
       const buyer = await this.userById(tx, deal.buyer_id!);
       const info = { code: deal.code, method: d.method, pickupAddress: d.pickupAddress ?? null, courierName: d.courierName ?? null, courierPhone: d.courierPhone ?? null, location: d.location ?? null };
-      out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, page: this.orderPageUrl(deal, 'seller'), fee: fee ? this.money(fee) : null }) });
+      out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, page: this.orderPageUrl(deal, 'seller'), fee: fee ? this.money(fee) : null, buyerName: firstName(buyer.display_name) ?? 'Buyer' }) });
       out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, page: this.orderPageUrl(deal, 'buyer'), handover }), fallback: dealTemplate('orderDispatched', [deal.code], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
     });
   }
@@ -828,16 +837,16 @@ export class DealService {
       const deal = await this.lockByCode(tx, code);
       if (deal.seller_id !== seller.id) throw new DealError('NOT_ALLOWED');
       if (deal.status !== 'SHIPPED' || !deal.handover_code || deal.handed_over_at) { out.push({ phone: seller.phone, message: msg.dealStatusNow(deal.code, deal.status) }); return 'not-ready'; }
-      if (deal.handover_tries >= 5) { out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) }); return 'locked'; }
+      if (deal.handover_tries >= this.handoverTries()) { out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) }); return 'locked'; }
       if (digits.replace(/\D/g, '') !== deal.handover_code) {
         const tries = deal.handover_tries + 1;
         await tx.query('UPDATE deals SET handover_tries=$2 WHERE id=$1', [deal.id, tries]);
-        if (tries >= 5) {
+        if (tries >= this.handoverTries()) {
           await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', 'NEEDS_ATTENTION: handover code locked after 5 wrong tries']);
           out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) });
           return 'locked';
         }
-        out.push({ phone: seller.phone, message: msg.handoverWrong(deal.code, 5 - tries) });
+        out.push({ phone: seller.phone, message: msg.handoverWrong(deal.code, this.handoverTries() - tries) });
         return 'wrong';
       }
       await tx.query('UPDATE deals SET handed_over_at=now(), updated_at=now() WHERE id=$1', [deal.id]);
@@ -917,13 +926,44 @@ export class DealService {
     return new Date(day + 'T23:59:59+01:00').getTime() < Date.now();
   }
 
+  /**
+   * A message from Hoolam support (typed in the console), sent at any time. It goes as the approved
+   * "Hoolam support" template about an order (the one given, or the person's latest), so it reaches them even if they
+   * haven't messaged in 24 hours. Before Meta approves it, or for someone with no orders, it goes as a normal chat
+   * message (only possible inside their 24-hour window). Their next message goes to the support inbox.
+   */
+  async sendSupportMessage(phone: string, rawText: string, code?: string | null): Promise<{ status: SendStatus; via: 'template' | 'chat'; code: string | null }> {
+    const text = rawText.replace(/\s+/g, ' ').trim().slice(0, SUPPORT_MESSAGE_MAX);
+    if (text.length < 2) throw new DealError('NOT_ALLOWED', 'Write a message first.');
+    let orderCode = code ?? null;
+    if (!orderCode) {
+      const r = await this.o.db.query(
+        `SELECT d.code FROM deals d JOIN users u ON u.id IN (d.buyer_id, d.seller_id, d.counter_seller_id) WHERE u.phone=$1 ORDER BY d.created_at DESC LIMIT 1`, [phone]);
+      orderCode = r.rows[0]?.code ?? null;
+    }
+    const tpl = DEAL_TEMPLATES.supportMessage;
+    let status: SendStatus; let via: 'template' | 'chat';
+    if (orderCode && this.o.messenger.canUseTemplate(tpl.name)) {
+      status = await this.o.messenger.sendTemplate(phone, { ...dealTemplate('supportMessage', [orderCode, text]), maxParam: SUPPORT_MESSAGE_MAX });
+      via = 'template';
+    } else {
+      status = await this.o.messenger.send(phone, msg.fromSupport(text, orderCode));
+      via = 'chat';
+    }
+    // their reply goes to the support inbox (unless they're in the middle of something)
+    if (status === 'SENT' || status === 'DRY_RUN') {
+      await this.o.db.query(`UPDATE chat_sessions SET state='HUMAN_MESSAGE', data=$2 WHERE phone=$1 AND state='IDLE'`, [phone, JSON.stringify(orderCode ? { code: orderCode } : {})]);
+    }
+    return { status, via, code: orderCode };
+  }
+
   /** "Send reminder": the buyer nudges a seller who hasn't dispatched. */
   async remindSeller(code: string, buyer: User): Promise<void> {
     const deal = await this.findByCode(code);
     if (!deal || deal.buyer_id !== buyer.id || !deal.seller_id) throw new DealError('NOT_FOUND');
     if (deal.status !== 'FUNDED' || deal.dispatched_at) { await this.o.messenger.send(buyer.phone, msg.dealStatusNow(deal.code, deal.status)); return; }
     const seller = await this.userById(this.o.db, deal.seller_id);
-    await this.o.messenger.send(seller.phone, msg.sellerDispatchReminder(deal.code, deal.item, true), dealTemplate('dispatchReminder', [deal.code], [`dispatch:${deal.code}`]));
+    await this.o.messenger.send(seller.phone, msg.sellerDispatchReminder(deal.code, deal.item, true, firstName(buyer.display_name) ?? 'The buyer'), dealTemplate('dispatchReminder', [deal.code], [`dispatch:${deal.code}`]));
     await this.o.messenger.send(buyer.phone, msg.reminderSent(deal.code));
   }
 
@@ -1210,13 +1250,13 @@ export class DealService {
     }
     // Paid but not dispatched: remind the seller once.
     const waiting = await this.o.db.query(
-      `SELECT d.code, d.item, u.phone FROM deals d JOIN users u ON u.id=d.seller_id
+      `SELECT d.code, d.item, u.phone, b.display_name AS buyer_name FROM deals d JOIN users u ON u.id=d.seller_id LEFT JOIN users b ON b.id=d.buyer_id
        WHERE d.status='FUNDED' AND d.started_by='BUYER' AND d.dispatched_at IS NULL AND d.dispatch_reminded_at IS NULL
          AND d.funded_at < now() - make_interval(hours => $1) LIMIT 50`,
       [this.o.settings?.dispatchRemindHours() ?? 12]);
     for (const row of waiting.rows) {
       await this.o.db.query('UPDATE deals SET dispatch_reminded_at=now() WHERE code=$1', [row.code]);
-      await this.o.messenger.send(row.phone, msg.sellerDispatchReminder(row.code, row.item, false), dealTemplate('dispatchReminder', [row.code], [`dispatch:${row.code}`]));
+      await this.o.messenger.send(row.phone, msg.sellerDispatchReminder(row.code, row.item, false, firstName(row.buyer_name) ?? 'Buyer'), dealTemplate('dispatchReminder', [row.code], [`dispatch:${row.code}`]));
       nudged++;
     }
     // Still not dispatched after the date the buyer expected: give the buyer their options, once.
@@ -1231,7 +1271,7 @@ export class DealService {
     }
     const stale = await this.o.db.query(
       `SELECT id FROM deals WHERE status IN ('AWAITING_BUYER','AWAITING_PAYMENT') AND updated_at < now() - make_interval(hours => $1) LIMIT 100`,
-      [opts.expireUnpaidAfterHours ?? 72]);
+      [opts.expireUnpaidAfterHours ?? this.o.settings?.unpaidCloseHours() ?? 72]);
     for (const row of stale.rows) {
       await this.run(async (tx) => {
         const deal = await this.lockById(tx, row.id);

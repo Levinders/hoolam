@@ -5,6 +5,7 @@ import { post } from '../api';
 import { useAuth } from '../auth';
 import { ACTIONS, ago, dateTime, money, STATUS, phone } from '../format';
 import { useData } from '../hooks';
+import { SupportText } from './SupportMessage';
 import { Avatar, Button, ConfirmAction, Empty, ErrorBanner, Modal, PayoutPill, Seg, Skeleton, StatusPill, useToast } from '../ui';
 
 const ACTOR: Record<string, string> = { buyer: 'Buyer', seller: 'Seller', provider: 'Payment provider', system: 'Hoolam (automatic)', admin: 'Hoolam team' };
@@ -315,11 +316,11 @@ function MessageModal({ code, hasBuyer, hasSeller, onClose, onSent }: { code: st
         e.preventDefault(); setBusy(true); setErr(null);
         try { await post(`/deals/${code}/message`, { to, text }); onSent(); onClose(); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
       }}>
-        <div className="modal-head"><div className="mi"><MessageSquare /></div><div><h2>Message on WhatsApp</h2><p>Sent from Hoolam, starting with “From the Hoolam team”.</p></div></div>
+        <div className="modal-head"><div className="mi"><MessageSquare /></div><div><h2>Message on WhatsApp</h2><p>Sent as “Hoolam support: an update about your order {code}”.</p></div></div>
         <div className="modal-body">
           <Seg value={to} onChange={setTo} options={[...(hasBuyer ? [{ value: 'buyer' as const, label: 'To the buyer' }] : []), ...(hasSeller ? [{ value: 'seller' as const, label: 'To the seller' }] : [])]} />
-          <textarea className="input" rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a short, friendly message" aria-label="Message" autoFocus />
-          <div className="audit-note"><StickyNote />WhatsApp only delivers if they messaged Hoolam in the last 24 hours. Saved to the audit trail.</div>
+          <SupportText value={text} onChange={setText} rows={4} placeholder="Write a short, friendly message" />
+          <div className="audit-note"><StickyNote />Works any time, even if they haven't messaged Hoolam in 24 hours. Their reply comes to Support. Saved to the audit trail.</div>
           {err && <ErrorBanner error={err} />}
         </div>
         <div className="modal-foot"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" icon={Send} busy={busy} disabled={text.trim().length < 2}>Send</Button></div>

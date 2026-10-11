@@ -194,7 +194,7 @@ describe('dispatch', () => {
   it('overdue: the buyer can remind the seller, or take a refund', async () => {
     const { buyer, seller, code } = await paidBuyerOrder({ arriveBy: '2026-01-01' });
     await h.tap(buyer, `remind:${code}`);
-    expect(h.last(seller)).toMatch(/The buyer sent you a reminder/);
+    expect(h.last(seller)).toMatch(/\S+ sent you a reminder/);
     expect(h.last(buyer)).toMatch(/Reminder sent/);
     await h.say(buyer, '1112223334 Kuda'); // not asked: stays a normal message
     await h.tap(buyer, `refundme:${code}`);
@@ -227,7 +227,7 @@ describe('reminders', () => {
     await h.db.query(`UPDATE deals SET funded_at=now() - interval '13 hours' WHERE code=$1`, [code]);
     await h.app.deals.sweep({ nudgeAfterHours: 9999 });
     const sellerMsgs = () => h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n');
-    expect(sellerMsgs()).toMatch(new RegExp(`Order ${code} \\(Leather bag\\) is paid and waiting to be dispatched`));
+    expect(sellerMsgs()).toMatch(new RegExp(`⏰ \\*\\S+\\* · \\*${code}\\* \\(Leather bag\\) is paid and waiting to be dispatched`)); // the buyer's name first
     expect(h.last(buyer)).toMatch(/hasn't been dispatched yet, and the date you expected it has passed/);
     expect(h.last(buyer)).toMatch(/\[🔔 Send reminder\] \[💸 Refund me\] \[Wait a bit\]/);
     const before = h.transcript.length;

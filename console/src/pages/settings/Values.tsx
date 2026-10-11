@@ -257,7 +257,7 @@ function FeePreview({ s }: { s: Draft }) {
 }
 
 export function LimitsPage() {
-  return <ValuesPage title="Limits" lede="The most a single order can be, before identity checks." keys={['max_deal']}
+  return <ValuesPage title="Limits" lede="The most a single order can be, before identity checks, and how many wrong handover codes a seller can enter." keys={['max_deal', 'handover_code_tries']}
     aside={() => (
       <section className="panel"><div className="panel-body stack" style={{ gap: 10 }}>
         <div className="aside-ic"><Gauge /></div>
@@ -269,7 +269,7 @@ export function LimitsPage() {
 }
 
 export function TimingPage() {
-  return <ValuesPage title="Timing" lede="When Hoolam reminds people, and when an order comes to the team." keys={['seller_accept_hours', 'dispatch_remind_hours', 'auto_release_minutes', 'nudge_after_hours', 'flag_after_hours']}
+  return <ValuesPage title="Timing" lede="When Hoolam reminds people, and when an order comes to the team." keys={['seller_accept_hours', 'unpaid_close_hours', 'dispatch_remind_hours', 'auto_release_minutes', 'nudge_after_hours', 'flag_after_hours', 'rep_reply_minutes', 'problem_reply_hours']}
     aside={(s) => {
       const h = (k: string) => `${s.draft[k] || '—'} h`;
       return (

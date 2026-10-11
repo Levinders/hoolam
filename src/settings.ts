@@ -30,11 +30,15 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'fee_round_to', group: 'Fees', label: 'Round fees to', help: 'Fees are rounded to the nearest multiple of this.', type: 'money', min: 1, max: 10_000, core: true },
   { key: 'seller_txn_fee', group: 'Fees', label: 'Seller transaction fee', help: 'A flat fee by order size, taken from the seller\'s payout on orders the buyer started. Only the seller sees it.', type: 'bands', core: true },
   { key: 'buyer_txn_fee', group: 'Fees', label: 'Buyer transaction fee', help: 'A flat fee by order size, added to what the buyer pays on orders the seller started. Only the buyer sees it.', type: 'bands', core: true },
+  { key: 'handover_code_tries', group: 'Limits', label: 'Wrong handover code tries', help: 'How many wrong codes a seller can enter before the order locks and a rep helps finish the handover.', type: 'number', min: 1, max: 20 },
   { key: 'max_deal', group: 'Limits', label: 'Largest order', help: 'Most a single order can be (before KYC). You can raise it for one person on their page.', type: 'money', min: 1_000, max: 100_000_000, core: true },
   { key: 'seller_accept_hours', group: 'Timing', label: 'Seller has to accept within', help: 'For orders a buyer starts. After this, the order closes.', type: 'hours', min: 1, max: 336 },
   { key: 'nudge_after_hours', group: 'Timing', label: 'Remind the buyer after', help: 'Hours after shipping before we ask the buyer if the item arrived.', type: 'hours', min: 1, max: 336 },
   { key: 'auto_release_minutes', group: 'Timing', label: 'Pay the seller automatically after', help: 'Once the handover code is entered, the buyer has this long to tap "I\'m happy" or report a problem. If they do neither, the seller is paid.', type: 'minutes', min: 30, max: 20_160 },
   { key: 'dispatch_remind_hours', group: 'Timing', label: 'Remind the seller to dispatch after', help: 'Hours after the buyer pays before we remind a seller who hasn\'t dispatched.', type: 'hours', min: 1, max: 336 },
+  { key: 'unpaid_close_hours', group: 'Timing', label: 'Close unpaid orders after', help: 'Hours an order can wait for the buyer to pay before it closes.', type: 'hours', min: 1, max: 720 },
+  { key: 'rep_reply_minutes', group: 'Timing', label: 'Reps reply within', help: 'What we promise in the menu and when someone asks for a rep.', type: 'minutes', min: 5, max: 2_880 },
+  { key: 'problem_reply_hours', group: 'Timing', label: 'Problem cases answered within', help: 'What we promise a buyer when they report a problem.', type: 'hours', min: 1, max: 168 },
   { key: 'flag_after_hours', group: 'Timing', label: 'Flag for the team after', help: 'Hours after shipping before an unconfirmed order appears in Needs action.', type: 'hours', min: 1, max: 720 },
   { key: 'whatsapp_number', group: 'WhatsApp', label: 'Hoolam\'s WhatsApp number', help: 'The number people message. Used in every "chat with Hoolam" link: the website, seller pages and payment links. For example 07034577787.', type: 'phone', core: true },
   { key: 'alerts_enabled', group: 'WhatsApp', label: 'Alert the other side by number', help: 'Send "New order request" / "Payment request" when someone types the other side\'s number.', type: 'boolean' },
@@ -64,6 +68,7 @@ export class Settings {
       seller_txn_fee: DEFAULT_TXN_BANDS, buyer_txn_fee: DEFAULT_TXN_BANDS,
       max_deal: this.c.MAX_DEAL_MINOR / this.unit,
       auto_release_minutes: 1440, dispatch_remind_hours: 12,
+      unpaid_close_hours: 72, rep_reply_minutes: 30, problem_reply_hours: 24, handover_code_tries: 5,
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
       whatsapp_number: this.c.WHATSAPP_PUBLIC_NUMBER.replace(/\D/g, ''),
       alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM,
@@ -147,6 +152,10 @@ export class Settings {
   flagHours(): number { return this.get('flag_after_hours'); }
   autoReleaseMinutes(): number { return this.get('auto_release_minutes'); }
   dispatchRemindHours(): number { return this.get('dispatch_remind_hours'); }
+  unpaidCloseHours(): number { return this.get('unpaid_close_hours'); }
+  repReplyMinutes(): number { return this.get('rep_reply_minutes'); }
+  problemReplyHours(): number { return this.get('problem_reply_hours'); }
+  handoverCodeTries(): number { return this.get('handover_code_tries'); }
   alertsEnabled(): boolean { return this.get('alerts_enabled'); }
   formsEnabled(): boolean { return this.get('forms_enabled'); }
   waNumber(): string { return this.get<string>('whatsapp_number'); }

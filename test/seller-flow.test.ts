@@ -36,7 +36,7 @@ async function buyByChat(buyer: string, price = '15000') {
   await h.tap(buyer, 'menu:buy');
   await h.say(buyer, 'Red dress');
   await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
-  await h.say(buyer, price); await h.say(buyer, '12 Woji Road, Port Harcourt');
+  await h.say(buyer, price); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3');
   await h.tap(buyer, 'buy:nophotos');
   await h.tap(buyer, 'buy:nophone');
   await h.tap(buyer, 'buy:send');
@@ -84,15 +84,17 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
     expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
   });
 
-  it('"Not me" from the buyer: closed, the seller is told, never alerted again', async () => {
-    const seller = phone(), stranger = phone();
+  it('"Not me" from the buyer: closed, the seller is told; that seller can\'t alert them again, others can', async () => {
+    const seller = phone(), stranger = phone(), other = phone();
     const code = await sellByChat(seller, { buyerPhone: stranger });
     await h.tap(stranger, `bnotme:${code}`);
     expect((await deal(code)).status).toBe('CANCELLED');
     expect(h.last(seller)).toMatch(/says it isn't your buyer/);
     await sellByChat(seller, { buyerPhone: stranger });
     expect(await outs(stranger, 'template')).toHaveLength(1);
-    expect(h.last(seller)).toMatch(/asked us not to message it/);
+    expect(h.last(seller)).toMatch(/said it isn't your buyer last time/);
+    await sellByChat(other, { buyerPhone: stranger });
+    expect(await outs(stranger, 'template')).toHaveLength(2);
   });
 
   it('the seller form: answers go to the summary', async () => {

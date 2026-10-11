@@ -181,12 +181,12 @@ describe('my orders, in the form', () => {
     const ids = pick.data.banks.map((b: any) => b.id);
     expect(ids.slice(0, 4)).toEqual(['999992', '50515', '999991', '50211']); // OPay, Moniepoint, PalmPay, Kuda always
     expect(ids).toContain('011'); // First Bank: 0000014579 passes its NUBAN check (CBN's example)
-    expect(ids).not.toContain('058'); // GTBank: it can't be
+    expect(ids.at(-1)).toBe('other'); // "My bank isn't listed"
     // 2. they pick First Bank: we check whose account it is
     const check = await call(t, 'data_exchange', { ...base, listed_for: '0000014579', bank: '011' });
     expect(check.screen).toBe('COURIER');
     expect(check.data).toMatchObject({ show_confirm: true, show_banks: false, bank: '011', footer_label: 'Dispatch' });
-    expect(check.data.confirm_text).toMatch(/belongs to TEST ACCOUNT HOLDER \(First Bank ••••4579\)/);
+    expect(check.data.confirm_text).toMatch(/belongs to TEST ACCOUNT HOLDER \(First Bank 0000014579\)/);
     expect((await deal(code)).status).toBe('FUNDED'); // nothing saved until confirmed
     // 3. they tick "Yes, this is the right account" (the dropdown is hidden now, so the bank comes back from the screen)
     const done = await call(t, 'data_exchange', { ...base, listed_for: '0000014579', bank: '', chosen_bank: '011', confirm: true });
@@ -444,5 +444,61 @@ describe('the order list', () => {
     expect(noName.length).toBeLessThanOrEqual(30);
     expect(rowTitle(null, null, 'buyer', 'HL-7K2QF', '₦20,000')).toBe('Seller · HL-7K2QF · ₦20,000');
     expect(rowTitle('Oluwaseunfunmi', null, 'seller', 'HL-7K2QF', '₦1,200,000').length).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('the backup forms (only if Meta refuses the main ones)', () => {
+  it('waybill: dispatch → driver details → bank → confirm, each on its own screen', async () => {
+    const { seller, code } = await paidBuyerOrder();
+    h.app.backupForms.one = true;
+    try {
+      const t = signToken(h.app.formSecret, seller, 'seller', 'dispatch', code);
+      expect((await call(t, 'INIT')).screen).toBe('ORDER');
+      const d = await call(t, 'data_exchange', { op: 'dispatch', code });
+      expect(d.screen).toBe('DISPATCH');
+      expect(d.data).not.toHaveProperty('show_pickup');
+      const w = await call(t, 'data_exchange', { op: 'dispatch_submit', v: 'safe', code, method: 'waybill' });
+      expect(w.screen).toBe('WAYBILL');
+      const base = { op: 'courier', v: 'safe', code, method: 'waybill', name: '', phone: '08031234567', fee: '1500', location: 'Mile 1 park', account_number: '0000014579' };
+      const bank = await call(t, 'data_exchange', base);
+      expect(bank.screen).toBe('BANK');
+      expect(bank.data.banks.map((b: any) => b.id)).toContain('011');
+      const notListed = await call(t, 'data_exchange', { ...base, listed_for: '0000014579', bank: 'other', bank_other: '' });
+      expect(notListed.data.error).toMatch(/Not listed\? Type it/);
+      const confirm = await call(t, 'data_exchange', { ...base, listed_for: '0000014579', bank: '011' });
+      expect(confirm.screen).toBe('CONFIRM');
+      expect(confirm.data.confirm_text).toMatch(/First Bank 0000014579/);
+      const done = await call(t, 'data_exchange', { ...base, listed_for: '0000014579', chosen_bank: '011', confirm: true });
+      expect(done.data.title).toBe('✅ Dispatched');
+      expect((await deal(code))).toMatchObject({ dispatch_method: 'WAYBILL', status: 'SHIPPED' });
+      // the code goes in the chat on the backup single-order form
+      const c = await call(t, 'data_exchange', { op: 'code', code });
+      expect(c.data.title).toBe('🔑 Handover code');
+    } finally { h.app.backupForms.one = false; }
+  });
+
+  it('pickup: its own screen with the address required', async () => {
+    const { seller, code } = await paidBuyerOrder();
+    h.app.backupForms.one = true;
+    try {
+      const t = signToken(h.app.formSecret, seller, 'seller', 'dispatch', code);
+      const p = await call(t, 'data_exchange', { op: 'dispatch_submit', v: 'safe', code, method: 'pickup' });
+      expect(p.screen).toBe('PICKUP');
+      const empty = await call(t, 'data_exchange', { op: 'dispatch_submit', v: 'safe', code, method: 'pickup', pickup_address: ' ' });
+      expect(empty).toMatchObject({ screen: 'PICKUP', data: { has_error: true } });
+      const ok = await call(t, 'data_exchange', { op: 'dispatch_submit', v: 'safe', code, method: 'pickup', pickup_address: 'Shop 4, Rumuola' });
+      expect(ok.data.title).toBe('✅ Ready for pickup');
+    } finally { h.app.backupForms.one = false; }
+  });
+
+  it('My orders (backup): "Dispatch now" sends the single-order form to the chat', async () => {
+    const { seller, code } = await paidBuyerOrder();
+    h.app.backupForms.list = true;
+    try {
+      const t = signToken(h.app.formSecret, seller, 'seller', 'orders');
+      const r = await call(t, 'data_exchange', { op: 'dispatch', code });
+      expect(r.screen).toBe('DONE');
+      expect(r.data.important).toMatch(/Open it there/);
+    } finally { h.app.backupForms.list = false; }
   });
 });

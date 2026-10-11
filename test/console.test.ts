@@ -193,7 +193,7 @@ describe('screens\' data', () => {
     const req = list.json.rows.find((r: any) => r.phone === p);
     const r = await call('POST', `/support/${req.id}/reply`, { text: 'It went out this morning.', close: true }, owner);
     expect(r.status).toBe(200);
-    expect(h.last(p)).toMatch(/From the Hoolam team:\n\nIt went out this morning\./);
+    expect(h.last(p)).toMatch(/🙋 \*Hoolam support\*\n\nIt went out this morning\.\n\nReply here if you have any questions\./); // no orders yet: a chat message (inside their 24 hours)
     const t = await call('GET', `/support/${req.id}`, undefined, owner);
     expect(t.json.request.status).toBe('CLOSED');
     expect(t.json.trail.map((x: any) => x.action)).toEqual(['support.reply', 'support.close']);

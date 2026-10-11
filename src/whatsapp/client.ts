@@ -18,6 +18,7 @@ export interface Template {
   buttonPayloads?: string[]; // what each quick-reply button sends back to us
   buttonTitles?: string[];   // the button labels as approved in the template (for logs and the terminal chat)
   preview: string;           // readable version for logs and the outbound_messages table
+  maxParam?: number;         // longest value allowed (default 120; the support message allows 600)
 }
 
 export type SendStatus = 'SENT' | 'DRY_RUN' | 'FAILED' | 'NEEDS_TEMPLATE';
@@ -139,6 +140,16 @@ export class Messenger {
   }
 
   /** Sends an approved template. Allowed outside the 24-hour window. */
+  /** Has Meta approved this template (or the version it replaces)? */
+  canUseTemplate(name: string): boolean { return this.usableTemplate(name) !== null; }
+
+  /** Is the person's 24-hour window open (they messaged Hoolam in the last 24 hours)? */
+  async windowOpen(phone: string): Promise<boolean> {
+    const s = await this.db.query('SELECT last_inbound_at FROM chat_sessions WHERE phone=$1', [phone]);
+    const last: Date | null = s.rows[0]?.last_inbound_at ?? null;
+    return !!last && Date.now() - new Date(last).getTime() < DAY_MS;
+  }
+
   async sendTemplate(phone: string, tpl: Template): Promise<SendStatus> {
     const t = { ...tpl, name: this.usableTemplate(tpl.name) ?? tpl.name };
     // the older version may take different values or fewer buttons: send it what it has
@@ -154,7 +165,7 @@ export class Messenger {
       template: {
         name: t.name, language: { code: t.language },
         components: [
-          ...(t.params.length ? [{ type: 'body', parameters: t.params.map((p) => ({ type: 'text', text: templateText(p) })) }] : []),
+          ...(t.params.length ? [{ type: 'body', parameters: t.params.map((p) => ({ type: 'text', text: templateText(p, t.maxParam ?? 120) })) }] : []),
           ...(t.buttonPayloads ?? []).map((p, i) => ({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: p }] })),
         ],
       },

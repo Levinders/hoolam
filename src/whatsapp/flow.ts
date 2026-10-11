@@ -10,6 +10,7 @@ import type { Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
 import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
 import { localPhone, msg, STATUS_WORDS } from './messages.js';
+import { lagosDate, parseDay } from '../phone.js';
 import { readBuyForm } from './buy-flow.js';
 import { normalizePhone } from './inbound.js';
 import { bankChoices, matchBank, parseBankInput } from './banks.js';
@@ -26,7 +27,7 @@ type State =
   | 'IDLE' | 'SELL_ITEM' | 'SELL_PRICE' | 'SELL_BANK' | 'SELL_BANK_CONFIRM' | 'SELL_CONFIRM'
   | 'DISPUTE_DETAIL' | 'REFUND_BANK' | 'REFUND_BANK_CONFIRM'
   | 'BUY_CODE' | 'ACCOUNT_BANK' | 'ACCOUNT_BANK_CONFIRM' | 'HUMAN_MESSAGE'
-  | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_DESC' | 'BUY_CATEGORY' | 'BUY_PRICE' | 'BUY_ADDRESS' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
+  | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_DESC' | 'BUY_CATEGORY' | 'BUY_PRICE' | 'BUY_ADDRESS' | 'BUY_DATE' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SELLER_COUNTER_REASON' | 'SHIP_PROOF'
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
@@ -54,6 +55,8 @@ export interface FlowOptions {
   trust?: Trust;
   /** Where public seller pages live, e.g. https://hoolam.onrender.com */
   publicBaseUrl?: string;
+  /** Hoolam's WhatsApp number (console), so nobody can use it as the other person's number. */
+  hoolamNumber?: () => string;
   /** Fetches photos people send (for a seller's page photo). */
   media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
   log?: (line: string) => void;
@@ -108,6 +111,8 @@ export class Conversation {
   }
 
   private send(phone: string, m: Outbound) { return this.o.messenger.send(phone, m); }
+  /** Hoolam's own number, typed as the other person's? */
+  private isHoolam(phone: string): boolean { const h = (this.o.hoolamNumber?.() ?? '').replace(/\D/g, ''); return !!h && phone.replace(/\D/g, '') === h; }
 
   async handle(m: Inbound): Promise<void> {
     const s = await this.session(m.phone);
@@ -198,6 +203,9 @@ export class Conversation {
           if (code === 'nophone') return this.continueBuying(m.phone, { ...s.data, sellerPhone: null });
           return;
         case 'bfix': return this.fixBuying(m.phone, s, code!);
+        case 'bdate':
+          if (s.state !== 'BUY_DATE') return this.continueBuying(m.phone, s.data);
+          return this.continueBuying(m.phone, { ...s.data, arriveBy: lagosDate(Math.min(30, Math.max(1, Number(code) || 1))) });
         case 'cat':
           if (s.state !== 'BUY_CATEGORY' || !isCategory(code)) return this.continueBuying(m.phone, s.data);
           return this.continueBuying(m.phone, { ...s.data, category: code });
@@ -334,6 +342,7 @@ export class Conversation {
         if (/^(skip|no|none|later)$/i.test(text)) return this.afterBuyerPhone(m.phone, user, { ...s.data, buyerPhone: null });
         const phone = normalizePhone(text);
         if (!phone) return this.send(m.phone, msg.badBuyerPhone());
+        if (this.isHoolam(phone)) return this.send(m.phone, msg.hoolamNumberTyped('buyer', 'sell:nophone'));
         return this.afterBuyerPhone(m.phone, user, { ...s.data, buyerPhone: phone });
       }
       case 'SELLER_COUNTER_PRICE': {
@@ -393,6 +402,11 @@ export class Conversation {
         if (text.length < 5) return this.send(m.phone, msg.askDeliveryAddress());
         return this.continueBuying(m.phone, { ...s.data, address: text.slice(0, 300) });
       }
+      case 'BUY_DATE': {
+        const day = parseDay(text);
+        if (!day) return this.send(m.phone, msg.badArriveBy());
+        return this.continueBuying(m.phone, { ...s.data, arriveBy: day });
+      }
       case 'BUY_PHOTOS': {
         if (m.type === 'image' && m.mediaId) {
           const photos = [...(s.data.photos ?? []), { mediaId: m.mediaId, mimeType: m.mimeType ?? null }].slice(0, MAX_PHOTOS);
@@ -409,6 +423,7 @@ export class Conversation {
         if (/^(skip|no|none|later)$/i.test(text)) return this.continueBuying(m.phone, { ...s.data, sellerPhone: null });
         const phone = normalizePhone(text);
         if (!phone) return this.send(m.phone, msg.badSellerPhone());
+        if (this.isHoolam(phone)) return this.send(m.phone, msg.hoolamNumberTyped('seller', 'buy:nophone'));
         return this.continueBuying(m.phone, { ...s.data, sellerPhone: phone });
       }
       case 'CHECK_SELLER': return this.checkSeller(m.phone, user, text);
@@ -686,6 +701,7 @@ export class Conversation {
     if (f.otherPhone) {
       const p = normalizePhone(f.otherPhone);
       if (!p) { await this.save(phone, 'SELL_BUYER', data); return this.send(phone, msg.badBuyerPhone()); }
+      if (this.isHoolam(p)) { await this.save(phone, 'SELL_BUYER', data); return this.send(phone, msg.hoolamNumberTyped('buyer', 'sell:nophone')); }
       data.buyerPhone = p;
     }
     return this.afterBuyerPhone(phone, user, data);
@@ -868,6 +884,7 @@ export class Conversation {
     if (f.address) d.address = f.address.slice(0, 300);
     if (f.otherPhone) {
       const p = normalizePhone(f.otherPhone);
+      if (p && this.isHoolam(p)) { await this.save(phone, 'BUY_SELLER', d as Record<string, any>); return this.send(phone, msg.hoolamNumberTyped('seller', 'buy:nophone')); }
       if (p) d.sellerPhone = p;
       else { await this.save(phone, 'BUY_SELLER', d as Record<string, any>); return this.send(phone, msg.badSellerPhone()); }
     }
@@ -886,6 +903,7 @@ export class Conversation {
     if (!d.category) return ask('BUY_CATEGORY', msg.askCategory());
     if (!d.priceMinor) return ask('BUY_PRICE', msg.askBuyPrice());
     if (!d.address) return ask('BUY_ADDRESS', msg.askDeliveryAddress());
+    if (!d.arriveBy) return ask('BUY_DATE', msg.askArriveBy());
     if (!d.photosDone) return ask('BUY_PHOTOS', msg.askBuyPhotos());
     if (d.sellerPhone === undefined) return ask('BUY_SELLER', msg.askSellerPhone());
     return this.showBuySummary(phone, d);
@@ -931,6 +949,7 @@ export class Conversation {
     else if (what === 'category') delete d.category;
     else if (what === 'price') delete d.priceMinor;
     else if (what === 'address') delete d.address;
+    else if (what === 'date') delete d.arriveBy;
     else if (what === 'photos') { d.photos = []; d.photosDone = false; }
     else if (what === 'seller') delete d.sellerPhone;
     return this.continueBuying(phone, d);
@@ -1020,7 +1039,7 @@ export class Conversation {
     const next: State = s.state === 'SELL_BANK' ? 'SELL_BANK_CONFIRM' : s.state === 'ACCOUNT_BANK' ? 'ACCOUNT_BANK_CONFIRM'
       : s.state === 'SELLER_BANK' ? 'SELLER_BANK_CONFIRM' : 'REFUND_BANK_CONFIRM';
     await this.save(phone, next, { ...s.data, pendingAccount: { bank_code: bank.code, bank_name: bank.name, account_number: parsed.accountNumber, account_name: name } });
-    return this.send(phone, msg.confirmBank(name, bank.name, parsed.accountNumber.slice(-4)));
+    return this.send(phone, msg.confirmBank(name, bank.name, parsed.accountNumber));
   }
 
   private async bankAnswer(phone: string, s: Session, user: User, yes: boolean) {
@@ -1098,6 +1117,7 @@ export class Conversation {
     if (!d.phone) {
       const p = normalizePhone(text);
       if (!p) return this.send(phone, msg.askCourierPhone(role));
+      if (this.isHoolam(p)) return this.send(phone, msg.hoolamNumberTyped(role));
       return this.dispatchStep(phone, user, { ...d, phone: p });
     }
     if (d.fee === undefined) {
@@ -1120,7 +1140,7 @@ export class Conversation {
       if (!name) return this.send(phone, msg.accountNotFound());
       const pendingAccount = { bank_code: bank.code, bank_name: bank.name, account_number: parsed.accountNumber, account_name: name };
       await this.save(phone, 'DISPATCH', { ...d, pendingAccount });
-      return this.send(phone, msg.confirmCourierAccount(role, name, bank.name, parsed.accountNumber.slice(-4)));
+      return this.send(phone, msg.confirmCourierAccount(role, name, bank.name, parsed.accountNumber));
     }
     return this.dispatchStep(phone, user, d);
   }

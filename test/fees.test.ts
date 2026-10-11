@@ -149,11 +149,11 @@ describe('picking a bank', () => {
     expect(nubanFits('011', '0000014578')).toBe(false);
     expect(nubanFits('ABC', '0000014579')).toBeNull();
   });
-  it('the list: OPay, Moniepoint, PalmPay and Kuda first, then the banks the number fits', () => {
-    const list = bankChoices('0000014579', FakeProvider.BANKS).map((b) => b.name);
-    expect(list.slice(0, 4)).toEqual(['OPay', 'Moniepoint MFB', 'PalmPay', 'Kuda']);
+  it('the list: OPay, Moniepoint, PalmPay, Kuda, GTBank, Fidelity, Zenith always, then the banks the number fits', () => {
+    const list = bankChoices('0000014579', [...FakeProvider.BANKS, { code: '070', name: 'Fidelity Bank' }]).map((b) => b.name);
+    expect(list.slice(0, 7)).toEqual(['OPay', 'Moniepoint MFB', 'PalmPay', 'Kuda', 'GTBank', 'Fidelity Bank', 'Zenith Bank']);
     expect(list).toContain('First Bank');
-    expect(list).not.toContain('GTBank');
+    expect(list).not.toContain('Wema Bank'); // 0000014579 can't be a Wema number
   });
   it('in the chat: send only the number, tap the bank', async () => {
     const p = phone();
@@ -162,9 +162,10 @@ describe('picking a bank', () => {
     await h.say(p, '0000014579');
     expect(h.last(p)).toMatch(/Which bank is \*0000014579\* with\?/);
     expect(h.last(p)).toMatch(/First Bank/);
-    expect(h.last(p)).not.toMatch(/GTBank/);
+    expect(h.last(p)).toMatch(/GTBank/); // always listed
+    expect(h.last(p)).not.toMatch(/Wema/);
     await h.tap(p, 'bpick:011');
-    expect(h.last(p)).toMatch(/Is this your account\?[\s\S]*First Bank ••••4579/);
+    expect(h.last(p)).toMatch(/Is this your account\?[\s\S]*First Bank 0000014579/);
     await h.tap(p, 'bank:yes');
     expect(h.last(p)).toMatch(/Saved\. New orders pay into First Bank ••••4579/);
   });
@@ -175,7 +176,7 @@ describe('picking a bank', () => {
     await h.tap(p, 'bpick:other');
     expect(h.last(p)).toMatch(/Type the bank name/);
     await h.say(p, 'Wema');
-    expect(h.last(p)).toMatch(/Wema Bank ••••4579/);
+    expect(h.last(p)).toMatch(/Wema Bank 0000014579/);
   });
 });
 
@@ -187,11 +188,32 @@ describe('the dispatch form', () => {
     expect(field('COURIER', 'name').required).toBe('${data.is_rider}');
     expect(field('COURIER', 'phone').label).toBe('${data.phone_label}');
     expect(field('COURIER', 'bank')).toMatchObject({ type: 'Dropdown', 'data-source': '${data.banks}' });
-    // the plain fallback, if Meta refuses switchable fields
-    const safe = ordersFlowJson('ORDER', true) as any;
-    const sf = (screen: string, name: string) => safe.screens.find((x: any) => x.id === screen).layout.children.find((c: any) => c.name === name);
-    expect(sf('DISPATCH', 'pickup_address').required).toBe(false);
-    expect(sf('COURIER', 'phone').label).toBe('Phone number');
+    expect(field('COURIER', 'bank').required).toBe('${data.show_banks}');
+    expect(field('COURIER', 'confirm').required).toBe('${data.show_confirm}');
+  });
+
+  it('the backup forms: every field plainly required, within Meta\'s 10 connections', () => {
+    for (const start of ['FILTER', 'ORDER'] as const) {
+      const json = ordersFlowJson(start, true) as any;
+      const rm = json.routing_model as Record<string, string[]>;
+      expect(Object.values(rm).flat().length).toBeLessThanOrEqual(10);
+      const ids = json.screens.map((x: any) => x.id);
+      for (const [from, to] of Object.entries(rm)) { expect(ids).toContain(from); for (const t of to) expect(ids).toContain(t); }
+      const inbound = new Set(Object.values(rm).flat());
+      expect(ids.filter((id: string) => !inbound.has(id))).toEqual([start]);
+      for (const sc of json.screens) {
+        if (!['DISPATCH', 'PICKUP', 'COURIER', 'WAYBILL', 'BANK', 'CONFIRM', 'CODE'].includes(sc.id)) continue; // the steps where they fill things in
+        for (const c of sc.layout.children) {
+          if (!c.name || c.name === 'bank_other') continue; // "Not listed? Type it" really is optional
+          expect([sc.id, c.name, c.required]).toEqual([sc.id, c.name, true]);
+        }
+      }
+    }
+    const one = ordersFlowJson('ORDER', true) as any;
+    expect(one.screens.map((x: any) => x.id)).toEqual(['ORDER', 'DISPATCH', 'PICKUP', 'COURIER', 'WAYBILL', 'BANK', 'CONFIRM', 'DONE']);
+    const waybill = one.screens.find((x: any) => x.id === 'WAYBILL').layout.children;
+    expect(waybill.find((c: any) => c.name === 'phone').label).toBe('Driver\'s number');
+    expect(waybill.find((c: any) => c.name === 'name')).toBeUndefined();
   });
 });
 
@@ -216,5 +238,77 @@ describe('phone numbers', () => {
     expect(localPhone('08031234567')).toBe('08031234567');
     expect(localPhone('+15551380045')).toBe('+15551380045');
     expect(localPhone(null)).toBe('');
+  });
+});
+
+describe('messages from Hoolam support (console)', () => {
+  it('goes as the approved template about their latest order, any time; their reply reaches Support', async () => {
+    const buyer = phone(), seller = phone();
+    await h.say(buyer, 'hi', 'Ada Obi');
+    await h.app.chat.handle({ id: `s${++n}`, phone: buyer, name: 'Ada Obi', type: 'form', text: '', buttonId: null, mediaId: null,
+      form: { flow_token: 'buy:v1', item: 'Wig', description: 'Bone straight', category: 'beauty', price: '20000', address: 'GRA', arrive_by: '2099-12-31', other_phone: seller, photos: [{ id: 'w1' }] } });
+    await h.tap(buyer, 'buy:send');
+    const code = (await h.db.query(`SELECT code FROM deals WHERE buyer_id=(SELECT id FROM users WHERE phone=$1)`, [buyer])).rows[0].code;
+    const id = (await h.db.query('SELECT id FROM users WHERE phone=$1', [buyer])).rows[0].id;
+    // more than 24 hours since they wrote: only a template can reach them
+    await h.db.query(`UPDATE chat_sessions SET last_inbound_at=now() - interval '3 days', state='IDLE' WHERE phone=$1`, [buyer]);
+    h.app.messenger.setTemplateStatus('hoolam_support_update', 'APPROVED');
+    const long = 'Your seller has confirmed the wig.\nIt will be dispatched tomorrow morning. '.repeat(20);
+    const r = await call('POST', `/console/api/people/${id}/message`, { cookie: owner, body: { text: long } });
+    expect(r.status).toBe(400); // over 600 characters
+    const ok = await call('POST', `/console/api/people/${id}/message`, { cookie: owner, body: { text: 'Your seller has confirmed the wig.\nIt will be dispatched tomorrow morning.' } });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toMatchObject({ via: 'template', code });
+    const last = (await h.db.query(`SELECT body FROM outbound_messages WHERE phone=$1 ORDER BY id DESC LIMIT 1`, [buyer])).rows[0].body.text;
+    expect(last).toMatch(new RegExp(`Hoolam support:\\*? an update about your order \\*?${code}`));
+    expect(last).toMatch(/Your seller has confirmed the wig\. It will be dispatched tomorrow morning\./); // one paragraph
+    // their reply goes to the support inbox
+    await h.say(buyer, 'Thank you, please tell them to call me');
+    const sr = (await h.db.query(`SELECT message FROM support_requests WHERE phone=$1 ORDER BY id DESC LIMIT 1`, [buyer])).rows[0];
+    expect(sr.message).toBe(`[Order ${code}] Thank you, please tell them to call me`);
+    // from the order too, to the buyer or the seller
+    const fromOrder = await call('POST', `/console/api/deals/${code}/message`, { cookie: owner, body: { to: 'buyer', text: 'Checking in on your order.' } });
+    expect(fromOrder.status).toBe(200);
+  });
+
+  it('someone with no orders, outside 24 hours: refused with a clear reason', async () => {
+    const p = phone();
+    await h.say(p, 'hi');
+    await h.db.query(`UPDATE chat_sessions SET last_inbound_at=now() - interval '3 days' WHERE phone=$1`, [p]);
+    const id = (await h.db.query('SELECT id FROM users WHERE phone=$1', [p])).rows[0].id;
+    const r = await call('POST', `/console/api/people/${id}/message`, { cookie: owner, body: { text: 'Hello from Hoolam' } });
+    expect(r.status).toBe(409);
+    expect(r.json.error).toMatch(/no orders/);
+  });
+});
+
+describe('promises and limits from the console', () => {
+  it('rep and problem reply times, unpaid window and code tries are settings; messages use them', async () => {
+    const defs = (await call('GET', '/console/api/settings', { cookie: owner })).json.defs;
+    expect(defs.filter((d: any) => ['rep_reply_minutes', 'problem_reply_hours', 'unpaid_close_hours'].includes(d.key)).map((d: any) => d.group)).toEqual(['Timing', 'Timing', 'Timing']);
+    expect(defs.find((d: any) => d.key === 'handover_code_tries').group).toBe('Limits');
+    await h.app.settings.save(h.db, { rep_reply_minutes: 45, problem_reply_hours: 12, handover_code_tries: 3 }, null);
+    try {
+      const p = phone();
+      await h.say(p, 'hi'); await h.say(p, 'menu');
+      const menu = (await h.db.query(`SELECT body FROM outbound_messages WHERE phone=$1 ORDER BY id DESC LIMIT 1`, [p])).rows[0].body;
+      expect(JSON.stringify(menu)).toMatch(/Live rep within 45 mins/);
+      await h.say(p, '/human');
+      expect(h.last(p)).toMatch(/within 45 minutes/);
+      expect(h.app.deals.handoverTries()).toBe(3);
+    } finally {
+      await h.app.settings.save(h.db, { rep_reply_minutes: 30, problem_reply_hours: 24, handover_code_tries: 5 }, null);
+    }
+  });
+
+  it('Hoolam\'s own number is the example, and can\'t be used as the seller\'s', async () => {
+    await h.app.settings.save(h.db, { whatsapp_number: '2348117663890' }, null);
+    const p = phone();
+    await h.say(p, 'hi'); await h.tap(p, 'menu:check');
+    expect(h.last(p)).toMatch(/For example: _08117663890_/);
+    await h.tap(p, 'menu:buy');
+    await h.say(p, 'Bag'); await h.say(p, 'New'); await h.tap(p, 'cat:other'); await h.say(p, '9000'); await h.say(p, '12 Woji Road'); await h.tap(p, 'bdate:1'); await h.tap(p, 'buy:nophotos');
+    await h.say(p, '08117663890');
+    expect(h.last(p)).toMatch(/That's Hoolam's number\. Please type the seller's WhatsApp number/);
   });
 });

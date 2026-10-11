@@ -5,6 +5,7 @@ import { api, post } from '../api';
 import { useAuth } from '../auth';
 import { ACTIONS, ago, dateOnly, dateTime, hours, money, phone } from '../format';
 import { useData, useDebounced } from '../hooks';
+import { SupportMessage } from './SupportMessage';
 import { Avatar, Button, ConfirmAction, Empty, ErrorBanner, Pager, Seg, Skeleton, SkeletonRows, StatusPill, useToast } from '../ui';
 
 export function People() {
@@ -92,7 +93,7 @@ export function Person() {
         </div>
       </div>
       {u.blocked && <div className="banner red" style={{ marginBottom: 16 }}><CirclePause /><div><b>Paused.</b> They can only talk to the team on WhatsApp. Reason: {u.blocked_reason ?? '—'}</div></div>}
-      {data.optout && <div className="banner gold" style={{ marginBottom: 16 }}><CirclePause /><div>Tapped “Not me” on an alert {ago(data.optout.created_at)}. Hoolam never sends them alerts.</div></div>}
+      {data.refusals?.length > 0 && <div className="banner gold" style={{ marginBottom: 16 }}><CirclePause /><div>Tapped “Not me” on an alert from {data.refusals.map((r: any, i: number) => <span key={r.from_id}>{i ? ', ' : ''}<Link to={`/people/${r.from_id}`}>{r.from_name}</Link> ({r.deal_code ?? 'an order'}, {ago(r.created_at)})</span>)}. Those people can't alert them again; everyone else still can.</div></div>}
 
       <div className="grid side">
         <div className="stack">
@@ -128,6 +129,8 @@ export function Person() {
           </section>
         </div>
         <div className="stack">
+          {can('support.reply') && <SupportMessage endpoint={`/people/${id}/message`} title="Message them"
+            note={data.deals?.[0] ? `Sent as an update about their latest order, ${data.deals[0].code}. Works any time; their reply comes to Support.` : 'They have no orders yet, so it goes as a chat message: only if they messaged Hoolam in the last 24 hours.'} />}
           {s && (s.photoVersion || s.socials.length > 0 || u.profile_slug) && (
             <section className="panel">
               <div className="panel-head"><h2>Their public page</h2>{u.profile_public ? <span className="pill green plain" style={{ marginLeft: 'auto' }}>Live</span> : <span className="pill grey plain" style={{ marginLeft: 'auto' }}>Hidden</span>}</div>

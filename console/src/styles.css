@@ -662,3 +662,8 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 11px; resize: ver
 .bands-table .affix { width: 150px; }
 .band-upto { display: flex; flex-direction: column; gap: 4px; }
 @media (prefers-reduced-motion: reduce) { .bands-arrow { transition: none; } }
+
+/* support message box: the text area with its live character count */
+.support-text { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.support-text textarea { width: 100%; resize: vertical; }
+.support-text > div { text-align: right; font-variant-numeric: tabular-nums; }

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Config } from '../config.js';
 import type { Db } from '../db.js';
-import { DealError, type DealService } from '../deals/service.js';
+import { DealError, SUPPORT_MESSAGE_MAX, type DealService } from '../deals/service.js';
 import type { PaymentProvider } from '../payments/provider.js';
 import { SETTING_DEFS, type SettingValue, type Settings } from '../settings.js';
 import { parseSocial, SOCIAL_KINDS, type SocialKind } from '../socials.js';
@@ -295,14 +295,18 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       if (!Number.isInteger(hours) || hours < 1 || hours > 168) throw new HttpError(400, 'Extend by 1 to 168 hours.');
       return { acceptBy: await d.deals.extendAcceptTime(code, hours) };
     });
+    // a message from Hoolam support to the buyer or seller, about this order: works at any time (approved template)
     dealAction('message', 'deal.message', async (code, b) => {
       const text = String(b.text ?? '').trim();
       if (text.length < 2) throw new HttpError(400, 'Write a message first.');
       if (b.to !== 'buyer' && b.to !== 'seller') throw new HttpError(400, 'Choose buyer or seller.');
-      const status = await d.deals.messageParty(code, b.to, text.slice(0, 900));
-      if (status === 'NEEDS_TEMPLATE') throw new HttpError(409, 'Not delivered: they haven\'t messaged Hoolam in the last 24 hours (WhatsApp rule). Ask them to message Hoolam first.');
-      if (status === 'FAILED') throw new HttpError(502, 'WhatsApp refused the message. Check the logs.');
-      return { delivery: status, text: text.slice(0, 900) };
+      const deal = await d.deals.findByCode(code);
+      if (!deal) throw new HttpError(404, 'No such order');
+      const userId = b.to === 'seller' ? (deal.seller_id ?? deal.counter_seller_id) : deal.buyer_id;
+      const phone = userId ? (await db.query('SELECT phone FROM users WHERE id=$1', [userId])).rows[0]?.phone : null;
+      if (!phone) throw new HttpError(409, `This order has no ${b.to} yet.`);
+      const r = await supportSend(phone, text, code);
+      return { delivery: r.status, via: r.via, code: r.code, text: oneParagraph(text) };
     }, false);
     api.post('/deals/:code/notes', async (req) => {
       need(req, 'deal.note');
@@ -446,12 +450,13 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         db.query(`SELECT bank_name, right(account_number, 4) AS last4, account_name, is_default, created_at FROM bank_accounts WHERE user_id=$1 ORDER BY created_at DESC`, [id]),
         db.query(`SELECT code, item, status, buyer_pays_minor, currency, created_at, CASE WHEN seller_id=$1 THEN 'seller' ELSE 'buyer' END AS role FROM deals WHERE seller_id=$1 OR buyer_id=$1 OR counter_seller_id=$1 ORDER BY created_at DESC LIMIT 30`, [id]),
         db.query(`SELECT id, message, status, created_at FROM support_requests WHERE user_id=$1 ORDER BY id DESC LIMIT 10`, [id]),
-        db.query(`SELECT reason, created_at FROM contact_optouts WHERE phone=$1`, [u.phone]),
+        db.query(`SELECT r.deal_code, r.created_at, COALESCE(f.business_name, f.display_name, f.phone) AS from_name, f.id AS from_id
+                  FROM alert_refusals r JOIN users f ON f.id = r.from_user_id WHERE r.phone=$1 ORDER BY r.created_at DESC`, [u.phone]),
         db.query(`SELECT at, actor, action, reason, details FROM audit_log WHERE target_type='user' AND target_id=$1 ORDER BY id DESC LIMIT 30`, [id]),
       ]);
       return {
         user: u, seller: await d.trust.seller(id), buyer: await d.trust.buyer(id),
-        banks: banks.rows, deals: deals.rows, support: support.rows, optout: optout.rows[0] ?? null, trail: trail.rows,
+        banks: banks.rows, deals: deals.rows, support: support.rows, refusals: optout.rows, trail: trail.rows,
         normalCapMinor: d.deals.maxDealMinor,
       };
     });
@@ -526,7 +531,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       ]);
       const thread = [
         ...requests.rows.map((r) => ({ id: `in-${r.id}`, from: 'them', text: r.message, at: r.created_at })),
-        ...outbound.rows.map((o) => ({ id: `out-${o.id}`, from: 'hoolam', text: o.body?.text ?? '', at: o.created_at, status: o.status, team: String(o.body?.text ?? '').startsWith('🙋 From the Hoolam team') })),
+        ...outbound.rows.map((o) => ({ id: `out-${o.id}`, from: 'hoolam', text: o.body?.text ?? '', at: o.created_at, status: o.status, team: /🙋 (From the Hoolam team|\*?Hoolam support)/.test(String(o.body?.text ?? '')) })),
       ].sort((a, b) => +new Date(a.at) - +new Date(b.at));
       return { request: s, thread, windowOpen: !!windowOpen.rows[0]?.open, lastInboundAt: windowOpen.rows[0]?.last_inbound_at ?? null, trail: trail.rows };
     });
@@ -535,20 +540,41 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const id = (req.params as { id: string }).id;
       const text = String((req.body as { text?: string }).text ?? '').trim();
       if (text.length < 2) throw new HttpError(400, 'Write a reply first.');
-      const s = (await db.query('SELECT phone FROM support_requests WHERE id=$1', [id])).rows[0];
+      const s = (await db.query('SELECT phone, message FROM support_requests WHERE id=$1', [id])).rows[0];
       if (!s) throw new HttpError(404, 'No such request');
+      const code = String(s.message ?? '').match(/\[Order (HL-[A-Z0-9]+)\]/)?.[1] ?? null;
       const status = await act(req, { action: 'support.reply', targetType: 'support', targetId: id, details: { text: text.slice(0, 200) } },
-        async () => {
-          const st = await d.messenger.send(s.phone, msg.fromTeam(text.slice(0, 900)));
-          if (st === 'NEEDS_TEMPLATE') throw new HttpError(409, 'Not delivered: it\'s been more than 24 hours since they messaged Hoolam (WhatsApp rule).');
-          if (st === 'FAILED') throw new HttpError(502, 'WhatsApp refused the message.');
-          return st;
-        });
+        () => supportSend(s.phone, text, code));
       if ((req.body as { close?: boolean }).close) {
         await db.query(`UPDATE support_requests SET status='CLOSED', closed_at=now(), closed_by=$2 WHERE id=$1`, [id, req.staff!.id]);
         await audit(db, actorOf(req), { action: 'support.close', targetType: 'support', targetId: id });
       }
-      return { ok: true, delivery: status };
+      return { ok: true, delivery: status.status, via: status.via, code: status.code };
+    });
+
+    /** A message from Hoolam support, at any time: the approved template about an order (or a chat message if it can't be). */
+    const oneParagraph = (t: string) => t.replace(/\s+/g, ' ').trim().slice(0, SUPPORT_MESSAGE_MAX);
+    async function supportSend(phone: string, text: string, code: string | null) {
+      if (text.replace(/\s+/g, ' ').trim().length > SUPPORT_MESSAGE_MAX) throw new HttpError(400, `Keep it to ${SUPPORT_MESSAGE_MAX} characters.`);
+      const r = await d.deals.sendSupportMessage(phone, text, code);
+      if (r.status === 'NEEDS_TEMPLATE') {
+        throw new HttpError(409, r.code
+          ? 'Not delivered yet: Meta hasn\'t approved the support message, and they haven\'t messaged Hoolam in 24 hours. It\'s waiting in Needs action.'
+          : 'Not delivered: they have no orders to attach it to, and they haven\'t messaged Hoolam in 24 hours (WhatsApp rule).');
+      }
+      if (r.status === 'FAILED') throw new HttpError(502, 'WhatsApp refused the message.');
+      return r;
+    }
+
+    // message a person from their page (about their latest order), or a buyer/seller from an order
+    api.post('/people/:id/message', async (req) => {
+      need(req, 'support.reply');
+      const id = (req.params as { id: string }).id;
+      const text = String((req.body as { text?: string }).text ?? '');
+      const u = (await db.query('SELECT phone FROM users WHERE id=$1', [id])).rows[0];
+      if (!u) throw new HttpError(404, 'No such person');
+      const r = await act(req, { action: 'person.message', targetType: 'user', targetId: id, details: { text: text.slice(0, 200) } }, () => supportSend(u.phone, text, null));
+      return { ok: true, delivery: r.status, via: r.via, code: r.code };
     });
     api.post('/support/:id/close', async (req) => {
       need(req, 'support.close');

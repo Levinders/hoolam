@@ -205,6 +205,12 @@ export const DEAL_TEMPLATES = {
     body: 'Order {{1}} is paid and waiting to be dispatched. The buyer is expecting it.\n\nTap below to dispatch it.',
     example: ['HL-7K2QF'], buttons: ['Dispatch now'],
   },
+  supportMessage: {
+    // Whatever the team types in the console, as an order update (utility). Line breaks become spaces (Meta's rule).
+    name: 'hoolam_support_update', label: 'A message from Hoolam support (to a buyer or seller)',
+    body: '🙋 *Hoolam support:* an update about your order *{{1}}*.\n\n{{2}}\n\nReply here if you have any questions.',
+    example: ['HL-7K2QF', 'Your rider is on the way and will call you in about 10 minutes.'],
+  },
   overdue: {
     name: 'hoolam_order_overdue', label: 'Not dispatched by the expected date (to the buyer)',
     body: 'Order {{1}} has not been dispatched yet, and the date you expected it has passed. Your money is still held by Hoolam.\n\nWhat would you like to do?',

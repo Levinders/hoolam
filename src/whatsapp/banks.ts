@@ -52,12 +52,15 @@ export function nubanFits(bankCode: string, accountNumber: string): boolean | nu
 }
 
 /** The banks and fintechs people use most, in the order we list them. */
-const POPULAR = ['opay', 'moniepoint', 'palmpay', 'kuda', 'gtbank', 'access', 'zenith', 'firstbank', 'uba', 'wema', 'fcmb', 'fidelity', 'sterling', 'union', 'stanbic', 'ecobank', 'polaris', 'keystone', 'providus'];
-/** Fintechs whose account numbers don't always pass the NUBAN check under the codes payment providers list: always offered. */
-const ALWAYS = new Set(['opay', 'moniepoint', 'palmpay', 'kuda']);
+const POPULAR = ['opay', 'moniepoint', 'palmpay', 'kuda', 'gtbank', 'fidelity', 'zenith', 'access', 'firstbank', 'uba', 'wema', 'fcmb', 'sterling', 'union', 'stanbic', 'ecobank', 'polaris', 'keystone', 'providus'];
+/**
+ * Always offered, whatever the number: the big fintechs (their numbers don't always pass the NUBAN check under the
+ * codes payment providers list) and the banks most people use (GTBank, Fidelity, Zenith).
+ */
+const ALWAYS = new Set(['opay', 'moniepoint', 'palmpay', 'kuda', 'gtbank', 'fidelity', 'zenith']);
 
 /**
- * The banks to offer for an account number, most likely first: the big fintechs always, then the popular banks
+ * The banks to offer for an account number, most likely first: the ones always offered, then the popular banks
  * the number fits, then every other bank it fits (by name). At most `max` (WhatsApp dropdowns allow 200).
  */
 export function bankChoices(accountNumber: string, banks: Bank[], max = 200): Bank[] {

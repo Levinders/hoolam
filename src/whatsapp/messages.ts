@@ -18,16 +18,31 @@ const m = (x: Money) => formatMoney(x.minor, x.currency);
  * To add an option: add a row (title up to 24 characters, description up to 72), then handle its id in
  * flow.ts (look for openMenuItem). WhatsApp allows 10 rows in total per menu.
  */
+/**
+ * Values from the console that messages mention: reply times and Hoolam's number (the example in "like 0…" hints).
+ * app.ts points these at the live settings, so a change in the console shows in the very next message.
+ */
+const live = {
+  repReplyMinutes: () => 30,
+  problemReplyHours: () => 24,
+  hoolamNumber: () => '' as string,
+};
+export function configureMessages(c: Partial<typeof live>) { Object.assign(live, c); }
+const repText = (short = false) => { const n = live.repReplyMinutes(); return n < 60 ? `${n} ${short ? 'mins' : 'minutes'}` : n % 60 ? `${Math.floor(n / 60)} h ${n % 60} min` : `${n / 60} hour${n === 60 ? '' : 's'}`; };
+const problemText = () => { const n = live.problemReplyHours(); return `${n} hour${n === 1 ? '' : 's'}`; };
+/** Hoolam's number, the way people write it: the example number everywhere. */
+export const exampleNumber = () => localPhone(live.hoolamNumber()) || '08012345678';
+
 const HELP_ROWS = (switchTo: 'buyer' | 'seller') => [
   { id: 'menu:problem', title: '🚩 Report a problem', description: switchTo === 'seller' ? 'We hold the money until it’s sorted' : 'Get help with an order' },
   { id: 'menu:how', title: '💡 How it works', description: 'The steps and fees' },
-  { id: 'menu:human', title: '🙋 Talk to a rep', description: 'Live rep within 30 mins' },
+  { id: 'menu:human', title: '🙋 Talk to a rep', description: `Live rep within ${repText(true)}` },
   switchTo === 'seller'
     ? { id: 'menu:tosell', title: '🔁 Switch to selling', description: 'Sell safely, get paid for sure' }
     : { id: 'menu:tobuy', title: '🔁 Switch to buying', description: 'Buy safely from any seller' },
 ];
 
-export const BUYER_MENU: ListSection[] = [
+export const buyerMenu = (): ListSection[] => [
   {
     title: 'Buying',
     rows: [
@@ -40,7 +55,7 @@ export const BUYER_MENU: ListSection[] = [
   { title: 'Help', rows: HELP_ROWS('seller') },
 ];
 
-export const SELLER_MENU: ListSection[] = [
+export const sellerMenu = (): ListSection[] => [
   {
     title: 'Selling',
     rows: [
@@ -54,7 +69,9 @@ export const SELLER_MENU: ListSection[] = [
 ];
 
 export type MenuMode = 'buyer' | 'seller';
-export const menuFor = (mode: MenuMode): ListSection[] => (mode === 'seller' ? SELLER_MENU : BUYER_MENU);
+export const menuFor = (mode: MenuMode): ListSection[] => (mode === 'seller' ? sellerMenu() : buyerMenu());
+export const BUYER_MENU = buyerMenu();
+export const SELLER_MENU = sellerMenu();
 
 /** The whole idea in four lines. Used in the welcome and in "How it works". */
 const STORY =
@@ -145,7 +162,7 @@ export const msg = {
     button: 'Choose order',
     sections: [{ title: 'Your open orders', rows: rows.slice(0, 10).map((r) => ({ id: `sproblem:${r.code}`, title: r.code, description: r.item.slice(0, 72) })) }],
   }),
-  askSellerProblem: (code: string): Outbound => ({ kind: 'text', text: `🚩 What's wrong with order ${code}? Type it, or send a photo.\n\nA live rep replies right here within 30 minutes.` }),
+  askSellerProblem: (code: string): Outbound => ({ kind: 'text', text: `🚩 What's wrong with order ${code}? Type it, or send a photo.\n\nA live rep replies right here within ${repText()}.` }),
   pickDealForProblem: (rows: { code: string; item: string }[]): Outbound => ({
     kind: 'list',
     text: '🚩 Which order has a problem?\n\nWe\'ll freeze its money while we sort it out.',
@@ -163,8 +180,8 @@ export const msg = {
   accountSaved: (bankName: string, last4: string): Outbound => withMenu(`✅ Saved. New orders pay into ${bankName} ••••${last4}.\n\nOrders already running keep their account.`),
 
   // ----- talk to a person -----
-  askHumanMessage: (): Outbound => ({ kind: 'text', text: '🙋 Type your message for the team. A photo works too.\n\nA live rep replies right here, within 30 minutes.' }),
-  humanLogged: (ref: string): Outbound => withMenu(`✅ Got it. Your message is with the team.\n\nA rep will reply here within 30 minutes. (Ref ${ref})`),
+  askHumanMessage: (): Outbound => ({ kind: 'text', text: `🙋 Type your message for the team. A photo works too.\n\nA live rep replies right here, within ${repText()}.` }),
+  humanLogged: (ref: string): Outbound => withMenu(`✅ Got it. Your message is with the team.\n\nA rep will reply here within ${repText()}. (Ref ${ref})`),
 
   testNothingToPay: (): Outbound => ({ kind: 'text', text: 'TEST MODE: there is no payment waiting. Open an order link and tap "Pay now" first.' }),
   voiceSoon: (): Outbound => ({ kind: 'text', text: 'Voice notes are coming soon. For now, please type your answer.' }),
@@ -218,7 +235,7 @@ export const msg = {
       ? [{ id: `pay:${payCode}`, title: '💳 Pay now' }, { id: 'menu:open', title: 'Main menu' }]
       : [...(buyFromId ? [{ id: `buyfrom:${buyFromId}`, title: '🛒 Buy from them' }] : []), { id: 'menu:check', title: '🔍 Check another' }, { id: 'menu:open', title: 'Main menu' }],
   }),
-  askCheckSeller: (): Outbound => ({ kind: 'text', text: '🔍 Send the seller\'s WhatsApp number, or an order code they gave you.\n\nFor example: _08012345678_ or _HL-7K2QF_' }),
+  askCheckSeller: (): Outbound => ({ kind: 'text', text: `🔍 Send the seller's WhatsApp number, or an order code they gave you.\n\nFor example: _${exampleNumber()}_ or _HL-7K2QF_` }),
   noSellerRecord: (): Outbound => ({
     kind: 'buttons',
     text: '🌱 No Hoolam record for that number yet. That doesn\'t mean they\'re bad, just new here.\n\nStay safe either way: with a Hoolam order, your money is held until you\'re happy.',
@@ -320,7 +337,7 @@ export const msg = {
   }),
   badSellerPhone: (): Outbound => ({
     kind: 'buttons',
-    text: '🤔 I couldn\'t read that number. Try it like _08012345678_.',
+    text: `🤔 I couldn't read that number. Try it like _${exampleNumber()}_.`,
     buttons: [{ id: 'buy:nophone', title: 'Skip' }],
   }),
 
@@ -362,7 +379,7 @@ export const msg = {
       title: 'Your order',
       rows: [
         { id: 'bfix:item', title: 'Item name' }, { id: 'bfix:description', title: 'Description' }, { id: 'bfix:category', title: 'Category' },
-        { id: 'bfix:price', title: 'Total price' }, { id: 'bfix:address', title: 'Delivery address' }, { id: 'bfix:photos', title: 'Photos' },
+        { id: 'bfix:price', title: 'Total price' }, { id: 'bfix:address', title: 'Delivery address' }, { id: 'bfix:date', title: 'Expected date' }, { id: 'bfix:photos', title: 'Photos' },
         { id: 'bfix:seller', title: 'Seller\'s WhatsApp' },
       ],
     }],
@@ -374,6 +391,22 @@ export const msg = {
     kind: 'list', text: '🏷️ What kind of item is it?', button: 'Choose',
     sections: [{ title: 'Category', rows: CATEGORIES.map((c) => ({ id: `cat:${c.id}`, title: c.title })) }],
   }),
+  askArriveBy: (): Outbound => ({
+    kind: 'buttons',
+    text: '📅 When are you expecting it?\n\nTap below, or type a date like _25 Oct_ or _25/10_.',
+    buttons: [{ id: 'bdate:1', title: 'Tomorrow' }, { id: 'bdate:3', title: 'In 3 days' }, { id: 'bdate:7', title: 'In a week' }],
+  }),
+  badArriveBy: (): Outbound => ({
+    kind: 'buttons',
+    text: '🤔 I couldn\'t read that date, or it has passed. Type it like _25 Oct_ or _25/10_, or tap below.',
+    buttons: [{ id: 'bdate:1', title: 'Tomorrow' }, { id: 'bdate:3', title: 'In 3 days' }, { id: 'bdate:7', title: 'In a week' }],
+  }),
+  /** Someone typed Hoolam's own number as the other person's. */
+  hoolamNumberTyped: (who: 'seller' | 'buyer' | 'rider' | 'driver', skip?: string): Outbound => ({
+    kind: 'buttons',
+    text: `🤔 That's Hoolam's number. Please type the ${who}'s WhatsApp number.`,
+    buttons: skip ? [{ id: skip, title: 'Skip' }] : [{ id: 'menu:open', title: 'Main menu' }],
+  }),
   askDeliveryAddress: (): Outbound => ({ kind: 'text', text: '📍 What\'s the delivery address?\n\nStreet, area and city. For example: _12 Woji Road, Port Harcourt_' }),
 
   buyDealReady: (code: string, link: string, alert: 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed', hours: number, page: string | null = null): Outbound => ({
@@ -382,7 +415,7 @@ export const msg = {
       `✅ Order *${code}* is ready.\n\n` +
       (alert === 'sent' ? '📨 We\'ve alerted the seller.\n\nSend them this link too, just in case:\n'
         : alert === 'own-number' ? '📨 That\'s your own number, so we didn\'t alert it. Send this link to the seller:\n'
-        : alert === 'opted-out' ? '📨 That number asked us not to message it. Send this link to the seller yourself:\n'
+        : alert === 'opted-out' ? '📨 That number said it isn\'t your seller last time, so we didn\'t alert it. If it is, send them this link yourself:\n'
         : 'Send this link to the seller:\n') +
       `${link}\n\n⏳ They have ${hours} hours to accept. We'll tell you the moment they do.` + (page ? `\n\n🔗 Your order: ${page}` : ''),
     buttons: [{ id: `cancel:${code}`, title: 'Cancel order' }, { id: 'menu:open', title: 'Main menu' }],
@@ -460,13 +493,15 @@ export const msg = {
   }),
   cancelledByHoolam: (code: string): Outbound => withMenu(`Order ${code} has been closed by the Hoolam team. No money moved.\n\nQuestions? Tap Main menu → Talk to a rep.`),
   fromTeam: (text: string): Outbound => withMenu(`🙋 From the Hoolam team:\n\n${text}`),
+  /** A console message sent as a chat message (no order to attach it to, or the template isn't approved yet). */
+  fromSupport: (text: string, code: string | null): Outbound => withMenu(`🙋 *Hoolam support*${code ? `: an update about your order *${code}*` : ''}\n\n${text}\n\nReply here if you have any questions.`),
   accountPaused: (): Outbound => ({
     kind: 'buttons',
     text: '⏸️ Your Hoolam account is paused while our team looks into something. You can still talk to us.',
     buttons: [{ id: 'menu:human', title: '🙋 Talk to a rep' }],
   }),
   sellerDeclinedOk: (code: string): Outbound => withMenu(`Done. Order ${code} is declined. No money moved.`),
-  sellerNotMeOk: (): Outbound => ({ kind: 'text', text: '🙏 Sorry about that. We won\'t send you order alerts again.' }),
+  sellerNotMeOk: (): Outbound => ({ kind: 'text', text: '🙏 Sorry about that. We\'ve closed it, and that person can\'t send you order alerts again.' }),
   dealHasSeller: (code: string): Outbound => withMenu(`🔒 Order ${code} already has a seller. If you're selling to this buyer, ask them for a new order.`),
   dealStatusNow: (code: string, status: string): Outbound => withMenu(`Order ${code}: ${STATUS_WORDS[status] ?? status}.`),
 
@@ -487,9 +522,9 @@ export const msg = {
   badBank: (): Outbound => ({ kind: 'text', text: 'I couldn\'t read that. Please send the 10-digit account number (and the bank, if you like), like: 0123456789 Opay' }),
   bankNotFound: (bank: string): Outbound => ({ kind: 'text', text: `I couldn't find a bank called "${bank}". Try the usual name, like GTBank, Access, Zenith, Opay, Moniepoint or Kuda.` }),
   accountNotFound: (): Outbound => ({ kind: 'text', text: 'That account number didn\'t match the bank. Please check it and send it again.' }),
-  confirmBank: (accountName: string, bankName: string, last4: string): Outbound => ({
+  confirmBank: (accountName: string, bankName: string, accountNumber: string): Outbound => ({
     kind: 'buttons',
-    text: `Is this your account?\n\n${accountName}\n${bankName} ••••${last4}`,
+    text: `Is this your account?\n\n*${accountName}*\n${bankName} ${accountNumber}`,
     buttons: [{ id: 'bank:yes', title: 'Yes, that\'s me' }, { id: 'bank:no', title: 'No, change it' }],
   }),
   confirmDeal: (d: { item: string; photos: number; buyerPhone: string | null; price: Money; fee: Money; buyerPays: Money; sellerGets: Money }): Outbound => ({
@@ -514,7 +549,7 @@ export const msg = {
   }),
   badBuyerPhone: (): Outbound => ({
     kind: 'buttons',
-    text: '🤔 I couldn\'t read that number. Try it like _08012345678_.',
+    text: `🤔 I couldn't read that number. Try it like _${exampleNumber()}_.`,
     buttons: [{ id: 'sell:nophone', title: 'Skip' }],
   }),
   sellerBuyerNotMe: (code: string): Outbound => ({
@@ -534,7 +569,7 @@ export const msg = {
     `✅ Order *${code}* is ready.\n\n` +
     (alert === 'sent' ? '📨 We\'ve sent the buyer the order.\n\nSend them this link too, just in case:\n'
       : alert === 'own-number' ? '📨 That\'s your own number, so we didn\'t alert it. Send this link to your buyer:\n'
-      : alert === 'opted-out' ? '📨 That number asked us not to message it. Send this link to your buyer yourself:\n'
+      : alert === 'opted-out' ? '📨 That number said it isn\'t your buyer last time, so we didn\'t alert it. If it is, send them this link yourself:\n'
       : alert === 'failed' ? '📵 We couldn\'t reach that WhatsApp number. Send this link to your buyer:\n'
       : 'Send this link to your buyer:\n') +
     `${link}\n\n⏳ We'll tell you the moment they pay. Don't ship before then.`,
@@ -568,7 +603,7 @@ export const msg = {
     text: `We received ${m(paid)}, but the total is ${m(due)}. Your money is safe with us. A person from Hoolam will contact you to sort it out.`,
   }),
   buyerFunded: (total: Money, code: string, sellerName = 'the seller'): Outbound => withMenu(
-    `✅ Received *${m(total)}*. *Your money is safe with Hoolam.*\n\nWe've told ${sellerName} to send your item. Nothing moves until you say you're happy. (Order *${code}*)`,
+    `✅ Received *${m(total)}*. *Your money is held safely by Hoolam.*\n\nWe've told ${sellerName} to send your item. Nothing moves until you say you're happy. (Order *${code}*)`,
   ),
 
   // ----- seller ships -----
@@ -618,16 +653,16 @@ export const msg = {
     kind: 'text',
     text: `🏦 The ${role}'s account number, for their delivery fee. We'll show you the banks to pick from.\n\nFor example: _0123456789_\n\n⚠️ Please check it carefully. We pay exactly the account you give, and Hoolam can't recover money sent to a wrong account.`,
   }),
-  confirmCourierAccount: (role: 'rider' | 'driver', accountName: string, bankName: string, last4: string): Outbound => ({
+  confirmCourierAccount: (role: 'rider' | 'driver', accountName: string, bankName: string, accountNumber: string): Outbound => ({
     kind: 'buttons',
-    text: `Is this the ${role}'s account?\n\n*${accountName}*\n${bankName} ••••${last4}\n\n⚠️ The delivery fee goes to this account. Wrong details are the seller's responsibility.`,
+    text: `Is this the ${role}'s account?\n\n*${accountName}*\n${bankName} ${accountNumber}\n\n⚠️ The delivery fee goes to this account. Wrong details are the seller's responsibility.`,
     buttons: [{ id: 'dacct:yes', title: 'Yes, that\'s right' }, { id: 'dacct:no', title: 'No, change it' }],
   }),
-  sellerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; fee: Money | null; page?: string | null }): Outbound => ({
+  sellerDispatched: (d: { code: string; method: 'PICKUP' | 'RIDER' | 'WAYBILL'; pickupAddress: string | null; courierName: string | null; courierPhone: string | null; location: string | null; fee: Money | null; page?: string | null; buyerName?: string }): Outbound => ({
     kind: 'buttons',
     text: (d.method === 'PICKUP'
-      ? `✅ Order ${d.code} is ready for pickup at:\n_${d.pickupAddress ?? ''}_\n\n🔑 *When the buyer comes, ask them for their 4-digit handover code before you give them the item.* Then tap *Enter code*.`
-      : `✅ Order ${d.code} is dispatched${d.method === 'RIDER' && d.courierName ? ` with ${d.courierName}` : ' by waybill'}.\n` +
+      ? `✅ *${d.buyerName ?? 'Buyer'}* · *${d.code}* is ready for pickup at:\n_${d.pickupAddress ?? ''}_\n\n🔑 *When the buyer comes, ask them for their 4-digit handover code before you give them the item.* Then tap *Enter code*.`
+      : `✅ *${d.buyerName ?? 'Buyer'}* · *${d.code}* is dispatched${d.method === 'RIDER' && d.courierName ? ` with ${d.courierName}` : ' by waybill'}.\n` +
         (d.fee ? `💸 ${d.method === 'RIDER' ? 'Rider' : 'Driver'}'s fee: ${m(d.fee)}, paid by Hoolam once the code is right.\n` : '') +
         `\n🔑 *Tell your ${d.method === 'RIDER' ? 'rider' : 'driver'}: ask the receiver for their 4-digit handover code, then send it to you.* Only hand over the item to the person with the right code.\n\nWhen you have it, tap *Enter code*.`)
       + (d.page ? `\n\n🔗 Order details: ${d.page}` : ''),
@@ -672,9 +707,9 @@ export const msg = {
     buttons: [{ id: `happy:${code}`, title: '✅ I\'m happy' }, { id: `problem:${code}`, title: '🚩 Problem' }],
   }),
   courierPaid: (code: string, amount: Money, name: string, bank: string): Outbound => ({ kind: 'text', text: `🛵 Delivery fee sent: ${m(amount)} to ${name} (${bank}) for order ${code}.` }),
-  sellerDispatchReminder: (code: string, item: string, fromBuyer: boolean): Outbound => ({
+  sellerDispatchReminder: (code: string, item: string, fromBuyer: boolean, buyerName = 'Buyer'): Outbound => ({
     kind: 'buttons',
-    text: `⏰ Order ${code} (${item.slice(0, 60)}) is paid and waiting to be dispatched.` + (fromBuyer ? '\n\nThe buyer sent you a reminder.' : ''),
+    text: `⏰ *${buyerName}* · *${code}* (${item.slice(0, 60)}) is paid and waiting to be dispatched.` + (fromBuyer ? `\n\n${buyerName} sent you a reminder.` : ''),
     buttons: [{ id: `dispatch:${code}`, title: '🚚 Dispatch now' }, { id: `srefund:${code}`, title: '❌ Can\'t fulfil' }],
   }),
   buyerOverdue: (code: string, item: string): Outbound => ({
@@ -705,7 +740,7 @@ export const msg = {
   // ----- release -----
   buyerReleased: (code: string, sellerName = 'the seller'): Outbound => ({
     kind: 'buttons',
-    text: `✅ Done. We're paying ${sellerName} now. Thanks for trading safely. (Order ${code})\n\nHow was ${sellerName}? One tap helps the next buyer.`,
+    text: `✅ Done. We're paying ${sellerName} now. Thanks for trading safely. (Order ${code})\n\nTo help other buyers like you, how was ${sellerName}?`,
     buttons: [{ id: `rateup:${code}`, title: '👍 Great' }, { id: `ratedown:${code}`, title: '👎 Not great' }, { id: 'menu:open', title: 'Main menu' }],
   }),
   sellerPaid: (code: string, amount: Money, bankName: string): Outbound => withMenu(`You've been paid. ${m(amount)} has been sent to your ${bankName} account for order ${code}.`),
@@ -722,7 +757,7 @@ export const msg = {
     kind: 'text',
     text: 'If we need to refund you, where should the money go? Send your account number, like _0123456789_. We\'ll show you the banks to pick from.',
   }),
-  problemLogged: (code: string, ref: string): Outbound => withMenu(`Got it. Case ${ref} is open for order ${code}. A real person will reply within 24 hours. The money stays frozen until it's sorted.`),
+  problemLogged: (code: string, ref: string): Outbound => withMenu(`Got it. Case ${ref} is open for order ${code}. A real person will reply within ${problemText()}. The money stays frozen until it's sorted.`),
   sellerProblem: (code: string): Outbound => ({
     kind: 'text',
     text: `The buyer reported a problem with order ${code}. The money is frozen while a person from Hoolam looks into it. We may contact you.`,
