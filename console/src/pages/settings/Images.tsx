@@ -1,10 +1,10 @@
-import { ArrowUpRight, CircleCheck, CloudUpload, ImageOff, Link2, Lock, RefreshCw, Trash2, TriangleAlert, Upload } from 'lucide-react';
+import { ArrowUpRight, CircleCheck, CloudUpload, Eye, Image as ImageIcon, ImageOff, Link2, Lock, RefreshCw, Rocket, Trash2, TriangleAlert, Upload } from 'lucide-react';
 import { useRef, useState, type DragEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { post } from '../../api';
 import { useAuth } from '../../auth';
 import { useBrand } from '../../brand';
-import { ago } from '../../format';
+import { ago, dateOnly } from '../../format';
 import { useData } from '../../hooks';
 import { Button, ConfirmAction, ErrorBanner, Skeleton, useToast } from '../../ui';
 import { SectionHead } from '../Settings';
@@ -12,17 +12,19 @@ import { SectionHead } from '../Settings';
 interface Slot { key: string; group: 'brand' | 'website'; section?: number; label: string; hint: string; aspect: string; round?: boolean; maxWidth: number; svg?: boolean }
 interface Item { slot: string; url: string; width: number | null; height: number | null; sizeBytes: number; originalName: string | null; updatedAt: string; updatedBy: string | null; mime: string }
 interface Site { autoRefresh: boolean; pending: boolean; lastRequestedAt: string | null; lastError: string | null }
-interface MediaData { slots: Slot[]; items: Record<string, Item>; site: Site; siteUrl: string | null }
+interface MediaData { slots: Slot[]; items: Record<string, Item>; site: Site; siteUrl: string | null; version: string }
+interface Version { version: string; date: string; notes: string; from: string | null; live: boolean; images: number }
+interface VersionsData { live: string; siteUrl: string | null; site: Site; lastLive: { at: string; actor: string; details: { from: string; to: string } } | null; websiteSpots: number; versions: Version[] }
 
 const SECTIONS: Record<number, string> = { 1: 'Top of the page', 2: 'Second section', 3: 'The five steps', 4: 'Fourth section', 5: 'Quotes' };
 const MAX = 12 * 1024 * 1024;
 const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** Sends the file with progress (fetch can't report upload progress). */
-function sendFile(slot: string, file: File, onProgress: (p: number) => void): Promise<any> {
+function sendFile(slot: string, file: File, onProgress: (p: number) => void, version?: string): Promise<any> {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('PUT', `/console/api/media/${slot}`);
+    x.open('PUT', `/console/api/media/${slot}${version ? `?version=${version}` : ''}`);
     x.setRequestHeader('x-hoolam-console', '1');
     x.setRequestHeader('content-type', file.type && file.type.startsWith('image/') ? file.type : 'image/unknown');
     x.setRequestHeader('x-file-name', encodeURIComponent(file.name));
@@ -48,12 +50,12 @@ function precheck(file: File, svgOk: boolean): string | null {
   return null;
 }
 
-function useMedia() {
-  return useData<MediaData>('/media');
+function useMedia(version?: string) {
+  return useData<MediaData>(`/media${version ? `?version=${version}` : ''}`);
 }
 
 /** One image spot: preview (yours or the website's drawing), upload by click or drop, remove. */
-function SlotCard({ slot, item, editable, onChanged, variant = 'card' }: { slot: Slot; item?: Item; editable: boolean; onChanged: () => void; variant?: 'card' | 'logo' | 'icon' }) {
+function SlotCard({ slot, item, editable, onChanged, variant = 'card', version, liveVersion }: { slot: Slot; item?: Item; editable: boolean; onChanged: () => void; variant?: 'card' | 'logo' | 'icon'; version?: string; liveVersion?: string }) {
   const toast = useToast();
   const { refreshBrand } = useBrand();
   const input = useRef<HTMLInputElement>(null);
@@ -73,8 +75,8 @@ function SlotCard({ slot, item, editable, onChanged, variant = 'card' }: { slot:
     const local = URL.createObjectURL(file);
     setPreview(local); setProgress(0);
     try {
-      await sendFile(slot.key, file, setProgress);
-      toast({ kind: 'ok', title: `${slot.group === 'brand' ? slot.label : `Section ${slot.section} · ${slot.label}`} updated`, body: 'Shows on the website within about a minute.' });
+      await sendFile(slot.key, file, setProgress, slot.group === 'brand' ? undefined : version);
+      toast({ kind: 'ok', title: `${slot.group === 'brand' ? slot.label : `Section ${slot.section} · ${slot.label}`} updated`, body: slot.group === 'brand' ? 'Shows on the website within about a minute.' : `Saved to version ${version}. ${version && version === liveVersion ? 'Shows on the website within about a minute.' : 'Shows when this version is live.'}` });
       if (slot.group === 'brand') refreshBrand();
       onChanged();
     } catch (e) {
@@ -117,7 +119,7 @@ function SlotCard({ slot, item, editable, onChanged, variant = 'card' }: { slot:
         description={slot.group === 'brand' ? 'Every screen goes back to the built-in Hoolam logo.' : 'The website goes back to its drawing for this spot.'}
         onClose={() => setRemoving(false)}
         onConfirm={async () => {
-          const r = await fetch(`/console/api/media/${slot.key}`, { method: 'DELETE', headers: { 'x-hoolam-console': '1' } });
+          const r = await fetch(`/console/api/media/${slot.key}${slot.group !== 'brand' && version ? `?version=${version}` : ''}`, { method: 'DELETE', headers: { 'x-hoolam-console': '1' } });
           if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? 'Not removed');
           toast({ kind: 'ok', title: 'Removed' });
           if (slot.group === 'brand') refreshBrand();
@@ -150,9 +152,9 @@ function SiteStatus({ site, siteUrl, editable, onDone }: { site: Site; siteUrl: 
   );
 }
 
-function Shell({ children }: { children: (d: MediaData, editable: boolean, reload: () => void) => React.ReactNode }) {
+function Shell({ children, version }: { children: (d: MediaData, editable: boolean, reload: () => void) => React.ReactNode; version?: string }) {
   const { can } = useAuth();
-  const { data, error, loading, reload } = useMedia();
+  const { data, error, loading, reload } = useMedia(version);
   const editable = can('brand.update');
   if (error) return <ErrorBanner error={error} onRetry={reload} />;
   if (loading || !data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={72} /><div className="slot-grid">{[1, 2, 3].map((i) => <Skeleton key={i} h={280} />)}</div></div>;
@@ -182,45 +184,125 @@ export function BrandPage() {
   );
 }
 
-export function ImagesPage() {
+const previewUrl = (siteUrl: string, v: string) => `${siteUrl.replace(/\/+$/, '')}/v/${v}/`;
+
+/** Each version of the home page: preview it, edit its images, choose which one is live. */
+export function ContentPage() {
+  const { can } = useAuth();
+  const toast = useToast();
+  const editable = can('brand.update');
+  const vs = useData<VersionsData>('/site/versions');
+  const [params, setParams] = useSearchParams();
+  const [switching, setSwitching] = useState<Version | null>(null);
+  const [goingLive, setGoingLive] = useState<string | null>(null);
+  if (vs.error) return <><SectionHead title="Website content" lede="The home page, version by version." /><ErrorBanner error={vs.error} onRetry={vs.reload} /></>;
+  if (!vs.data) return <><SectionHead title="Website content" lede="The home page, version by version." /><div className="stack"><Skeleton h={72} /><Skeleton h={220} /><Skeleton h={280} /></div></>;
+  const d = vs.data;
+  const asked = params.get('v');
+  const selected = d.versions.some((v) => v.version === asked) ? asked! : d.live;
+  const pick = (v: string) => { setParams(v === d.live ? {} : { v }, { replace: true }); document.getElementById('version-images')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+
   return (
     <>
-      <SectionHead title="Website images" lede="Photos for each part of the website, top to bottom. Any spot without one keeps its drawing." />
-      <Shell>{(d, editable, reload) => {
-        const web = d.slots.filter((s) => s.group === 'website');
-        const sections = [...new Set(web.map((s) => s.section!))];
-        const used = web.filter((s) => d.items[s.key]).length;
-        return (
-          <div className="stack">
-            <SiteStatus site={d.site} siteUrl={d.siteUrl} editable={editable} onDone={reload} />
-            <div className="img-summary"><b>{used} of {web.length}</b> spots have your images<div className="meter"><i style={{ width: `${(used / web.length) * 100}%` }} /></div></div>
-            {sections.map((n) => (
-              <section className="panel img-section" key={n}>
-                <div className="panel-head"><span className="sec-num">{n}</span><div><h2>Section {n}</h2><span className="small muted">{SECTIONS[n]}</span></div></div>
-                <div className="panel-body">
-                  <div className="slot-grid">
-                    {web.filter((s) => s.section === n).flatMap((s) => {
-                      const card = <SlotCard key={s.key} slot={s} item={d.items[s.key]} editable={editable} onChanged={reload} />;
-                      if (s.key !== 's3-1') return [card];
-                      // step 2 shows the logo icon, set on the Brand page
-                      return [card, (
-                        <div className="slot locked" key="s3-2">
-                          <div className="slot-preview" style={{ aspectRatio: '5 / 4' }}>
-                            <span className="locked-mark"><img src={d.items.mark?.url ?? '/console/slots/mark.webp'} alt="" /></span>
-                            <span className="slot-badge">Logo icon</span>
-                          </div>
-                          <div className="slot-body"><div className="slot-title"><b>Step 2</b></div><p>Shows your logo icon in the middle.</p><span className="slot-meta"><Link to="/settings/brand">Change it on the Brand page</Link></span></div>
-                        </div>
-                      )];
-                    })}
-                  </div>
+      <SectionHead title="Website content" lede="Each version of the home page has its own images. Preview any version, then choose which one visitors see." />
+      <div className="stack">
+        <SiteStatus site={d.site} siteUrl={d.siteUrl} editable={editable} onDone={vs.reload} />
+        {goingLive && (
+          <div className="banner teal going-live" role="status"><Rocket /><div>
+            <b>Version {goingLive} is going live.</b>{' '}
+            {d.site.autoRefresh ? 'The website takes about 2 minutes to update. Refresh the website after that to see it.' : 'The website switches the next time it’s rebuilt. Add the website’s Deploy Hook on Render as SITE_DEPLOY_HOOK so this happens by itself.'}
+          </div></div>
+        )}
+
+        <section className="panel">
+          <div className="panel-head"><div><h2>Home page versions</h2><span className="small muted">
+            Live now: <b>{d.live}</b>{d.lastLive && <> · made live by <b>{d.lastLive.actor}</b>, {ago(d.lastLive.at)}</>}
+          </span></div></div>
+          <div className="ver-list">
+            {d.versions.map((v) => (
+              <div key={v.version} className={`ver${v.live ? ' live' : ''}${v.version === selected ? ' sel' : ''}`}>
+                <div className="ver-num"><b>{v.version}</b>{v.live ? <span className="pill green">Live</span> : <span className="pill grey plain">Not live</span>}</div>
+                <div className="ver-body">
+                  <p>{v.notes}</p>
+                  <span className="small muted">{dateOnly(v.date)} · {v.images} of {d.websiteSpots} images are yours{v.from ? ` · started from ${v.from}` : ''}</span>
                 </div>
-              </section>
+                <div className="ver-actions">
+                  {d.siteUrl
+                    ? <a className="btn sm" href={previewUrl(d.siteUrl, v.version)} target="_blank" rel="noopener"><Eye />Preview</a>
+                    : <span className="btn sm" aria-disabled="true" title="Add SITE_URL on the server to preview">Preview</span>}
+                  <Button size="sm" variant={v.version === selected ? 'primary' : 'ghost'} icon={ImageIcon} onClick={() => pick(v.version)} aria-pressed={v.version === selected}>Images</Button>
+                  {!v.live && editable && <Button size="sm" variant="ghost" icon={Rocket} onClick={() => setSwitching(v)}>Make live</Button>}
+                </div>
+              </div>
             ))}
-            <p className="small muted">Tips: faces in the middle for round spots · photos are resized for phones automatically · landscape photos work best everywhere except the round spots.</p>
           </div>
-        );
-      }}</Shell>
+          <div className="ver-foot small muted">
+            New versions are made when you approve a set of home page changes. Previews can be opened by anyone with the link, but search engines are told never to list them.
+            {d.siteUrl && <> <a href={`${d.siteUrl.replace(/\/+$/, '')}/v/draft/`} target="_blank" rel="noopener">See the work in progress<ArrowUpRight /></a></>}
+          </div>
+        </section>
+
+        <div id="version-images" className="ver-images-head">
+          <div><h3>Images for version {selected}</h3><span className="small muted">{selected === d.live ? 'This version is live, so changes show on the website within about a minute.' : 'This version isn’t live. Changes show in its preview, and on the website once it’s live.'}</span></div>
+          <div className="seg" role="tablist" aria-label="Version">
+            {d.versions.map((v) => <button key={v.version} type="button" role="tab" aria-selected={v.version === selected} className={v.version === selected ? 'on' : ''} onClick={() => setParams(v.version === d.live ? {} : { v: v.version }, { replace: true })}>{v.version}{v.live && <span className="n">Live</span>}</button>)}
+          </div>
+        </div>
+        <div className="banner grey" style={{ margin: 0 }}><Link2 /><div>The logo is shared by every version. <Link to="/settings/brand">Change it on the Brand page</Link>.</div></div>
+        <VersionImages key={selected} version={selected} live={d.live} onChanged={vs.reload} />
+      </div>
+
+      {switching && <ConfirmAction icon={Rocket} tone="teal" title={`Make version ${switching.version} live?`} confirmLabel={`Make ${switching.version} live`}
+        reasonPlaceholder="For example: the new phone picture tested well"
+        description={<>Visitors to the home page will see version <b>{switching.version}</b> instead of <b>{d.live}</b>. You can switch back at any time. The website takes about 2 minutes to update.</>}
+        onClose={() => setSwitching(null)}
+        onConfirm={async (reason) => {
+          const next = await post<VersionsData>(`/site/versions/${switching.version}/live`, { reason });
+          vs.setData(next);
+          setGoingLive(switching.version);
+          setParams({}, { replace: true });
+          toast({ kind: 'ok', title: `Version ${switching.version} is going live`, body: 'About 2 minutes.' });
+        }} />}
     </>
+  );
+}
+
+function VersionImages({ version, live, onChanged }: { version: string; live: string; onChanged: () => void }) {
+  return (
+    <Shell version={version}>{(d, editable, reload) => {
+      const web = d.slots.filter((s) => s.group === 'website');
+      const sections = [...new Set(web.map((s) => s.section!))];
+      const used = web.filter((s) => d.items[s.key]).length;
+      const changed = () => { reload(); onChanged(); };
+      return (
+        <div className="stack">
+          <div className="img-summary"><b>{used} of {web.length}</b> spots have your images<div className="meter"><i style={{ width: `${(used / web.length) * 100}%` }} /></div></div>
+          {sections.map((n) => (
+            <section className="panel img-section" key={n}>
+              <div className="panel-head"><span className="sec-num">{n}</span><div><h2>Section {n}</h2><span className="small muted">{SECTIONS[n]}</span></div></div>
+              <div className="panel-body">
+                <div className="slot-grid">
+                  {web.filter((s) => s.section === n).flatMap((s) => {
+                    const card = <SlotCard key={s.key} slot={s} item={d.items[s.key]} editable={editable} onChanged={changed} version={version} liveVersion={live} />;
+                    if (s.key !== 's3-1') return [card];
+                    // step 2 shows the logo icon, set on the Brand page
+                    return [card, (
+                      <div className="slot locked" key="s3-2">
+                        <div className="slot-preview" style={{ aspectRatio: '5 / 4' }}>
+                          <span className="locked-mark"><img src={d.items.mark?.url ?? '/console/slots/mark.webp'} alt="" /></span>
+                          <span className="slot-badge">Logo icon</span>
+                        </div>
+                        <div className="slot-body"><div className="slot-title"><b>Step 2</b></div><p>Shows your logo icon in the middle.</p><span className="slot-meta"><Link to="/settings/brand">Change it on the Brand page</Link></span></div>
+                      </div>
+                    )];
+                  })}
+                </div>
+              </div>
+            </section>
+          ))}
+          <p className="small muted">Tips: faces in the middle for round spots · photos are resized for phones automatically · landscape photos work best everywhere except the round spots.</p>
+        </div>
+      );
+    }}</Shell>
   );
 }

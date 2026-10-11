@@ -18,7 +18,7 @@ const PAGES: Item[] = [
   { key: 'p-support', group: 'Go to', title: 'Support', icon: LifeBuoy, to: '/support' },
   { key: 'p-insights', group: 'Go to', title: 'Insights', icon: ChartColumn, to: '/insights' },
   { key: 'p-settings', group: 'Go to', title: 'Settings', icon: Settings2, to: '/settings', need: 'settings.view' },
-  ...[['fees', 'Fees'], ['limits', 'Limits'], ['timing', 'Timing'], ['whatsapp', 'WhatsApp number'], ['brand', 'Brand and logo'], ['images', 'Website images'], ['history', 'Settings history']]
+  ...[['fees', 'Fees'], ['limits', 'Limits'], ['timing', 'Timing'], ['whatsapp', 'WhatsApp number'], ['brand', 'Brand and logo'], ['content', 'Website content and versions'], ['history', 'Settings history']]
     .map(([k, t]) => ({ key: `p-s-${k}`, group: 'Settings', title: t!, icon: Settings2, to: `/settings/${k}`, need: 'settings.view' })),
   { key: 'p-team', group: 'Go to', title: 'Team', icon: ShieldCheck, to: '/team' },
   { key: 'p-audit', group: 'Go to', title: 'Audit trail', icon: ScrollText, to: '/audit', need: 'audit.view' },

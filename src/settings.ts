@@ -1,6 +1,7 @@
 import type { Config } from './config.js';
 import type { Db, Queryable } from './db.js';
 import { checkBands, DEFAULT_TXN_BANDS, PRICING, type FeeBand, type PricingRules, type TxnFees } from './pricing.js';
+import { FIRST_VERSION, isHomeVersion } from './site-versions.js';
 import { COMPANY_SOCIAL_KINDS, COMPANY_SOCIAL_NAMES, companySocialLink, parseCompanySocial, type CompanySocialKind } from './socials.js';
 
 /**
@@ -73,6 +74,7 @@ export class Settings {
       whatsapp_number: this.c.WHATSAPP_PUBLIC_NUMBER.replace(/\D/g, ''),
       alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM,
       contact_email: 'hello@hoolam.com', contact_phone: '',
+      home_version: FIRST_VERSION, // the live home page version (Console → Settings → Website content)
       ...Object.fromEntries(COMPANY_SOCIAL_KINDS.map((k) => [`company_${k}`, ''])),
     };
   }
@@ -148,6 +150,8 @@ export class Settings {
   }
   maxDealMinor(): number { return Math.round(this.get<number>('max_deal') * this.unit); }
   acceptHours(): number { return this.get('seller_accept_hours'); }
+  /** The home page version visitors see. */
+  homeVersion(): string { const v = this.get<string>('home_version'); return isHomeVersion(v) ? v : FIRST_VERSION; }
   nudgeHours(): number { return this.get('nudge_after_hours'); }
   flagHours(): number { return this.get('flag_after_hours'); }
   autoReleaseMinutes(): number { return this.get('auto_release_minutes'); }

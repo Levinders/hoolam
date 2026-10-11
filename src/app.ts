@@ -13,6 +13,7 @@ import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
 import { Settings } from './settings.js';
 import { MediaError, SiteMedia } from './site-media.js';
+import { homeVersions } from './site-versions.js';
 import { SiteSync } from './site-sync.js';
 import { registerConsoleApi } from './console/api.js';
 import { registerConsoleStatic } from './console/static.js';
@@ -160,7 +161,10 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       contact: settings.contact(),
       timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: settings.unpaidCloseHours(), autoReleaseMinutes: settings.autoReleaseMinutes(), repReplyMinutes: settings.repReplyMinutes(), problemReplyHours: settings.problemReplyHours() },
       // logo and pictures set in Console → Settings: slot → { url, v }. Missing slots keep the website's drawings.
-      images: Object.fromEntries(Object.entries(siteMedia.current()).map(([k, v]) => [k, { url: siteMedia.url(c.PUBLIC_BASE_URL, k), v }])),
+      // `images` are the live home page version's (and the legal pages'); `versions` has every version's, for previews.
+      homeVersion: settings.homeVersion(),
+      images: siteMedia.forVersion(c.PUBLIC_BASE_URL, settings.homeVersion()),
+      versions: Object.fromEntries(homeVersions().map((v) => [v.version, { date: v.date, images: siteMedia.forVersion(c.PUBLIC_BASE_URL, v.version) }])),
     });
   });
   // Logo and website pictures uploaded in the console. Versioned URLs (?v=) are cached for a year.

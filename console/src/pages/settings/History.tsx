@@ -1,4 +1,4 @@
-import { History, Image as ImageIcon, ImageOff, SlidersHorizontal } from 'lucide-react';
+import { History, Image as ImageIcon, ImageOff, Rocket, SlidersHorizontal } from 'lucide-react';
 import { dateTime } from '../../format';
 import { useData } from '../../hooks';
 import { Empty, ErrorBanner, SkeletonRows } from '../../ui';
@@ -17,7 +17,7 @@ export function HistoryPage() {
   const defs: Def[] = s.data?.defs ?? [];
   return (
     <>
-      <SectionHead title="Change history" lede="Every change to settings and images, with who made it, when and why." />
+      <SectionHead title="Change history" lede="Every change to settings, images and the live home page, with who made it, when and why." />
       <section className="panel">
         {error ? <div className="panel-body"><ErrorBanner error={error} /></div> : !s.data || !m.data ? <SkeletonRows rows={5} /> : !rows.length
           ? <Empty icon={History} title="Nothing changed yet">Everything is on its defaults.</Empty>
@@ -25,8 +25,8 @@ export function HistoryPage() {
             <ol className="timeline history">
               {rows.map((h, i) => (
                 <li key={i}>
-                  <span className={`ic ${h.kind === 'media.remove' ? 'bad' : 'staff'}`}>{h.kind === 'settings' ? <SlidersHorizontal /> : h.kind === 'media.remove' ? <ImageOff /> : <ImageIcon />}</span>
-                  <div className="what">{h.kind === 'settings' ? 'Changed settings' : h.kind === 'media.upload' ? `New image: ${h.details?.where ?? h.target_id}` : `Removed image: ${h.details?.where ?? h.target_id}`}{h.details?.ok === false && <span className="pill red plain" style={{ marginLeft: 6 }}>Refused</span>}</div>
+                  <span className={`ic ${h.kind === 'media.remove' ? 'bad' : 'staff'}`}>{h.kind === 'settings' ? <SlidersHorizontal /> : h.kind === 'media.remove' ? <ImageOff /> : h.kind === 'site.version.live' ? <Rocket /> : <ImageIcon />}</span>
+                  <div className="what">{h.kind === 'settings' ? 'Changed settings' : h.kind === 'site.version.live' ? `Home page version ${h.details?.to} made live (was ${h.details?.from})` : h.kind === 'media.upload' ? `New image: ${h.details?.where ?? h.target_id}` : `Removed image: ${h.details?.where ?? h.target_id}`}{h.details?.ok === false && <span className="pill red plain" style={{ marginLeft: 6 }}>Refused</span>}</div>
                   <div className="meta">{h.actor} · {dateTime(h.at)}</div>
                   {h.kind === 'settings' && (
                     <div className="why">
@@ -38,6 +38,7 @@ export function HistoryPage() {
                     </div>
                   )}
                   {h.kind === 'media.upload' && h.details?.file && <div className="why muted">{h.details.file}</div>}
+                  {h.kind === 'site.version.live' && h.reason && <div className="why muted">“{h.reason}”</div>}
                 </li>
               ))}
             </ol>

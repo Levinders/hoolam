@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import type { Db } from './db.js';
+import { homeVersions, isHomeVersion } from './site-versions.js';
 
 /**
  * Images staff set from Console → Settings: the logo, the logo icon, and the website's pictures.
  * Slots are named by position (section 1, image 1…) rather than by what a section says today, so the
  * website's words can change without renaming anything. An empty slot shows the website's own drawing.
+ * Brand slots (logo, mark) are shared. Website slots belong to one home page version: stored as "<slot>@<version>".
  */
 export interface SlotDef {
   key: string;
@@ -54,15 +56,44 @@ export class SiteMedia {
   constructor(private readonly db: Db) {}
 
   async load(): Promise<void> {
+    // a new home page version starts with a copy of the pictures of the version it came from
+    for (const v of homeVersions()) {
+      if (!v.from) continue;
+      const has = await this.db.query(`SELECT 1 FROM media WHERE slot LIKE $1 LIMIT 1`, [`%@${v.version}`]);
+      if (has.rowCount) continue;
+      await this.db.query(
+        `INSERT INTO media (slot, mime, bytes, sha256, width, height, size_bytes, original_name, updated_by, updated_at)
+         SELECT split_part(slot, '@', 1) || '@' || $2, mime, bytes, sha256, width, height, size_bytes, original_name, updated_by, updated_at
+         FROM media WHERE slot LIKE $1 ON CONFLICT (slot) DO NOTHING`, [`%@${v.from}`, v.version]);
+    }
     const r = await this.db.query('SELECT slot, sha256 FROM media');
     this.versions = new Map(r.rows.map((x) => [x.slot, String(x.sha256).slice(0, 12)]));
     this.cache.clear();
   }
 
+  /** The spot for a stored key: "logo", "mark", or "<website spot>@<version>". */
   slot(key: string): SlotDef {
-    const s = SLOTS.find((x) => x.key === key);
+    const [base, version] = key.split('@');
+    const s = SLOTS.find((x) => x.key === base);
     if (!s) throw new MediaError('That image spot doesn\'t exist.');
+    if (s.group === 'website' ? !isHomeVersion(version) : version !== undefined) throw new MediaError('That image spot doesn\'t exist.');
     return s;
+  }
+
+  /** The stored key for a spot on one home page version (brand spots are shared). */
+  static key(slot: string, version: string): string {
+    return SLOTS.find((x) => x.key === slot)?.group === 'brand' ? slot : `${slot}@${version}`;
+  }
+
+  /** Every image one home page version shows, by spot (brand included): spot → { url, v }. */
+  forVersion(base: string, version: string): Record<string, { url: string; v: string }> {
+    const out: Record<string, { url: string; v: string }> = {};
+    for (const s of SLOTS) {
+      const key = SiteMedia.key(s.key, version);
+      const url = this.url(base, key);
+      if (url) out[s.key] = { url, v: this.versions.get(key)! };
+    }
+    return out;
   }
 
   /** slot → short version, for every slot that has an image */
@@ -72,10 +103,11 @@ export class SiteMedia {
     return v ? `${base.replace(/\/+$/, '')}/media/${key}?v=${v}` : null;
   }
 
-  async list(): Promise<MediaInfo[]> {
+  async list(version?: string): Promise<MediaInfo[]> {
+    const keys = version ? SLOTS.map((s) => SiteMedia.key(s.key, version)) : null;
     const r = await this.db.query(`SELECT m.slot, m.mime, m.sha256, m.width, m.height, m.size_bytes, m.original_name, m.updated_at, s.name AS updated_by
-      FROM media m LEFT JOIN staff s ON s.id=m.updated_by`);
-    return r.rows.map((x) => ({ slot: x.slot, mime: x.mime, sha256: x.sha256, width: x.width, height: x.height, sizeBytes: x.size_bytes, originalName: x.original_name, updatedAt: x.updated_at, updatedBy: x.updated_by }));
+      FROM media m LEFT JOIN staff s ON s.id=m.updated_by${keys ? ' WHERE m.slot = ANY($1)' : ''}`, keys ? [keys] : []);
+    return r.rows.map((x) => ({ slot: String(x.slot).split('@')[0]!, mime: x.mime, sha256: x.sha256, width: x.width, height: x.height, sizeBytes: x.size_bytes, originalName: x.original_name, updatedAt: x.updated_at, updatedBy: x.updated_by }));
   }
 
   async get(key: string): Promise<{ mime: string; bytes: Buffer } | null> {

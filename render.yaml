@@ -72,6 +72,9 @@ services:
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=604800
+      - path: /v/*
+        name: X-Robots-Tag
+        value: noindex, nofollow, noarchive   # home page previews (/v/<version>/, /v/draft/): never in search results
     envVars:
       - key: HOOLAM_APP_URL
         value: https://hoolam.onrender.com   # the server: live fees and the WhatsApp number come from here

@@ -14,9 +14,10 @@ describe('landing page ↔ server', () => {
     expect(r.statusCode).toBe(200);
     expect(r.headers['access-control-allow-origin']).toBe('*');
     expect(r.json()).toEqual({
-      currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, images: {},
+      currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, images: {}, homeVersion: '1.0.0',
       txn: { seller: DEFAULT_TXN_BANDS, buyer: DEFAULT_TXN_BANDS }, // the website calculator shows the transaction fee too
       contact: { email: 'hello@hoolam.com', phone: '', whatsapp: '2348012345678', socials: [] },
+      versions: { '1.0.0': { date: '2026-10-11', images: {} }, '1.1.0': { date: '2026-10-11', images: {} }, '1.2.0': { date: '2026-10-11', images: {} } },
       timing: { acceptHours: 48, nudgeHours: 24, flagHours: 72, unpaidHours: 72, autoReleaseMinutes: 1440, repReplyMinutes: 30, problemReplyHours: 24 },
     });
   });
@@ -87,6 +88,26 @@ describe('landing page ↔ server', () => {
     expect(readFileSync('dist-site/sitemap.xml', 'utf8')).toContain('https://hoolam.example/legal/privacy/');
     // invented testimonials stay hidden until there are real ones
     expect(readFileSync('dist-site/index.html', 'utf8')).toContain('<section class="voices" hidden>');
+  });
+
+  it('builds a preview of every home page version that search engines are told never to list', () => {
+    execFileSync('node', ['site/build.mjs'], { env: { ...process.env, SITE_OFFLINE: '1', WHATSAPP_PUBLIC_NUMBER: '2348012345678', SITE_URL: 'https://hoolam.example' } });
+    const home = readFileSync('dist-site/index.html', 'utf8');
+    expect(home).not.toContain('noindex');
+    expect(home).not.toContain('class="pf"'); // 1.0.0 (the order card) stays live until someone switches
+    for (const v of ['1.0.0', '1.1.0', '1.2.0', 'draft']) {
+      const html = readFileSync(`dist-site/v/${v}/index.html`, 'utf8');
+      expect(html, v).toContain('<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">');
+      expect(html, v).not.toContain('rel="canonical"');
+      expect(html, v).toMatch(/Preview · (version|draft)/);
+      expect(html, v).not.toMatch(/(src|href)="(assets|media)\//); // previews sit in a folder, so every file path starts with /
+    }
+    expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).toContain('live now');
+    expect(readFileSync('dist-site/v/1.1.0/index.html', 'utf8')).toContain('pf-btns'); // one picture
+    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('pf-paid'); // three moments
+    expect(readFileSync('dist-site/sitemap.xml', 'utf8')).not.toContain('/v/');
+    expect(readFileSync('dist-site/robots.txt', 'utf8')).not.toMatch(/Disallow: \/v\//); // crawlers must be able to read the noindex
+    expect(readFileSync('render.yaml', 'utf8')).toMatch(/path: \/v\/\*[\s\S]*?X-Robots-Tag[\s\S]*?noindex/);
   });
 
   it('short links: pay.hoolam.com/HL-ABCDE opens the chat to pay, /v/ to see the deal', async () => {

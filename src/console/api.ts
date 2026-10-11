@@ -5,7 +5,8 @@ import { DealError, SUPPORT_MESSAGE_MAX, type DealService } from '../deals/servi
 import type { PaymentProvider } from '../payments/provider.js';
 import { SETTING_DEFS, type SettingValue, type Settings } from '../settings.js';
 import { parseSocial, SOCIAL_KINDS, type SocialKind } from '../socials.js';
-import { MAX_UPLOAD_BYTES, MediaError, SLOTS, type SiteMedia } from '../site-media.js';
+import { MAX_UPLOAD_BYTES, MediaError, SLOTS, SiteMedia } from '../site-media.js';
+import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
 import type { Messenger } from '../whatsapp/client.js';
@@ -701,17 +702,52 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
     // ---- logo and website pictures ----
     const siteState = () => ({ autoRefresh: d.siteSync.enabled, pending: d.siteSync.pending, lastRequestedAt: d.siteSync.lastRequestedAt, lastError: d.siteSync.lastError });
+    /** Which home page version an image request is about (?version=1.1.0); the live one when not given. */
+    const versionOf = (req: { query: unknown }) => {
+      const v = (req.query as { version?: string }).version;
+      if (v === undefined || v === '') return d.settings.homeVersion();
+      if (!isHomeVersion(v)) throw new HttpError(404, 'That version doesn\'t exist.');
+      return v;
+    };
     api.get('/media', async (req) => {
       need(req, 'settings.view');
+      const version = versionOf(req);
       const [items, history] = await Promise.all([
-        d.siteMedia.list(),
-        db.query(`SELECT at, actor, action, target_id, details FROM audit_log WHERE action IN ('media.upload','media.remove') ORDER BY id DESC LIMIT 30`),
+        d.siteMedia.list(version),
+        db.query(`SELECT at, actor, action, target_id, reason, details FROM audit_log WHERE action IN ('media.upload','media.remove','site.version.live') ORDER BY id DESC LIMIT 30`),
       ]);
       return {
-        slots: SLOTS,
-        items: Object.fromEntries(items.map((m) => [m.slot, { ...m, url: d.siteMedia.url('', m.slot) }])),
+        slots: SLOTS, version,
+        items: Object.fromEntries(items.map((m) => [m.slot, { ...m, url: d.siteMedia.url('', SiteMedia.key(m.slot, version)) }])),
         site: siteState(), siteUrl: d.config.SITE_URL ?? null, history: history.rows,
       };
+    });
+
+    // ---- home page versions: preview any, choose the live one ----
+    const versionsState = async () => {
+      const counts = await db.query(`SELECT split_part(slot, '@', 2) AS v, count(*)::int AS n FROM media WHERE slot LIKE '%@%' GROUP BY 1`);
+      const n = Object.fromEntries(counts.rows.map((r) => [r.v, r.n]));
+      const live = d.settings.homeVersion();
+      const changed = await db.query(`SELECT at, actor, details FROM audit_log WHERE action='site.version.live' ORDER BY id DESC LIMIT 1`);
+      return {
+        live, siteUrl: d.config.SITE_URL ?? null, site: siteState(), lastLive: changed.rows[0] ?? null,
+        websiteSpots: SLOTS.filter((x) => x.group === 'website').length,
+        versions: [...homeVersions()].sort((a, b) => byNumber(a.version, b.version)).map((v) => ({ ...v, live: v.version === live, images: n[v.version] ?? 0 })),
+      };
+    };
+    api.get('/site/versions', async (req) => { need(req, 'settings.view'); return versionsState(); });
+    api.post('/site/versions/:version/live', async (req) => {
+      need(req, 'brand.update');
+      const { version } = req.params as { version: string };
+      if (!isHomeVersion(version)) throw new HttpError(404, 'That version doesn\'t exist.');
+      const reason = String((req.body as { reason?: string } | null)?.reason ?? '').trim();
+      if (reason.length < 3) throw new HttpError(400, 'Say why, in a few words.');
+      const from = d.settings.homeVersion();
+      if (from === version) throw new HttpError(400, `Version ${version} is already live.`);
+      await act(req, { action: 'site.version.live', targetType: 'site', targetId: version, reason, details: { from, to: version } },
+        () => d.settings.save(db, { home_version: version }, req.staff!.id));
+      await d.siteSync.rebuild(); // straight away: the website rebuilds with this version on its home page
+      return versionsState();
     });
     api.addContentTypeParser(/^image\/.+$/, { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_BYTES + 1024 }, (_req, body, done) => done(null, body));
     api.put('/media/:slot', { bodyLimit: MAX_UPLOAD_BYTES + 1024 }, async (req) => {
@@ -720,20 +756,24 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const def = SLOTS.find((x) => x.key === slot);
       if (!def) throw new HttpError(404, 'That image spot doesn\'t exist.');
       if (!Buffer.isBuffer(req.body)) throw new HttpError(400, 'Send the image file itself.');
+      const version = versionOf(req);
+      const key = SiteMedia.key(slot, version);
       const name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')).slice(0, 200) || null;
-      const where = def.group === 'brand' ? def.label : `Section ${def.section} · ${def.label}`;
-      const info = await act(req, { action: 'media.upload', targetType: 'media', targetId: slot, details: { where, file: name, inBytes: req.body.length } },
-        async () => { try { return await d.siteMedia.put(slot, req.body as Buffer, req.staff!.id, name); } catch (e) { throw e instanceof MediaError ? new HttpError(400, e.message) : e; } });
+      const where = def.group === 'brand' ? def.label : `Version ${version} · Section ${def.section} · ${def.label}`;
+      const info = await act(req, { action: 'media.upload', targetType: 'media', targetId: key, details: { where, file: name, inBytes: req.body.length } },
+        async () => { try { return await d.siteMedia.put(key, req.body as Buffer, req.staff!.id, name); } catch (e) { throw e instanceof MediaError ? new HttpError(400, e.message) : e; } });
       d.siteSync.changed();
-      return { ok: true, item: { ...info, updatedBy: req.staff!.name, url: d.siteMedia.url('', slot) }, site: siteState() };
+      return { ok: true, item: { ...info, slot, updatedBy: req.staff!.name, url: d.siteMedia.url('', key) }, site: siteState() };
     });
     api.delete('/media/:slot', async (req) => {
       need(req, 'brand.update');
       const { slot } = req.params as { slot: string };
       const def = SLOTS.find((x) => x.key === slot);
       if (!def) throw new HttpError(404, 'That image spot doesn\'t exist.');
-      const where = def.group === 'brand' ? def.label : `Section ${def.section} · ${def.label}`;
-      await act(req, { action: 'media.remove', targetType: 'media', targetId: slot, details: { where } }, () => d.siteMedia.remove(slot));
+      const version = versionOf(req);
+      const key = SiteMedia.key(slot, version);
+      const where = def.group === 'brand' ? def.label : `Version ${version} · Section ${def.section} · ${def.label}`;
+      await act(req, { action: 'media.remove', targetType: 'media', targetId: key, details: { where } }, () => d.siteMedia.remove(key));
       d.siteSync.changed();
       return { ok: true, site: siteState() };
     });

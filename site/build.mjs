@@ -6,7 +6,9 @@
 // numbers below, and the home page picks up the console's settings live once the server answers.
 //
 // Pages:
-//   /                      site/index.html
+//   /                      the live home page version (Console → Settings → Website content), from site/versions/<v>.html
+//   /v/<version>/          every version, for previews; /v/draft/ is site/index.html (the working draft).
+//                          Previews are never indexed: a noindex tag here and an X-Robots-Tag header (render.yaml).
 //   /legal/                the list of legal pages
 //   /legal/<page>/         site/legal/<page>.html, wrapped in site/legal/_layout.html
 // The footer (site/partials/footer.*) is shared by all of them.
@@ -92,22 +94,41 @@ cpSync(join(here, 'assets'), join(out, 'assets'), { recursive: true });
 
 const live = await serverSettings();
 const baked = {};
+// home page versions (site/versions/versions.json) and the one that's live
+const manifest = JSON.parse(read('versions/versions.json'));
+const VERSIONS = manifest.versions.map((v) => v.version);
+const newest = [...VERSIONS].sort((a, b) => { const p = (x) => x.split('.').map(Number); const [x, y] = [p(a), p(b)]; return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]; })[0];
+const liveVersion = live && VERSIONS.includes(live.homeVersion) ? live.homeVersion : (manifest.live ?? VERSIONS[0]);
+/** Copies an image into the site once (same picture, same file) and returns its address. */
+const copied = new Map();
+async function copyImage(slot, img) {
+  const id = `${slot}-${img.v}`;
+  if (copied.has(id)) return copied.get(id);
+  const r = await fetchWithTimeout(img.url, 30_000);
+  if (!r.ok) throw new Error(`status ${r.status}`);
+  const type = (r.headers.get('content-type') ?? '').split(';')[0];
+  const file = `/media/${id}.${EXT[type] ?? 'img'}`;
+  writeFileSync(join(out, file), Buffer.from(await r.arrayBuffer()));
+  copied.set(id, file);
+  return file;
+}
+/** One version's pictures (brand included): slot → { src, v }. */
+async function imagesFor(set) {
+  const res = {};
+  for (const [slot, img] of Object.entries(set ?? {})) {
+    try { res[slot] = { src: await copyImage(slot, img), v: img.v }; }
+    catch (e) { console.log(`  couldn't copy image ${slot}: ${e.message} (the page loads it live instead)`); }
+  }
+  return res;
+}
+const versionImages = {};
 if (live && live.currency === 'NGN') {
   baked.fees = live.fees;
   baked.maxDeal = live.maxDeal;
   if (live.txn) baked.txn = live.txn;
   if (live.whatsapp) baked.whatsapp = String(live.whatsapp).replace(/\D/g, '');
-  baked.images = {};
-  for (const [slot, img] of Object.entries(live.images ?? {})) {
-    try {
-      const r = await fetchWithTimeout(img.url, 30_000);
-      if (!r.ok) throw new Error(`status ${r.status}`);
-      const type = (r.headers.get('content-type') ?? '').split(';')[0];
-      const file = `media/${slot}-${img.v}.${EXT[type] ?? 'img'}`;
-      writeFileSync(join(out, file), Buffer.from(await r.arrayBuffer()));
-      baked.images[slot] = { src: file, v: img.v };
-    } catch (e) { console.log(`  couldn't copy image ${slot}: ${e.message} (the page loads it live instead)`); }
-  }
+  baked.images = await imagesFor(live.images);
+  for (const v of VERSIONS) versionImages[v] = v === liveVersion ? baked.images : await imagesFor(live.versions?.[v]?.images ?? live.images);
 }
 const ok = live && live.currency === 'NGN';
 const fees = (ok && live.fees) || DEFAULTS.fees;
@@ -145,22 +166,40 @@ const shared = {
 const footer = fill(read('partials/footer.html'), { ...shared, CONTACT_ITEMS: contactItems });
 const footerCss = read('partials/footer.css');
 
-// ---------- the home page ----------
+// ---------- the home page: the live version at /, every version (and the draft) as a hidden preview ----------
 const indexSrc = read('index.html');
-let html = indexSrc
-  .replaceAll('{{APP_URL}}', app)
-  .replaceAll('{{WHATSAPP_NUMBER}}', wa)
-  .replaceAll('{{SITE_URL}}/', site ? `${site}/` : '')
-  .replace('/*{{BAKED}}*/{}', JSON.stringify(baked).replace(/</g, '\\u003c'))
-  .replace('/*{{FOOTER_CSS}}*/', footerCss)
-  .replace('<!--{{FOOTER}}-->', footer);
-html = fill(html, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, INCORPORATED: shared.INCORPORATED });
-const mark = baked.images?.mark?.src;
-const iconTags = (prefix) => mark
-  ? `<link rel="icon" href="${prefix}${mark}">\n<link rel="apple-touch-icon" href="${prefix}${mark}">`
+const iconTags = (prefix, imgs = baked.images) => imgs?.mark?.src
+  ? `<link rel="icon" href="${imgs.mark.src}">\n<link rel="apple-touch-icon" href="${imgs.mark.src}">`
   : `<link rel="icon" href="${prefix}assets/favicon.svg" type="image/svg+xml">\n<link rel="apple-touch-icon" href="${prefix}assets/icon-180.png">`;
-html = html.replace('<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">\n<link rel="apple-touch-icon" href="assets/icon-180.png">', iconTags(''));
-writeFileSync(join(out, 'index.html'), html);
+const NOINDEX = '<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">\n<meta name="googlebot" content="noindex, nofollow">';
+function homePage(src, version, preview) {
+  const imgs = versionImages[version] ?? baked.images;
+  const pageBaked = { ...baked, images: imgs, version };
+  let h = src
+    .replaceAll('{{APP_URL}}', app)
+    .replaceAll('{{WHATSAPP_NUMBER}}', wa)
+    .replaceAll('{{SITE_URL}}/', site ? `${site}/` : '/')
+    .replace('/*{{BAKED}}*/{}', JSON.stringify(pageBaked).replace(/</g, '\\u003c'))
+    .replace('/*{{FOOTER_CSS}}*/', footerCss)
+    .replace('<!--{{FOOTER}}-->', footer);
+  h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, INCORPORATED: shared.INCORPORATED });
+  h = h.replace(/<link rel="icon" href="\/?assets\/favicon\.svg" type="image\/svg\+xml">\n<link rel="apple-touch-icon" href="\/?assets\/icon-180\.png">/, iconTags('/', imgs));
+  if (preview) {
+    // never in search results; a small label so nobody mistakes it for the live page
+    h = h.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n${NOINDEX}`)
+      .replace(/<link rel="canonical"[^>]*>\n?/g, '')
+      .replace('</body>', `<div role="note" style="position:fixed;left:50%;bottom:max(12px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:9999;background:#1B2321;color:#fff;font:600 12px/1 Inter,system-ui,sans-serif;padding:9px 14px;border-radius:99px;box-shadow:0 6px 20px rgba(0,0,0,.25);white-space:nowrap;pointer-events:none">Preview · ${version === 'draft' ? 'draft' : 'version ' + esc(version)} · ${version === liveVersion ? 'live now' : 'not live'}</div>\n</body>`);
+  }
+  return h;
+}
+const versionSrc = (v) => read(`versions/${v}.html`);
+writeFileSync(join(out, 'index.html'), homePage(versionSrc(liveVersion), liveVersion, false));
+for (const v of VERSIONS) {
+  mkdirSync(join(out, 'v', v), { recursive: true });
+  writeFileSync(join(out, 'v', v, 'index.html'), homePage(versionSrc(v), v, true));
+}
+mkdirSync(join(out, 'v', 'draft'), { recursive: true });
+writeFileSync(join(out, 'v', 'draft', 'index.html'), homePage(indexSrc, newest, true).replace(/Preview · version [\d.]+ · (live now|not live)/, 'Preview · draft · not live'));
 
 // ---------- the legal pages ----------
 // The icons and the Hoolam symbol come from the home page, so there is one copy of each.
@@ -176,7 +215,7 @@ const LEGAL_PAGES = [
   { slug: 'delete-your-data', title: 'Delete your data', blurb: 'How to ask us to delete your details, and what we must keep.' },
 ];
 const layout = read('legal/_layout.html');
-const imagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => k === 'mark').map(([k, v]) => [k, `/${v.src}`])));
+const imagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => k === 'mark').map(([k, v]) => [k, v.src])));
 
 function page({ slug, title, blurb, lede, body, toc, path }) {
   const canonical = site ? `${site}${path}` : '';
@@ -214,4 +253,4 @@ if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding=
 writeFileSync(join(out, '404.html'), page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'This page doesn’t exist, or it has moved.', body: `<p><a class="lg-btn" href="/">Go to the Hoolam home page</a></p>`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">'));
 
 const n = Object.keys(baked.images ?? {}).length;
-console.log(`Site built → dist-site/  (${pages.length} pages; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);
+console.log(`Site built → dist-site/  (${pages.length} pages, home page ${liveVersion} live, ${VERSIONS.length} versions + draft to preview; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);

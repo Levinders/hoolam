@@ -42,7 +42,7 @@ describe('logo and website images', () => {
     expect(r.status).toBe(200);
     expect(r.json.item).toMatchObject({ mime: 'image/webp', width: 1400, height: 1050 });
     const url: string = r.json.item.url;
-    expect(url).toMatch(/^\/media\/s2-1\?v=[0-9a-f]{12}$/);
+    expect(url).toMatch(/^\/media\/s2-1@1\.0\.0\?v=[0-9a-f]{12}$/); // website images belong to a home page version (the live one: 1.0.0)
     const img = await call('GET', url);
     expect(img.status).toBe(200);
     expect(img.headers['content-type']).toBe('image/webp');
@@ -53,7 +53,9 @@ describe('logo and website images', () => {
   it('the website gets every uploaded image from /site.json', async () => {
     const j = (await call('GET', '/site.json')).json;
     expect(Object.keys(j.images)).toEqual(['s2-1']);
-    expect(j.images['s2-1'].url).toMatch(/\/media\/s2-1\?v=/);
+    expect(j.images['s2-1'].url).toMatch(/\/media\/s2-1@1\.0\.0\?v=/);
+    expect(Object.keys(j.versions['1.0.0'].images)).toEqual(['s2-1']);
+    expect(j.versions['1.1.0'].images).toEqual({});
   });
 
   it('logos can be SVG, but not SVG with scripts; photos can\'t be SVG', async () => {
@@ -82,15 +84,67 @@ describe('logo and website images', () => {
 
   it('removing an image brings the drawing back, and both are in the audit trail', async () => {
     expect((await call('DELETE', '/console/api/media/s2-1', { cookie: owner })).status).toBe(200);
-    expect((await call('GET', '/media/s2-1')).status).toBe(404);
+    expect((await call('GET', '/media/s2-1@1.0.0')).status).toBe(404);
     expect((await call('GET', '/site.json')).json.images['s2-1']).toBeUndefined();
     const log = await h.db.query(`SELECT action, actor, target_id, details FROM audit_log WHERE action LIKE 'media.%' ORDER BY id`);
     expect(log.rows.map((r) => [r.action, r.target_id, r.actor])).toEqual([
-      ['media.upload', 's2-1', 'Raphael'], ['media.upload', 'logo', 'Raphael'], ['media.upload', 'mark', 'Raphael'], ['media.upload', 's1-1', 'Raphael'],
-      ['media.upload', 's1-1', 'Raphael'], ['media.remove', 's2-1', 'Raphael'],
+      ['media.upload', 's2-1@1.0.0', 'Raphael'], ['media.upload', 'logo', 'Raphael'], ['media.upload', 'mark', 'Raphael'], ['media.upload', 's1-1@1.0.0', 'Raphael'],
+      ['media.upload', 's1-1@1.0.0', 'Raphael'], ['media.remove', 's2-1@1.0.0', 'Raphael'],
     ]);
-    expect(log.rows[0].details).toMatchObject({ where: 'Section 2 · Image 1', file: 'street.jpg', ok: true });
+    expect(log.rows[0].details).toMatchObject({ where: 'Version 1.0.0 · Section 2 · Image 1', file: 'street.jpg', ok: true });
     expect(log.rows[2].details.ok).toBe(false);
+  });
+});
+
+describe('home page versions', () => {
+  it('each version keeps its own images; the logo is shared', async () => {
+    expect((await call('PUT', '/console/api/media/s2-2?version=1.2.0', { raw: await photo(800, 600), type: 'image/jpeg', cookie: owner })).status).toBe(200);
+    const v12 = (await call('GET', '/console/api/media?version=1.2.0', { cookie: owner })).json;
+    expect(v12.version).toBe('1.2.0');
+    expect(Object.keys(v12.items).sort()).toEqual(['logo', 's2-2']);
+    expect(v12.items['s2-2'].url).toMatch(/^\/media\/s2-2@1\.2\.0\?v=/);
+    const live = (await call('GET', '/console/api/media', { cookie: owner })).json;
+    expect(live.version).toBe('1.0.0');
+    expect(live.items['s2-2']).toBeUndefined();
+    const j = (await call('GET', '/site.json')).json;
+    expect(j.homeVersion).toBe('1.0.0');
+    expect(j.images['s2-2']).toBeUndefined();
+    expect(Object.keys(j.versions['1.2.0'].images).sort()).toEqual(['logo', 's2-2']);
+    expect((await call('PUT', '/console/api/media/s2-2?version=9.9.9', { raw: await photo(10, 10), type: 'image/jpeg', cookie: owner })).status).toBe(404);
+    expect((await call('DELETE', '/console/api/media/s2-2?version=1.1.0', { cookie: owner })).status).toBe(200); // nothing there: fine
+    expect((await call('GET', '/media/s2-2@1.2.0')).status).toBe(200);
+  });
+
+  it('lists every version, newest first, with the live one marked', async () => {
+    const r = (await call('GET', '/console/api/site/versions', { cookie: admin })).json;
+    expect(r.live).toBe('1.0.0');
+    expect(r.versions.map((v: any) => [v.version, v.live])).toEqual([['1.2.0', false], ['1.1.0', false], ['1.0.0', true]]);
+    expect(r.versions[0]).toMatchObject({ images: 1, from: '1.0.0' });
+    expect(r.websiteSpots).toBeGreaterThan(5);
+  });
+
+  it('making a version live needs a reason and the right role, and is in the audit trail', async () => {
+    expect((await call('POST', '/console/api/site/versions/1.2.0/live', { body: { reason: 'Try' }, cookie: support })).status).toBe(403);
+    expect((await call('POST', '/console/api/site/versions/1.2.0/live', { body: { reason: '' }, cookie: owner })).json.error).toMatch(/Say why/);
+    expect((await call('POST', '/console/api/site/versions/7.0.0/live', { body: { reason: 'Nope' }, cookie: owner })).status).toBe(404);
+    expect((await call('POST', '/console/api/site/versions/1.0.0/live', { body: { reason: 'Again' }, cookie: owner })).json.error).toMatch(/already live/);
+    const r = await call('POST', '/console/api/site/versions/1.2.0/live', { body: { reason: 'The phone picture is clearer' }, cookie: admin });
+    expect(r.status).toBe(200);
+    expect(r.json.live).toBe('1.2.0');
+    const j = (await call('GET', '/site.json')).json;
+    expect(j.homeVersion).toBe('1.2.0');
+    expect(Object.keys(j.images).sort()).toEqual(['logo', 's2-2']); // the live images follow the live version
+    const log = (await h.db.query(`SELECT actor, reason, details FROM audit_log WHERE action='site.version.live'`)).rows;
+    expect(log).toEqual([expect.objectContaining({ actor: 'Tunde', reason: 'The phone picture is clearer', details: expect.objectContaining({ from: '1.0.0', to: '1.2.0' }) })]);
+    const hist = (await call('GET', '/console/api/media', { cookie: owner })).json.history;
+    expect(hist[0]).toMatchObject({ action: 'site.version.live', reason: 'The phone picture is clearer' });
+    expect((await call('POST', '/console/api/site/versions/1.0.0/live', { body: { reason: 'Back to the first one' }, cookie: owner })).json.live).toBe('1.0.0');
+  });
+
+  it('a stored live version that no longer exists falls back to the first one', async () => {
+    await h.app.settings.save(h.db, { home_version: '0.0.1' }, null);
+    expect(h.app.settings.homeVersion()).toBe('1.0.0');
+    await h.app.settings.save(h.db, { home_version: '1.0.0' }, null);
   });
 });
 

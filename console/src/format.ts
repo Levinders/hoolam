@@ -121,6 +121,7 @@ export const ACTIONS: Record<string, string> = {
   'user.social': 'Changed a seller\'s link',
   'media.remove': 'Removed an image',
   'site.refresh': 'Refreshed the website',
+  'site.version.live': 'Changed the live home page',
   'staff.invite': 'Invited a team member',
   'staff.invite_accepted': 'Joined the team',
   'staff.role': 'Changed a role',
