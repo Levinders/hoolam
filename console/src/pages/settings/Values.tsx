@@ -277,7 +277,7 @@ export function TimingPage() {
           <div className="panel-head"><h2>How an order moves</h2></div>
           <div className="panel-body">
             <ol className="flowline">
-              <li><span className="fl-ic"><Hourglass /></span><div><b>Buyer starts an order</b><span>The seller has <em>{h('seller_accept_hours')}</em> to accept, then it closes.</span></div></li>
+              <li><span className="fl-ic"><Hourglass /></span><div><b>Someone starts an order</b><span>The other side has <em>{h('seller_accept_hours')}</em> to accept (the seller for a buyer's order, the buyer for a seller's), then it closes.</span></div></li>
               <li><span className="fl-ic"><Truck /></span><div><b>Buyer pays, seller dispatches</b><span>Not dispatched after <em>{h('dispatch_remind_hours')}</em>? We remind the seller.</span></div></li>
               <li><span className="fl-ic gold"><KeyRound /></span><div><b>Handover code entered</b><span>The rider is paid. The buyer checks the item.</span></div></li>
               <li><span className="fl-ic green"><CircleCheck /></span><div><b>Buyer is happy, or <em>{minutesText(Number(s.draft.auto_release_minutes))}</em> pass</b><span>The seller is paid. A problem freezes the money instead.</span></div></li>

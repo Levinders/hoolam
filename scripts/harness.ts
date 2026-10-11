@@ -23,6 +23,12 @@ export interface Harness {
   last(phone: string): string;
   /** Taps "Sell something", answering the one-time seller setup if it comes up. */
   sell(phone: string): Promise<void>;
+  /** A seller's order through the chat (the mirror of Buy something), sent to the buyer's number. Returns the order code. */
+  sellOrder(seller: string, buyer: string, o?: { item?: string; price?: string; address?: string | null; readyIn?: number }): Promise<string>;
+  /** The buyer accepts a seller's order (keeping the address, or typing one), which brings the payment details. */
+  acceptOrder(buyer: string, code: string, address?: string): Promise<void>;
+  /** A paid order: the seller dispatches it as a pickup and enters the buyer's handover code. */
+  handOver(seller: string, code: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -67,6 +73,39 @@ export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: 
       if (/Use this name/.test(last(phone))) await tap(phone, 'setup:wname');
       else await deliver({ id: `m${++n}`, phone, name: null, type: 'text', text: 'Test Shop', buttonId: null, mediaId: null });
       await tap(phone, 'setup:nocity');
+    },
+    sellOrder: async (seller, buyer, o = {}) => {
+      const say = (p: string, text: string) => deliver({ id: `m${++n}`, phone: p, name: null, type: 'text', text, buttonId: null, mediaId: null });
+      await tap(seller, 'menu:sell');
+      if (/Set up as a seller/.test(last(seller))) {
+        if (/Use this name/.test(last(seller))) await tap(seller, 'setup:wname'); else await say(seller, 'Test Shop');
+        await tap(seller, 'setup:nocity');
+      }
+      await say(seller, o.item ?? 'Black sneakers, size 42');
+      await say(seller, 'Brand new, in the box');
+      await tap(seller, 'cat:other');
+      await say(seller, o.price ?? '15000');
+      if (o.address === null) await tap(seller, 'sell:noaddress'); else await say(seller, o.address ?? '12 Woji Road, Port Harcourt');
+      await tap(seller, `bdate:${o.readyIn ?? 1}`);
+      await tap(seller, 'sell:nophotos');
+      await say(seller, buyer);
+      if (/account number/.test(last(seller))) { await say(seller, '0123456789 GTBank'); await tap(seller, 'bank:yes'); }
+      await tap(seller, 'sell:send');
+      return last(seller).match(/HL-[A-Z2-9]{5}/)![0];
+    },
+    acceptOrder: async (buyer, code, address) => {
+      await tap(buyer, `baccept:${code}`);
+      if (/Yes, deliver here/.test(last(buyer)) && !address) await tap(buyer, `baddr:${code}`);
+      else await deliver({ id: `m${++n}`, phone: buyer, name: null, type: 'text', text: address ?? '12 Woji Road, Port Harcourt', buttonId: null, mediaId: null });
+    },
+    handOver: async (seller, code) => {
+      const say = (p: string, text: string) => deliver({ id: `m${++n}`, phone: p, name: null, type: 'text', text, buttonId: null, mediaId: null });
+      await tap(seller, `dispatch:${code}`);
+      await tap(seller, 'dm:pickup');
+      await say(seller, 'Shop 4, Rumuola Plaza');
+      const r = await db.query('SELECT handover_code FROM deals WHERE code=$1', [code]);
+      await tap(seller, `hcode:${code}`);
+      await say(seller, r.rows[0].handover_code);
     },
     stop: async () => {
       await app.app.close();

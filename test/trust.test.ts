@@ -22,17 +22,13 @@ async function newSeller(name = 'Bayo Shoes') {
 }
 /** One full deal from seller to a given buyer, ending with the buyer happy (and optionally rating). */
 async function completeDeal(seller: string, buyer: string, opts: { rate?: 'up' | 'down'; shipHours?: number } = {}) {
-  await h.sell(seller);
-  await h.say(seller, 'Sneakers'); await h.say(seller, '10000');
-  await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.tap(seller, 'sell:confirm');
-  const code = codeIn(h.last(seller));
-  await h.say(buyer, `Pay ${code}`, 'Ada Obi');
-  await h.tap(buyer, `pay:${code}`);
+  await h.say(buyer, 'hi', 'Ada Obi');
+  const code = await h.sellOrder(seller, buyer, { item: 'Sneakers', price: '10000' });
+  await h.acceptOrder(buyer, code);
   const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
   h.provider.pay(r.rows[0].provider_reference);
   await h.app.deals.handleCollection(r.rows[0].provider_reference);
-  await h.tap(seller, `shipped:${code}`);
-  await h.tap(seller, `noproof:${code}`);
+  await h.handOver(seller, code);
   if (opts.shipHours != null) await h.db.query(`UPDATE deals SET funded_at = shipped_at - make_interval(hours => $2) WHERE code=$1`, [code, opts.shipHours]);
   await h.tap(buyer, `happy:${code}`);
   if (opts.rate) await h.tap(buyer, `rate${opts.rate}:${code}`);
@@ -62,10 +58,8 @@ describe('the numbers', () => {
 
   it('a refund after review shows on the card; a new seller shows "New on Hoolam"', async () => {
     const seller = await newSeller('Kemi Wigs'); const buyer = phone();
-    await h.sell(seller); await h.say(seller, 'Wig'); await h.say(seller, '20000');
-    await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.tap(seller, 'sell:confirm');
-    const code = codeIn(h.last(seller));
-    await h.say(buyer, `Pay ${code}`); await h.tap(buyer, `pay:${code}`);
+    const code = await h.sellOrder(seller, buyer, { item: 'Wig', price: '20000' });
+    await h.acceptOrder(buyer, code);
     const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
     h.provider.pay(r.rows[0].provider_reference); await h.app.deals.handleCollection(r.rows[0].provider_reference);
     await h.tap(buyer, `problem:${code}`); await h.say(buyer, 'Wrong colour'); await h.say(buyer, '8012345678 Opay'); await h.tap(buyer, 'bank:yes');
@@ -93,17 +87,17 @@ describe('where buyers see it', () => {
   it('a one-line record above Pay now, and the full card one tap away', async () => {
     const seller = await newSeller();
     await completeDeal(seller, phone()); await completeDeal(seller, phone()); await completeDeal(seller, phone());
-    await h.sell(seller); await h.say(seller, 'Bag'); await h.say(seller, '9000');
-    await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.tap(seller, 'sell:confirm');
-    const code = codeIn(h.last(seller));
     const buyer = phone();
-    await h.say(buyer, `Pay ${code}`, 'Tolu');
+    await h.say(buyer, 'hi', 'Tolu');
+    const code = await h.sellOrder(seller, buyer, { item: 'Bag', price: '9000' });
+    await h.say(buyer, `Pay ${code}`);
     expect(h.last(buyer)).toMatch(/🛡️ \*Bayo\* · ✅ 3 orders/);
-    expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[🛡️ Seller's record\] \[✕ Cancel order\]/);
-    expect(h.last(seller)).toMatch(/👤 \*Tolu\* · 🌱 new buyer on Hoolam/); // sellers see the buyer too
+    expect(h.last(buyer)).toMatch(/\[✅ Accept order\] \[✕ Decline\] \[🛡️ Seller's record\]/);
     await h.tap(buyer, `record:${code}`);
     expect(h.last(buyer)).toMatch(/✅ 3 orders completed/);
-    expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[Main menu\]/);
+    expect(h.last(buyer)).toMatch(/\[✅ Accept order\] \[Main menu\]/);
+    await h.acceptOrder(buyer, code);
+    expect(h.last(seller)).toMatch(/👤 \*Tolu\* · 🌱 new buyer on Hoolam/); // sellers see who accepted
   });
 
   it('"Check a seller" by number or deal code; unknown numbers get a kind answer', async () => {

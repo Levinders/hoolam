@@ -12,23 +12,16 @@ const me = (p: string, t: string) => console.log(`\n\x1b[33m${p === SELLER ? 'Se
 
 try {
   me(SELLER, 'hi'); await h.say(SELLER, 'hi', 'Mama Bella');
-  me(SELLER, '[Sell something]'); await h.tap(SELLER, 'menu:sell');
-  me(SELLER, '2 pairs of sneakers, size 42'); await h.say(SELLER, '2 pairs of sneakers, size 42');
-  me(SELLER, '15k'); await h.say(SELLER, '15k');
-  me(SELLER, '0123456789 GTBank'); await h.say(SELLER, '0123456789 GTBank');
-  me(SELLER, "[Yes, that's me]"); await h.tap(SELLER, 'bank:yes');
-  me(SELLER, '[Create deal]'); await h.tap(SELLER, 'sell:confirm');
-  const code = h.last(SELLER).match(/HL-[A-Z2-9]{5}/)![0];
-
-  me(BUYER, `Pay ${code}`); await h.say(BUYER, `Pay ${code}`, 'Koffi');
-  me(BUYER, '[Pay now]'); await h.tap(BUYER, `pay:${code}`);
+  me(BUYER, 'hi'); await h.say(BUYER, 'hi', 'Koffi');
+  me(SELLER, '[Sell something] … the order, sent to the buyer\'s number'); const code = await h.sellOrder(SELLER, BUYER, { item: '2 pairs of sneakers, size 42', price: '15k' });
+  me(BUYER, '[Accept order] [Yes, deliver here]'); await h.acceptOrder(BUYER, code);
 
   console.log('\n\x1b[90m… the buyer makes the bank transfer …\x1b[0m');
   const pi = await h.db.query('SELECT provider_reference FROM payment_intents ORDER BY created_at DESC LIMIT 1');
   h.provider.pay(pi.rows[0].provider_reference);
   await h.app.deals.handleCollection(pi.rows[0].provider_reference);
 
-  me(SELLER, "[I've sent it]"); await h.tap(SELLER, `shipped:${code}`);
+  me(SELLER, '[Dispatch now] pickup, then the buyer\'s code'); await h.handOver(SELLER, code);
   me(BUYER, "[I'm happy]"); await h.tap(BUYER, `happy:${code}`);
 
   const bal = await h.db.query('SELECT account, SUM(amount_minor)::bigint AS b FROM ledger_entries GROUP BY account ORDER BY account');

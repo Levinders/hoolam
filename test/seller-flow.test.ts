@@ -16,21 +16,25 @@ const deal = async (code: string) => (await h.db.query('SELECT * FROM deals WHER
 const outs = async (p: string, kind: string) => (await h.db.query('SELECT body FROM outbound_messages WHERE phone=$1 AND kind=$2 ORDER BY id', [p, kind])).rows;
 const codeIn = (t: string) => t.match(/HL-[A-Z2-9]{5}/)![0];
 
-/** Seller goes through the chat. Returns the deal code. */
-async function sellByChat(seller: string, opts: { buyerPhone?: string; photos?: number; price?: string } = {}) {
+/** Seller goes through the chat (the mirror of Buy something). Returns the order code. */
+async function sellByChat(seller: string, opts: { buyerPhone?: string; photos?: number; price?: string; address?: string | null } = {}) {
   await h.say(seller, 'hi', 'Bayo Shoes');
   await h.sell(seller);
   await h.say(seller, 'Black sneakers, size 42');
+  await h.say(seller, 'Brand new, in the box'); await h.tap(seller, 'cat:shoes');
   await h.say(seller, opts.price ?? '15000');
+  if (opts.address === null) await h.tap(seller, 'sell:noaddress'); else await h.say(seller, opts.address ?? '12 Woji Road, Port Harcourt');
+  await h.tap(seller, 'bdate:1');
   for (let i = 0; i < (opts.photos ?? 0); i++) await photo(seller);
   await h.tap(seller, opts.photos ? 'sell:photosdone' : 'sell:nophotos');
-  if (opts.buyerPhone) await h.say(seller, opts.buyerPhone); else await h.tap(seller, 'sell:nophone');
-  if (/Send your account number|account number/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
-  await h.tap(seller, 'sell:confirm');
+  await h.say(seller, opts.buyerPhone ?? phone());
+  if (/account number/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
+  if (!/Check your order/.test(h.last(seller))) throw new Error(`expected the summary, got: ${h.last(seller)}`);
+  await h.tap(seller, 'sell:send');
   return codeIn(h.last(seller));
 }
 
-/** Buyer starts a deal with no seller number. Returns the code. */
+/** Buyer starts a deal (the seller's number is required). Returns the code. */
 async function buyByChat(buyer: string, price = '15000') {
   await h.say(buyer, 'hi', 'Ada Obi');
   await h.tap(buyer, 'menu:buy');
@@ -38,50 +42,127 @@ async function buyByChat(buyer: string, price = '15000') {
   await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
   await h.say(buyer, price); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3');
   await h.tap(buyer, 'buy:nophotos');
-  await h.tap(buyer, 'buy:nophone');
+  await h.say(buyer, phone());
   await h.tap(buyer, 'buy:send');
   return codeIn(h.last(buyer));
 }
 
-describe('seller creates a deal: whoever starts the deal pays the fee', () => {
-  it('summary shows what the seller receives; the buyer pays just the price', async () => {
-    const seller = phone();
+describe('Sell something: the mirror of Buy something', () => {
+  it('the seller answers the same questions; the summary shows their own money and the buyer\'s number', async () => {
+    const seller = phone(), buyer = phone();
     await h.say(seller, 'hi', 'Bayo');
     await h.sell(seller);
-    await h.say(seller, 'Sneakers'); await h.say(seller, '15000');
-    expect(h.last(seller)).toMatch(/Add photos of the item/);
+    expect(h.last(seller)).toMatch(/What are you selling\?/);
+    await h.say(seller, 'Sneakers');
+    expect(h.last(seller)).toMatch(/Describe it/);
+    await h.say(seller, 'White, size 43'); await h.tap(seller, 'cat:shoes');
+    expect(h.last(seller)).toMatch(/\*total price\*/);
+    await h.say(seller, '15000');
+    expect(h.last(seller)).toMatch(/buyer's delivery address\*, if you know it[\s\S]*\[Buyer will add it\]/);
+    await h.say(seller, '12 Woji Road, Port Harcourt');
+    expect(h.last(seller)).toMatch(/\*ready to send\*[\s\S]*\[Today\] \[Tomorrow\] \[In 3 days\]/);
+    await h.tap(seller, 'bdate:0');
+    expect(h.last(seller)).toMatch(/\*photos\*/);
     await photo(seller);
     await h.tap(seller, 'sell:photosdone');
-    expect(h.last(seller)).toMatch(/buyer's WhatsApp number/);
-    await h.tap(seller, 'sell:nophone');
+    expect(h.last(seller)).toMatch(/\*buyer's WhatsApp number\*/);
+    await h.say(seller, seller.replace('+234', '0'));
+    expect(h.last(seller)).toMatch(/That's your own number/);
+    await h.say(seller, '09000000000'.replace(/^0/, '+234').replace('+2349000000000', '2349000000000'));
+    expect(h.last(seller)).toMatch(/That's Hoolam's number/);
+    await h.say(seller, buyer.replace('+234', '0'));
+    expect(h.last(seller)).toMatch(/account number/); // first time: where to pay them
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
-    expect(h.last(seller)).toMatch(/Check your order/);
-    expect(h.last(seller)).toMatch(/📷 1 photo/);
-    expect(h.last(seller)).toMatch(/Hoolam fee   −₦400/);
-    expect(h.last(seller)).toMatch(/You receive  ₦14,600/);
-    expect(h.last(seller)).toMatch(/You started the order, so you pay Hoolam's fee/);
-    expect(h.last(seller)).not.toMatch(/Transaction fee|₦15,500/); // the buyer's transaction fee is theirs to see
-    await h.tap(seller, 'sell:confirm');
+    const t = h.last(seller);
+    expect(t).toMatch(/Check your order/);
+    expect(t).toMatch(/📷 1 photo/);
+    expect(t).toMatch(/📍 Deliver to: \*12 Woji Road, Port Harcourt\*/);
+    expect(t).toMatch(/📅 Ready by \*/);
+    expect(t).toMatch(new RegExp(`Buyer's WhatsApp: \\*${buyer.replace('+234', '0')}\\*`));
+    expect(t).toMatch(/Total price  ₦15,000\nHoolam fee  −₦400\n\*You receive  ₦14,600\*/);
+    expect(t).not.toMatch(/Transaction fee|₦15,500/); // the buyer's transaction fee is theirs to see
+    expect(t).toMatch(/\[📨 Send to buyer\] \[✏️ Edit order\] \[🔄 Start again\]/);
+    await h.tap(seller, 'sell:send');
+    expect(h.last(seller)).toMatch(new RegExp(`✅ \\*${buyer.replace('+234', '0')}\\* · Order \\*HL-[A-Z2-9]{5}\\* is sent`));
+    expect(h.last(seller)).toMatch(/They have \*48 hours\* to accept/);
     const d = await deal(codeIn(h.last(seller)));
-    expect(d).toMatchObject({ fee_payer: 'SELLER', txn_fee_payer: 'BUYER' });
+    expect(d).toMatchObject({ status: 'AWAITING_BUYER', started_by: 'SELLER', fee_payer: 'SELLER', txn_fee_payer: 'BUYER', buyer_id: null, legacy_ship: false, category: 'shoes', delivery_address: '12 Woji Road, Port Harcourt' });
+    expect(d.accept_by).not.toBeNull();
+    expect(d.view_token).toBeTruthy();
     expect([d.buyer_pays_minor, d.seller_gets_minor, d.fee_minor, d.txn_fee_minor].map(Number)).toEqual([1_550_000, 1_460_000, 40_000, 50_000]);
   });
 
-  it('with the buyer\'s number: the buyer is alerted, sees photos, pays just the price', async () => {
+  it('the buyer is alerted, sees the order, accepts with the address, and gets the payment details; the seller is told', async () => {
     const seller = phone(), buyer = phone();
+    await h.say(buyer, 'hi', 'Ada');
     const code = await sellByChat(seller, { buyerPhone: buyer.replace('+234', '0'), photos: 2 });
-    expect(h.last(seller)).toMatch(/We've sent the buyer the order/);
+    expect(h.last(seller)).toMatch(/We've sent the buyer your order/);
     const alerts = await outs(buyer, 'template');
     expect(alerts).toHaveLength(1);
-    expect(alerts[0].body.text).toMatch(/Bayo is selling you Black sneakers, size 42 for ₦15,500/);
+    expect(alerts[0].body.text).toMatch(/New order for you\* on \*Hoolam\*[\s\S]*Seller: \*Bayo[^*]*\*[\s\S]*Item: \*Black sneakers, size 42\*[\s\S]*Total price: \*₦15,000\*[\s\S]*You pay: \*₦15,500\*/);
     expect(alerts[0].body.buttons.map((b: { id: string }) => b.id)).toEqual([`bview:${code}`, `bnotme:${code}`]);
 
-    await h.app.chat.handle({ id: `b${++n}`, phone: buyer, name: 'Ada', type: 'button', text: 'View deal', buttonId: `bview:${code}`, mediaId: null });
+    await h.tap(buyer, `bview:${code}`);
     expect(await outs(buyer, 'image')).toHaveLength(2);
-    expect(h.last(buyer)).toMatch(/Total price  ₦15,000\nTransaction fee  ₦500\n\*You pay  ₦15,500\*/);
-    expect(h.last(buyer)).not.toMatch(/Hoolam fee/); // the seller started it, so Hoolam's fee is the seller's
-    expect(h.last(buyer)).toMatch(/\[✕ Cancel order\]/);
-    expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
+    const card = h.last(buyer);
+    expect(card).toMatch(/🛍️ \*Bayo[^*]*\* · New order for you/);
+    expect(card).toMatch(/📍 Deliver to: \*12 Woji Road, Port Harcourt\*\n📅 Ready by \*/);
+    expect(card).toMatch(/Total price  ₦15,000\nTransaction fee  ₦500\n\*You pay  ₦15,500\*/);
+    expect(card).not.toMatch(/Hoolam fee/); // the seller started it, so Hoolam's fee is the seller's
+    expect(card).toMatch(/Accept within \*48 hours\*/);
+    expect(card).toMatch(/\[✅ Accept order\] \[✕ Decline\] \[🛡️ Seller's record\]/);
+    expect((await deal(code))).toMatchObject({ status: 'AWAITING_BUYER', buyer_id: null }); // looking changes nothing
+
+    await h.tap(buyer, `baccept:${code}`);
+    expect(h.last(buyer)).toMatch(/Deliver to:\n\*12 Woji Road, Port Harcourt\*[\s\S]*\[Yes, deliver here\]/);
+    await h.tap(buyer, `baddr:${code}`);
+    expect(h.last(buyer)).toMatch(new RegExp(`✅ \\*Bayo[^*]*\\* · Order \\*${code}\\* accepted\\. Here's how to pay:\\n\\n💳 Transfer exactly \\*₦15,500\\*`));
+    expect(h.last(seller)).toMatch(new RegExp(`✅ \\*Ada\\* · Order \\*${code}\\* accepted\\.\\n👤 \\*Ada\\* · 🌱 new buyer on Hoolam\\n\\nTotal price  ₦15,000\\nHoolam fee  −₦400\\n\\*You receive  ₦14,600\\*`));
+    expect(h.last(seller)).toMatch(/\*Don't ship before we confirm the money is held\.\*/);
+    expect(await deal(code)).toMatchObject({ status: 'AWAITING_PAYMENT' });
+    expect((await deal(code)).buyer_id).toBeTruthy();
+  });
+
+  it('no address from the seller: the buyer adds it; a buyer can also change the seller\'s', async () => {
+    const seller = phone(), buyer = phone();
+    const code = await sellByChat(seller, { buyerPhone: buyer, address: null });
+    await h.tap(buyer, `bview:${code}`);
+    expect(h.last(buyer)).toMatch(/You add the delivery address when you accept/);
+    await h.tap(buyer, `baccept:${code}`);
+    expect(h.last(buyer)).toMatch(/Where should it be delivered\?/);
+    await h.say(buyer, 'abc');
+    expect(h.last(buyer)).toMatch(/Where should it be delivered\?/);
+    await h.say(buyer, '5 Aba Road, Port Harcourt');
+    expect(h.last(buyer)).toMatch(/Transfer exactly/);
+    expect((await deal(code)).delivery_address).toBe('5 Aba Road, Port Harcourt');
+
+    const b2 = phone();
+    const code2 = await sellByChat(seller, { buyerPhone: b2 });
+    await h.acceptOrder(b2, code2, '7 Olu Street, Ikeja');
+    expect((await deal(code2)).delivery_address).toBe('7 Olu Street, Ikeja');
+  });
+
+  it('decline, wrong number, the seller cancels, and no answer in time', async () => {
+    const seller = phone(), buyer = phone();
+    await h.say(buyer, 'hi', 'Ada');
+    const a = await sellByChat(seller, { buyerPhone: buyer });
+    await h.tap(buyer, `bdecline:${a}`);
+    expect(h.last(buyer)).toMatch(/\[Not interested\] \[🚫 Wrong number\]/);
+    await h.tap(buyer, `bno:${a}`);
+    expect((await deal(a)).status).toBe('CANCELLED');
+    expect(h.last(buyer)).toMatch(/\*Bayo[^*]*\* · Order \*HL-\w+\* is declined/);
+    expect(h.last(seller)).toMatch(/😕 \*Ada\* · Order \*HL-\w+\* declined\. No money moved\./);
+
+    const b = await sellByChat(seller, { buyerPhone: phone() });
+    await h.tap(seller, `scancel:${b}`);
+    expect((await deal(b)).status).toBe('CANCELLED');
+    expect(h.last(seller)).toMatch(/is cancelled\. No money moved/);
+
+    const c = await sellByChat(seller, { buyerPhone: phone() });
+    await h.db.query(`UPDATE deals SET accept_by = now() - interval '1 minute' WHERE code=$1`, [c]);
+    await h.app.deals.sweep({ nudgeAfterHours: 9999 });
+    expect((await deal(c)).status).toBe('EXPIRED');
+    expect(h.last(seller)).toMatch(/the buyer didn't accept in time/);
   });
 
   it('"Not me" from the buyer: closed, the seller is told; that seller can\'t alert them again, others can', async () => {
@@ -97,16 +178,38 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
     expect(await outs(stranger, 'template')).toHaveLength(2);
   });
 
+  it('once paid, the seller dispatches like any order (handover code), and is paid minus their fee', async () => {
+    const seller = phone(), buyer = phone();
+    await h.say(buyer, 'hi', 'Ada');
+    const code = await sellByChat(seller, { buyerPhone: buyer });
+    await h.acceptOrder(buyer, code);
+    const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
+    h.provider.pay(r.rows[0].provider_reference);
+    await h.app.deals.handleCollection(r.rows[0].provider_reference);
+    expect(h.last(seller)).toMatch(/💰 \*Ada\* has paid[\s\S]*Dispatch it now[\s\S]*\[🚚 Dispatch now\] \[❌ Can't fulfil\]/);
+    await h.handOver(seller, code);
+    expect(h.last(buyer)).toMatch(/handed over to you/);
+    await h.tap(buyer, `happy:${code}`);
+    const p = await h.db.query(`SELECT kind, amount_minor FROM payouts WHERE deal_id=(SELECT id FROM deals WHERE code=$1)`, [code]);
+    expect(p.rows.map((x) => [x.kind, Number(x.amount_minor)])).toEqual([['SELLER', 1_460_000]]);
+  });
+
   it('the seller form: answers go to the summary', async () => {
-    const seller = phone();
+    const seller = phone(), buyer = phone();
     await h.say(seller, 'hi', 'Bayo');
     await h.app.chat.handle({ id: `f${++n}`, phone: seller, name: 'Bayo', type: 'form', text: '', buttonId: null, mediaId: null,
-      form: { flow_token: 'sell:v1', item: 'Wig', price: 20000, other_phone: '', photos: [{ id: 'p1', mime_type: 'image/jpeg' }] } });
-    expect(h.last(seller)).toMatch(/Send your account number|account number/);
+      form: { flow_token: 'sell:v2', item: 'Wig', description: 'Bone straight, 20 inches', category: 'beauty', price: '20000', address: '', arrive_by: '2099-12-31', other_phone: buyer.replace('+234', '0'), photos: [{ id: 'p1', mime_type: 'image/jpeg' }] } });
+    expect(h.last(seller)).toMatch(/account number/);
     await h.say(seller, '0123456789 Kuda'); await h.tap(seller, 'bank:yes');
     expect(h.last(seller)).toMatch(/Check your order/);
     expect(h.last(seller)).toMatch(/📷 1 photo/);
+    expect(h.last(seller)).toMatch(/📍 The buyer adds the delivery address/);
     expect(h.last(seller)).toMatch(/You receive  ₦19,500/);
+    await h.tap(seller, 'sell:edit');
+    expect(h.last(seller)).toMatch(/What do you want to change\?[\s\S]*Ready by[\s\S]*Buyer's WhatsApp/);
+    await h.tap(seller, 'bfix:price');
+    await h.say(seller, '22000');
+    expect(h.last(seller)).toMatch(/Total price  ₦22,000/);
   });
 });
 
@@ -163,9 +266,11 @@ describe('Change price', () => {
 });
 
 describe('proof of shipping', () => {
+  // orders a seller created before Sell something was rebuilt keep the old route ("I've sent it") until they finish
   async function fundedDeal() {
     const seller = phone(), buyer = phone();
     const code = await sellByChat(seller);
+    await h.db.query('UPDATE deals SET legacy_ship=true WHERE code=$1', [code]);
     await h.say(buyer, `Pay ${code}`, 'Ada');
     await h.tap(buyer, `pay:${code}`);
     const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
@@ -202,20 +307,25 @@ describe('proof of shipping', () => {
 });
 
 describe('pieces', () => {
-  it('the seller form fits WhatsApp limits', () => {
+  it('the seller form mirrors the buyer\'s: the address is optional, ready by and the buyer\'s number are required', () => {
     const json = sellFlowJson('aGVsbG8=') as any;
+    expect(json.screens.map((x: any) => x.id)).toEqual(['ITEM', 'DELIVERY', 'PHOTOS']);
     expect(json.screens[0].title).toBe('Sell safely');
-    const fields = json.screens[0].layout.children[1].children;
-    for (const c of fields) if (c.type === 'TextInput') { expect(c.label.length).toBeLessThanOrEqual(20); expect((c['helper-text'] ?? '').length).toBeLessThanOrEqual(30); }
-    expect(fields.some((c: any) => c.type === 'DatePicker')).toBe(false);
-    expect(json.screens[1].data.price.type).toBe('string');
+    const delivery = json.screens[1].layout.children[0].children;
+    const field = (name: string) => delivery.find((c: any) => c.name === name);
+    expect(field('address').required).toBe(false);
+    expect(field('arrive_by')).toMatchObject({ type: 'DatePicker', label: 'Ready by', required: true });
+    expect(field('other_phone')).toMatchObject({ label: 'Buyer\'s WhatsApp', required: true });
+    expect(json.screens[2].data.price.type).toBe('string');
     expect(sellFlowName(json)).toMatch(/^hoolam_sell_/);
   });
 
   it('new messages fit WhatsApp limits', () => {
     const money = { minor: 1_500_000, currency: 'NGN' as const };
     for (const m of [
-      msg.confirmDeal({ item: 'x', photos: 1, buyerPhone: '+2348030000000', price: money, fee: money, buyerPays: money, sellerGets: money }),
+      msg.sellSummary({ item: 'x', photos: 1, readyBy: 'Fri 9 Oct', buyerPhone: '+2348030000000', sum: { price: money, fee: money, feeLabel: 'Hoolam fee', gets: money } }),
+      msg.buyerOrderCard({ code: 'HL-AAAAA', sellerName: 'Bayo', item: 'x', sum: { price: money, fee: money, feeLabel: 'Transaction fee', pay: money }, hoursLeft: 48 }),
+      msg.sellDealReady('HL-AAAAA', 'Ada', 'https://x', 'sent', 48), msg.askSellAddress(), msg.askReadyBy(), msg.askBuyerDeclineReason('HL-AAAAA'),
       msg.askSellPhotos(), msg.askBuyerPhone(), msg.sellForm('1', 'draft'), msg.buyerCounterOffer('HL-AAAAA', 'Bayo', 'x', money, money, money),
       msg.askDeclineReason('HL-AAAAA'), msg.sellerShippedOk('HL-AAAAA'), msg.dealCreated('HL-AAAAA', 'https://x', 'sent'),
     ]) expect(() => checkLimits(m)).not.toThrow();
@@ -237,7 +347,8 @@ describe('pieces', () => {
       return Response.json({ data: [] });
     }) as unknown as typeof fetch;
     expect(await ensureTemplate({ token: 't', phoneNumberId: 'p', graphVersion: 'v26.0', wabaId: 'w', formMode: 'draft', fetchImpl: f }, BUYER_ALERT, 'buyer alert')).toBe('PENDING');
-    expect(posted[0].name).toBe('hoolam_order_payment_request');
+    expect(posted[0].name).toBe('hoolam_new_order_for_buyer');
+    expect(BUYER_ALERT.replaces).toBe('hoolam_order_payment_request'); // used until Meta approves the new one
     expect(posted[0].category).toBe('UTILITY');
   });
 });

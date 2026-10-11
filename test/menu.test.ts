@@ -18,15 +18,9 @@ const state = async (p: string) => (await h.db.query('SELECT state FROM chat_ses
 /** A seller makes a deal and the buyer pays it (test provider). Returns the code. */
 async function paidDeal(seller: string, buyer: string, item = 'Blue handbag'): Promise<string> {
   await h.say(seller, 'hi', 'Ada');
-  await h.sell(seller);
-  await h.say(seller, item);
-  await h.say(seller, '10000');
-  await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone');
-  if (/Send your account number|account number/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
-  await h.tap(seller, 'sell:confirm');
-  const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
-  await h.say(buyer, `Pay ${code}`, 'Tolu');
-  await h.tap(buyer, `pay:${code}`);
+  await h.say(buyer, 'hi', 'Tolu');
+  const code = await h.sellOrder(seller, buyer, { item, price: '10000' });
+  await h.acceptOrder(buyer, code);
   const r = await h.db.query('SELECT pi.provider_reference FROM payment_intents pi JOIN deals d ON d.id=pi.deal_id WHERE d.code=$1', [code]);
   h.provider.pay(r.rows[0].provider_reference);
   await h.app.deals.handleCollection(r.rows[0].provider_reference);
@@ -173,10 +167,8 @@ describe('the menu in the chat', () => {
 
   it('"Pay for a deal" asks for the code, then opens the deal', async () => {
     const seller = phone(), buyer = phone();
-    await h.say(seller, 'hi'); await h.sell(seller); await h.say(seller, 'Shoes'); await h.say(seller, '8000');
-    await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone');
-    await h.say(seller, '0123456789 Opay'); await h.tap(seller, 'bank:yes'); await h.tap(seller, 'sell:confirm');
-    const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
+    await h.say(seller, 'hi');
+    const code = await h.sellOrder(seller, phone(), { item: 'Shoes', price: '8000' }); // sent to one number; the link can reach anyone
 
     await h.tap(buyer, 'menu:pay');
     expect(h.last(buyer)).toMatch(/Send the order code/);
@@ -184,7 +176,7 @@ describe('the menu in the chat', () => {
     expect(h.last(buyer)).toMatch(/doesn't look like an order code/);
     await h.say(buyer, code.toLowerCase().replace('-', ''));
     expect(h.last(buyer)).toMatch(new RegExp(`Order \\*${code}\\*`));
-    expect(h.last(buyer)).toMatch(/Pay now\]/);
+    expect(h.last(buyer)).toMatch(/Accept order\]/);
   });
 
   it('"Report a problem" with no paid deals offers a person instead', async () => {
@@ -198,7 +190,7 @@ describe('the menu in the chat', () => {
     const seller = phone(), buyer = phone();
     const code = await paidDeal(seller, buyer);
     await h.tap(buyer, 'menu:problem');
-    expect(h.last(buyer)).toMatch(new RegExp(`what's wrong with order ${code}`));
+    expect(h.last(buyer)).toMatch(new RegExp(`Order \\*${code}\\*: sorry about that[\\s\\S]*Tell us what.s wrong`));
     expect((await h.db.query('SELECT status FROM deals WHERE code=$1', [code])).rows[0].status).toBe('DISPUTED');
   });
 

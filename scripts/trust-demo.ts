@@ -15,14 +15,12 @@ for (let i = 0; i < buyers.length; i++) await h.say(buyers[i]!, 'hi', names[i]);
 
 const items = ['Black sneakers, size 42', 'White Air Force 1, size 44', 'Jordan 4, size 43', 'Slides, size 41', 'Running shoes, size 42'];
 for (let i = 0; i < 14; i++) {
-  await h.tap(seller, 'menu:sell'); await h.say(seller, items[i % items.length]!); await h.say(seller, String(15000 + (i % 4) * 5000));
-  await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.tap(seller, 'sell:confirm');
-  const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
   const b = buyers[i % buyers.length]!;
-  await h.say(b, `Pay ${code}`); await h.tap(b, `pay:${code}`);
+  const code = await h.sellOrder(seller, b, { item: items[i % items.length]!, price: String(15000 + (i % 4) * 5000) });
+  await h.acceptOrder(b, code);
   const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
   h.provider.pay(r.rows[0].provider_reference); await h.app.deals.handleCollection(r.rows[0].provider_reference);
-  await h.tap(seller, `shipped:${code}`);
+  await h.handOver(seller, code);
   await h.db.query(`UPDATE deals SET shipped_at = funded_at + interval '20 hours' WHERE code=$1`, [code]);
   await h.tap(b, `happy:${code}`);
   await h.tap(b, i === 6 ? `ratedown:${code}` : `rateup:${code}`);

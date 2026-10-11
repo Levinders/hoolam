@@ -28,7 +28,7 @@ async function buyByChat(buyer: string, opts: { sellerPhone?: string; photos?: n
   await h.say(buyer, opts.price ?? '15k'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3');
   for (let i = 0; i < (opts.photos ?? 0); i++) await photo(buyer);
   await h.tap(buyer, opts.photos ? 'buy:photosdone' : 'buy:nophotos');
-  if (opts.sellerPhone) await h.say(buyer, opts.sellerPhone); else await h.tap(buyer, 'buy:nophone');
+  await h.say(buyer, opts.sellerPhone ?? phone()); // the seller's number is required (we alert them)
   await h.tap(buyer, 'buy:send');
   return codeIn(h.last(buyer));
 }
@@ -134,8 +134,12 @@ describe('a buyer starts a deal in the chat', () => {
     await h.say(buyer, 'Brand new, in the box'); await h.tap(buyer, 'cat:other');
     await h.say(buyer, '20000'); await h.say(buyer, '12 Woji Road, Port Harcourt'); await h.tap(buyer, 'bdate:3');
     await h.tap(buyer, 'buy:nophotos');
-    await h.tap(buyer, 'buy:nophone');
+    expect(h.last(buyer)).toMatch(/\*seller's WhatsApp number\*/);
+    await h.tap(buyer, 'buy:nophone'); // an old "Skip" button just asks again
+    expect(h.last(buyer)).toMatch(/\*seller's WhatsApp number\*/);
+    await h.say(buyer, '08031112222');
     expect(h.last(buyer)).toMatch(/Check your order/);
+    expect(h.last(buyer)).toMatch(/Seller's WhatsApp: \*08031112222\*/);
     expect(h.last(buyer)).toMatch(/\*💰 Total price  ₦20,000\*/);
     expect(h.last(buyer)).toMatch(/Hoolam's fee is added when the seller accepts: 2\.5% of the total \(starting from ₦300, at most ₦5,000\)/);
     expect(h.last(buyer)).toMatch(/📍 Deliver to: \*12 Woji Road, Port Harcourt\*/);
@@ -143,7 +147,7 @@ describe('a buyer starts a deal in the chat', () => {
     expect(h.last(buyer)).toMatch(/\[📨 Send to seller\]/);
   });
 
-  it('a bad phone number can be fixed or skipped', async () => {
+  it('a bad phone number is asked again; the buyer\'s own number isn\'t the seller\'s', async () => {
     const buyer = phone();
     await h.say(buyer, 'hi');
     await h.tap(buyer, 'menu:buy');
@@ -151,7 +155,11 @@ describe('a buyer starts a deal in the chat', () => {
     await h.say(buyer, 'not a number');
     expect(h.last(buyer)).toMatch(/couldn't read that number/);
     await h.say(buyer, 'skip');
-    expect(h.last(buyer)).toMatch(/You'll get a link for the seller/);
+    expect(h.last(buyer)).toMatch(/couldn't read that number/);
+    await h.say(buyer, buyer.replace('+234', '0'));
+    expect(h.last(buyer)).toMatch(/That's your own number/);
+    await h.say(buyer, '08031112222');
+    expect(h.last(buyer)).toMatch(/Check your order/);
   });
 });
 
@@ -225,12 +233,12 @@ describe('the seller answers', () => {
     expect(await alerts()).toBe(before + 1); // someone else: alerted as normal
   });
 
-  it('without a number: the seller opens the forwarded link and accepts with their saved bank', async () => {
+  it('the backup link: someone who wasn\'t alerted opens it and accepts with their saved bank', async () => {
     const buyer = phone(), seller = phone();
     // seller already has a bank account from selling before
     await h.say(seller, 'hi'); await h.tap(seller, 'menu:account'); await h.say(seller, '0123456789 Opay'); await h.tap(seller, 'bank:yes');
     const code = await buyByChat(buyer);
-    expect(h.last(buyer)).toMatch(/Send this link to the seller/);
+    expect(h.last(buyer)).toMatch(/Send them this link too, just in case/);
     await h.say(seller, `View ${code}`, 'Chidi');
     expect(h.last(seller)).toMatch(/New order request/);
     expect(h.last(seller)).not.toMatch(/Not me/); // they weren't alerted
@@ -309,7 +317,7 @@ describe('buyer side, edges', () => {
     const buyer = phone();
     await h.say(buyer, 'hi');
     await submitForm(buyer, { item: 'Laptop', description: 'HP, 16GB', category: 'electronics', price: '900000', address: 'GRA, Port Harcourt', other_phone: '08031112222', photos: [{ id: 'l1' }] });
-    expect(h.last(buyer)).toMatch(/up to ₦50,000/);
+    expect(h.last(buyer)).toMatch(/up to \*₦50,000\*/);
     await h.say(buyer, '45000');
     expect(h.last(buyer)).toMatch(/When are you expecting it/); // no date came with the form: asked too
     await h.tap(buyer, 'bdate:7');
@@ -331,7 +339,7 @@ describe('buyer side, edges', () => {
     await h.db.query(`UPDATE deals SET accept_by=now() - interval '1 minute' WHERE code=$1`, [code]);
     await h.app.deals.sweep({ nudgeAfterHours: 24 });
     expect((await deal(code)).status).toBe('EXPIRED');
-    expect(h.last(buyer)).toMatch(/didn't accept order .* in time/);
+    expect(h.last(buyer)).toMatch(/the seller didn't accept in time/);
   });
 
   it('"My orders" shows an order waiting for the seller', async () => {

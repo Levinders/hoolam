@@ -27,17 +27,20 @@ export interface Deal {
   courier_name: string | null; courier_phone: string | null; courier_location: string | null; courier_account_id: string | null;
   dispatched_at: Date | null; handover_code: string | null; handover_tries: number; handed_over_at: Date | null; courier_paid_at: Date | null;
   handover_by?: 'seller' | 'courier' | null; courier_alert?: string | null;
-  view_token: string | null;
+  view_token: string | null; legacy_ship?: boolean;
 }
 
-/** What a seller gives us to start a deal. */
+/** What a seller gives us to start an order (the mirror of BuyerDealInput). */
 export interface SellerDealInput {
-  sellerId: string;
   item: string;
   priceMinor: number;
-  sellerAccountId: string;
-  buyerPhone?: string | null;
-  photos?: { mediaId: string; mimeType?: string | null }[];
+  buyerPhone: string;
+  readyBy: string | null;                           // YYYY-MM-DD: when it can be sent or picked up
+  photos: { mediaId: string; mimeType?: string | null }[];
+  description?: string | null;
+  category?: string | null;
+  address?: string | null;                          // the buyer's address, if the seller knows it (the buyer confirms or adds it)
+  accountId: string;                                // the seller's payout account
 }
 
 /** What a buyer gives us to start a deal (from the WhatsApp form or the chat questions). */
@@ -177,7 +180,8 @@ export class DealService {
     const t = sellerId && this.o.trust ? await this.o.trust.seller(sellerId) : null;
     if (!t) { await this.o.messenger.send(viewer.phone, msg.dealStatusNow(deal.code, deal.status)); return; }
     const canPay = deal.status === 'AWAITING_PAYMENT' && deal.buyer_id === viewer.id;
-    await this.o.messenger.send(viewer.phone, msg.sellerRecord(msg.trustCardText(t), canPay ? deal.code : null, null));
+    const canAccept = deal.status === 'AWAITING_BUYER' && !deal.legacy_ship && deal.seller_id !== viewer.id;
+    await this.o.messenger.send(viewer.phone, msg.sellerRecord(msg.trustCardText(t), canPay ? deal.code : null, null, canAccept ? deal.code : null));
   }
 
   /** 👍/👎 after "I'm happy". Only the buyer, only on a released deal, only once. */
@@ -328,28 +332,57 @@ export class DealService {
     return t?.isPublic && t.slug ? `${this.o.orderPageBase.replace(/\/$/, '')}/s/${t.slug}` : null;
   }
 
-  async createDeal(args: SellerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
-    const q = this.previewDeal(args.priceMinor, 'seller', this.capFor(await this.userById(this.o.db, args.sellerId)));
-    const photos = await this.fetchPhotos(args.photos ?? []);
+  /**
+   * The seller describes what they're selling (the mirror of a buyer's order). We save it with photos, alert the
+   * buyer's number, and give the seller a backup link. The buyer accepts (confirming the address), then pays.
+   */
+  async createSellerDeal(seller: User, input: SellerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
+    const q = this.previewDeal(input.priceMinor, 'seller', this.capFor(seller));
+    const photos = await this.fetchPhotos(input.photos);
     const deal = await this.run(async (tx) => {
+      const acct = await tx.query('SELECT 1 FROM bank_accounts WHERE id=$1 AND user_id=$2', [input.accountId, seller.id]);
+      if (!acct.rowCount) throw new DealError('NOT_ALLOWED', 'Your payout account is missing');
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newCode();
         const r = await tx.query(
-          `INSERT INTO deals (code, seller_id, item, currency, price_minor, fee_minor, buyer_pays_minor, seller_gets_minor, seller_account_id, fee_payer, invited_phone, is_test, txn_fee_minor, txn_fee_payer)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SELLER',$10,$11,$12,$13) ON CONFLICT (code) DO NOTHING RETURNING *`,
-          [code, args.sellerId, args.item.slice(0, 200), this.o.currency, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor, args.sellerAccountId, args.buyerPhone ?? null, this.isTest(), q.txnFeeMinor, this.txnPayer(q)],
+          `INSERT INTO deals (code, seller_id, seller_account_id, item, currency, price_minor, fee_minor, buyer_pays_minor, seller_gets_minor,
+                              status, started_by, fee_payer, invited_phone, arrive_by, accept_by, is_test,
+                              description, category, delivery_address, view_token, txn_fee_minor, txn_fee_payer)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'AWAITING_BUYER','SELLER','SELLER',$10,$11, now() + make_interval(hours => $12), $13, $14, $15, $16, $17, $18, $19)
+           ON CONFLICT (code) DO NOTHING RETURNING *`,
+          [code, seller.id, input.accountId, input.item.slice(0, 200), this.o.currency, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor,
+            input.buyerPhone, input.readyBy, this.acceptHours(), this.isTest(),
+            input.description?.slice(0, 600) ?? null, input.category ?? null, input.address?.slice(0, 300) || null, randomBytes(12).toString('base64url'), q.txnFeeMinor, this.txnPayer(q)],
         );
         if (!r.rows[0]) continue;
         const d: Deal = r.rows[0];
         await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [d.id, d.status, 'seller']);
-        await this.savePhotos(tx, d.id, args.sellerId, photos, 'ITEM');
+        await this.savePhotos(tx, d.id, seller.id, photos, 'ITEM');
         return d;
       }
       throw new Error('Could not allocate a deal code');
     });
-    const seller = await this.userById(this.o.db, args.sellerId);
+    const link = this.payLink(deal.code);
     const alert = await this.alertBuyer(deal, seller);
-    return { deal, link: this.payLink(deal.code), alert };
+    await this.o.messenger.send(seller.phone, msg.sellDealReady(deal.code, await this.labelFor(input.buyerPhone), link, alert, this.acceptHours(), this.orderPageUrl(deal, 'seller')));
+    return { deal, link, alert };
+  }
+
+  /** A person's first name, for messages (null when we don't know it). */
+  async nameOf(userId: string | null | undefined): Promise<string | null> { return this.who(this.o.db, userId); }
+
+  /** Someone's first name on an order, for "Ada · Order HL-X" (null when we don't know it). */
+  private async who(q: Queryable, userId: string | null | undefined): Promise<string | null> {
+    if (!userId) return null;
+    const r = await q.query('SELECT display_name FROM users WHERE id=$1', [userId]);
+    return firstName(r.rows[0]?.display_name ?? null);
+  }
+
+  /** The name someone goes by on Hoolam (first name), or their number the way people write it. */
+  async labelFor(phone: string | null): Promise<string> {
+    if (!phone) return 'Buyer';
+    const r = await this.o.db.query('SELECT display_name FROM users WHERE phone=$1', [phone]);
+    return firstName(r.rows[0]?.display_name ?? null) ?? localPhone(phone);
   }
 
   /** Downloads photos from WhatsApp before a transaction (their links only work for a few minutes). */
@@ -377,14 +410,15 @@ export class DealService {
     if (!phone || !this.alertsOn()) return 'none';
     if (phone === seller.phone && !this.o.testMode) return 'own-number';
     if (await this.refused(phone, seller.id)) return 'opted-out';
-    const name = firstName(seller.display_name) ?? 'A seller';
+    const name = await this.shownSellerName(seller);
+    const price = msg.moneyText(this.money(deal.price_minor));
     const total = msg.moneyText(this.money(deal.buyer_pays_minor));
     const status = await this.o.messenger.sendTemplate(phone, {
       name: BUYER_ALERT.name, language: 'en',
-      params: [name, deal.item, total, deal.code],
+      params: [name, deal.item, price, total, deal.code],
       buttonPayloads: [`bview:${deal.code}`, `bnotme:${deal.code}`],
       buttonTitles: BUYER_ALERT.buttons,
-      preview: `💳 Payment request on Hoolam\n\n${name} is selling you ${deal.item} for ${total}. Order ${deal.code}.`,
+      preview: `🛍️ *New order for you* on *Hoolam*\n\n🏷️ Seller: *${name}*\n📦 Item: *${deal.item}*\n💰 Total price: *${price}*\n💳 You pay: *${total}*\n\nOrder *${deal.code}*.`,
     });
     if (status === 'FAILED') { this.log(`buyer alert for ${deal.code} failed; the seller still has the link`); return 'failed'; }
     return 'sent';
@@ -457,7 +491,7 @@ export class DealService {
 
     const link = this.sellerLink(deal.code);
     const alert = await this.alertSeller(deal, buyer);
-    await this.o.messenger.send(buyer.phone, msg.buyDealReady(deal.code, link, alert, this.acceptHours(), this.orderPageUrl(deal, 'buyer')));
+    await this.o.messenger.send(buyer.phone, msg.buyDealReady(deal.code, link, alert, this.acceptHours(), this.orderPageUrl(deal, 'buyer'), await this.labelFor(input.sellerPhone)));
     if (alert === 'failed') await this.o.messenger.send(buyer.phone, msg.buyerAlertFailed());
     return { deal, link, alert };
   }
@@ -604,8 +638,8 @@ export class DealService {
       if (deal.buyer_id === viewer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
       await this.move(tx, deal, 'CANCELLED', 'seller', notMe ? 'Not me: the alerted number is not the seller' : 'Seller declined');
       const buyer = await this.userById(tx, deal.buyer_id!);
-      out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.sellerDeclinedOk(deal.code) });
-      out.push({ phone: buyer.phone, message: notMe ? msg.buyerNotMe(deal.code) : msg.buyerSellerDeclined(deal.code), fallback: notMe ? undefined : dealTemplate('sellerDeclined', [deal.code], ['menu:buy']) });
+      out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.sellerDeclinedOk(deal.code, await this.who(tx, deal.buyer_id)) });
+      out.push({ phone: buyer.phone, message: notMe ? msg.buyerNotMe(deal.code) : msg.buyerSellerDeclined(deal.code, firstName(viewer.display_name)), fallback: notMe ? undefined : dealTemplate('sellerDeclined', [deal.code], ['menu:buy']) });
     });
   }
 
@@ -617,6 +651,8 @@ export class DealService {
   // ---------- 2. buyer opens the link ----------
   async joinAsBuyer(code: string, buyer: User): Promise<void> {
     const peek = await this.findByCode(code);
+    // a seller's new order waits for the buyer to accept it: show it, change nothing yet
+    if (peek && peek.status === 'AWAITING_BUYER' && !peek.legacy_ship) return this.showToBuyer(code, buyer);
     const canSee = peek && ['AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(peek.status) && (!peek.buyer_id || peek.buyer_id === buyer.id);
     const photoIds = canSee ? await this.photoIdsForSending(peek.id) : [];
     const trust = canSee ? await this.trustLineFor(peek.seller_id) : undefined;
@@ -641,8 +677,89 @@ export class DealService {
     });
   }
 
+  /** A seller's new order, seen by the buyer (from the alert, the link or the code): the photos, then Accept / Decline. */
+  async showToBuyer(code: string, viewer: User): Promise<void> {
+    const deal = await this.findByCode(code);
+    if (!deal) throw new DealError('NOT_FOUND');
+    if (deal.status !== 'AWAITING_BUYER' || deal.legacy_ship) return this.joinAsBuyer(code, viewer);
+    if (deal.seller_id === viewer.id && !this.o.testMode) { await this.o.messenger.send(viewer.phone, msg.ownSellDeal(deal.code, this.payLink(deal.code))); return; }
+    const seller = await this.userById(this.o.db, deal.seller_id!);
+    for (const mediaId of await this.photoIdsForSending(deal.id)) await this.o.messenger.send(viewer.phone, { kind: 'image', mediaId });
+    await this.o.messenger.send(viewer.phone, msg.buyerOrderCard({
+      code: deal.code, sellerName: await this.shownSellerName(seller), trust: await this.trustLineFor(seller.id), cardUrl: await this.sellerCardUrl(seller.id),
+      item: deal.item, description: deal.description, category: categoryTitle(deal.category), address: deal.delivery_address,
+      readyBy: deal.arrive_by ? dayText(deal.arrive_by) : null, sum: this.buyerSum(deal), hoursLeft: this.hoursLeft(deal),
+    }));
+  }
+
+  /** Hours left to accept (at least 1). */
+  hoursLeft(deal: Pick<Deal, 'accept_by'>): number {
+    return deal.accept_by ? Math.max(1, Math.round((new Date(deal.accept_by).getTime() - Date.now()) / 3600_000)) : this.acceptHours();
+  }
+
+  /**
+   * The buyer accepts a seller's order, with the delivery address (the seller's, confirmed or changed, or their own).
+   * The seller is told, and the buyer gets the payment details straight away.
+   */
+  async acceptAsBuyer(code: string, buyer: User, address: string | null): Promise<'ok' | 'need-address' | 'closed'> {
+    let sellerName = 'the seller';
+    const buyerLine = await this.buyerLineFor(buyer.id); // the seller sees who accepted, as on a buyer's order
+    const r = await this.run(async (tx, out): Promise<'ok' | 'need-address' | 'closed'> => {
+      const deal = await this.lockByCode(tx, code);
+      if (deal.status !== 'AWAITING_BUYER' || deal.legacy_ship) {
+        out.push({ phone: buyer.phone, message: deal.buyer_id === buyer.id ? msg.dealStatusNow(deal.code, deal.status) : msg.dealClosed(deal.code) });
+        return 'closed';
+      }
+      if (deal.accept_by && new Date(deal.accept_by).getTime() < Date.now()) throw new DealError('CLOSED');
+      if (deal.seller_id === buyer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+      const where = (address ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || deal.delivery_address;
+      if (!where || where.length < 5) return 'need-address';
+      await tx.query('UPDATE deals SET buyer_id=$2, delivery_address=$3 WHERE id=$1', [deal.id, buyer.id, where]);
+      await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer', where !== deal.delivery_address ? `Buyer accepted; delivery address: ${where}` : 'Buyer accepted the seller\'s order');
+      const seller = await this.userById(tx, deal.seller_id!);
+      sellerName = await this.shownSellerName(seller);
+      const buyerName = firstName(buyer.display_name) ?? localPhone(buyer.phone);
+      out.push({ phone: seller.phone, message: msg.sellerBuyerAccepted(deal.code, buyerName, this.sellerSum(deal), buyerLine), fallback: dealTemplate('buyerAccepted', [buyerName, deal.code]) });
+      return 'ok';
+    });
+    if (r === 'ok') await this.requestPayment(code, buyer, false, `✅ *${sellerName}* · Order *${code.toUpperCase()}* accepted. Here's how to pay:`);
+    return r;
+  }
+
+  /** The buyer says no to a seller's order, or "Wrong number" (then that seller can't alert this number again). */
+  async declineAsBuyer(code: string, viewer: User, notMe = false): Promise<void> {
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (notMe && deal.invited_phone === viewer.phone) await this.refuse(tx, viewer.phone, deal.seller_id, deal.code);
+      if (deal.status !== 'AWAITING_BUYER') { out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.dealClosed(deal.code) }); return; }
+      if (deal.seller_id === viewer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+      if (notMe && deal.invited_phone !== viewer.phone) { out.push({ phone: viewer.phone, message: msg.sellerNotMeOk() }); return; }
+      await this.move(tx, deal, 'CANCELLED', 'buyer', notMe ? 'Not me: the alerted number is not the buyer' : 'Buyer declined');
+      const seller = await this.userById(tx, deal.seller_id!);
+      const buyerName = firstName(viewer.display_name) ?? localPhone(viewer.phone);
+      out.push({ phone: viewer.phone, message: notMe ? msg.sellerNotMeOk() : msg.buyerDeclinedOk(deal.code, await this.shownSellerName(seller)) });
+      out.push({ phone: seller.phone, message: notMe ? msg.sellerBuyerNotMe(deal.code) : msg.sellerBuyerDeclined(deal.code, buyerName), fallback: notMe ? undefined : dealTemplate('buyerDeclined', [buyerName, deal.code], ['menu:sell']) });
+    });
+  }
+
+  /** The seller takes back an order the buyer hasn't accepted yet. */
+  async cancelBySeller(code: string, seller: User): Promise<void> {
+    let tell: { phone: string; name: string } | null = null;
+    await this.run(async (tx, out) => {
+      const deal = await this.lockByCode(tx, code);
+      if (deal.seller_id !== seller.id) throw new DealError('NOT_ALLOWED');
+      if (deal.status !== 'AWAITING_BUYER') { out.push({ phone: seller.phone, message: msg.dealStatusNow(deal.code, deal.status) }); return; }
+      await this.move(tx, deal, 'CANCELLED', 'seller', 'Seller cancelled before the buyer accepted');
+      out.push({ phone: seller.phone, message: msg.sellerCancelledOk(deal.code, await this.labelFor(deal.invited_phone)) });
+      if (deal.invited_phone && deal.invited_phone !== seller.phone) tell = { phone: deal.invited_phone, name: await this.shownSellerName(seller) };
+    });
+    // the buyer only hears about it if they're in the chat with Hoolam (no template needed for a non-event)
+    const t = tell as { phone: string; name: string } | null;
+    if (t && (await this.canReach(t.phone, '-'))) await this.o.messenger.send(t.phone, msg.buyerSellerCancelled(code.toUpperCase(), t.name));
+  }
+
   /** Shows the buyer where to transfer. Reuses a still-valid account number if there is one. */
-  async requestPayment(code: string, buyer: User, forceNew = false): Promise<void> {
+  async requestPayment(code: string, buyer: User, forceNew = false, intro?: string): Promise<void> {
     const deal = await this.findByCode(code);
     if (!deal) throw new DealError('NOT_FOUND');
     if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
@@ -654,7 +771,7 @@ export class DealService {
          ORDER BY created_at DESC LIMIT 1`, [deal.id]);
       const pi = existing.rows[0];
       if (pi) {
-        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, expiry(pi.expires_at), deal.code, this.payHint()));
+        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, expiry(pi.expires_at), deal.code, this.payHint(), intro));
         return;
       }
     }
@@ -673,7 +790,7 @@ export class DealService {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [deal.id, this.o.provider.name, paymentReference, instr.providerReference, deal.buyer_pays_minor, deal.currency, instr.accountNumber, instr.accountName, instr.bankName, instr.expiresAt],
     );
-    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, expiry(instr.expiresAt), deal.code, this.payHint()));
+    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, expiry(instr.expiresAt), deal.code, this.payHint(), intro));
   }
 
   /** Test mode only: the newest unpaid payment this person asked for. */
@@ -692,11 +809,11 @@ export class DealService {
       const paid = await tx.query(`SELECT 1 FROM payment_intents WHERE deal_id=$1 AND status IN ('PAID','PARTIAL')`, [deal.id]);
       if (paid.rowCount) throw new DealError('NOT_ALLOWED');
       await this.move(tx, deal, 'CANCELLED', 'buyer');
-      out.push({ phone: buyer.phone, message: msg.cancelled(deal.code) });
+      out.push({ phone: buyer.phone, message: msg.cancelled(deal.code, await this.who(tx, deal.seller_id ?? deal.counter_seller_id)) });
       const sellerId = deal.seller_id ?? deal.counter_seller_id;
       if (sellerId && sellerId !== buyer.id) {
         const seller = await this.userById(tx, sellerId);
-        out.push({ phone: seller.phone, message: msg.sellerBuyerCancelled(deal.code) });
+        out.push({ phone: seller.phone, message: msg.sellerBuyerCancelled(deal.code, firstName(buyer.display_name) ?? localPhone(buyer.phone)) });
       }
     });
   }
@@ -751,7 +868,7 @@ export class DealService {
       await this.move(tx, deal, 'FUNDED', 'provider', extra > 0 ? `NEEDS_ATTENTION: overpaid by ${extra}` : undefined);
       if (buyer) out.push({ phone: buyer.phone, message: msg.buyerFunded(this.money(deal.buyer_pays_minor), deal.code, firstName(seller.display_name) ?? 'the seller', this.buyerSum(deal)) });
       const buyerName = firstName(buyer?.display_name ?? null) ?? 'The buyer';
-      if (deal.started_by === 'BUYER') {
+      if (!deal.legacy_ship) {
         out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal, 'seller'), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
       } else {
         out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
@@ -768,8 +885,8 @@ export class DealService {
       if (deal.status !== 'FUNDED') throw new DealError('NOT_ALLOWED');
       await this.move(tx, deal, 'SHIPPED', 'seller');
       const buyer = await this.userById(tx, deal.buyer_id!);
-      out.push({ phone: seller.phone, message: msg.sellerShippedOk(deal.code) });
-      out.push({ phone: buyer.phone, message: msg.buyerShipped(deal.code), fallback: dealTemplate('itemOnTheWay', [deal.code], [`happy:${deal.code}`, `problem:${deal.code}`]) });
+      out.push({ phone: seller.phone, message: msg.sellerShippedOk(deal.code, firstName(buyer.display_name)) });
+      out.push({ phone: buyer.phone, message: msg.buyerShipped(deal.code, firstName(seller.display_name)), fallback: dealTemplate('itemOnTheWay', [deal.code], [`happy:${deal.code}`, `problem:${deal.code}`]) });
     });
   }
 
@@ -891,7 +1008,7 @@ export class DealService {
       await this.o.messenger.send(who.phone, courier ? msg.courierNothingToDo(deal.code, !!deal.handed_over_at) : msg.dealStatusNow(deal.code, deal.status));
       return false;
     }
-    if (deal.handover_tries >= this.handoverTries()) { await this.o.messenger.send(who.phone, msg.handoverLocked(deal.code)); return false; }
+    if (deal.handover_tries >= this.handoverTries()) { await this.o.messenger.send(who.phone, msg.handoverLocked(deal.code, await this.who(this.o.db, deal.buyer_id))); return false; }
     const r = await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [deal.buyer_id]);
     await this.o.messenger.send(who.phone, msg.askHandoverCode(deal.code, firstName(r.rows[0]?.display_name ?? null)));
     return true;
@@ -931,18 +1048,19 @@ export class DealService {
         return 'not-ready';
       }
       const seller = await this.userById(tx, deal.seller_id!);
-      if (deal.handover_tries >= this.handoverTries()) { out.push({ phone: who.phone, message: msg.handoverLocked(deal.code) }); return 'locked'; }
+      const bn = await this.who(tx, deal.buyer_id);
+      if (deal.handover_tries >= this.handoverTries()) { out.push({ phone: who.phone, message: msg.handoverLocked(deal.code, bn) }); return 'locked'; }
       if (digits.replace(/\D/g, '') !== deal.handover_code) {
         const tries = deal.handover_tries + 1;
         await tx.query('UPDATE deals SET handover_tries=$2 WHERE id=$1', [deal.id, tries]);
         if (tries >= this.handoverTries()) {
           await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)',
             [deal.id, deal.status, courier ? 'courier' : 'seller', `NEEDS_ATTENTION: handover code locked after ${tries} wrong tries`]);
-          out.push({ phone: who.phone, message: msg.handoverLocked(deal.code) });
-          if (courier) out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) });
+          out.push({ phone: who.phone, message: msg.handoverLocked(deal.code, bn) });
+          if (courier) out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code, bn) });
           return 'locked';
         }
-        out.push({ phone: who.phone, message: msg.handoverWrong(deal.code, this.handoverTries() - tries) });
+        out.push({ phone: who.phone, message: msg.handoverWrong(deal.code, this.handoverTries() - tries, bn) });
         return 'wrong';
       }
       await tx.query('UPDATE deals SET handed_over_at=now(), handover_by=$2, updated_at=now() WHERE id=$1', [deal.id, courier ? 'courier' : 'seller']);
@@ -959,7 +1077,7 @@ export class DealService {
         out.push({ phone: who.phone, message: msg.courierConfirmed(deal.code, buyerName, courierFee, acct ? { name: acct.account_name, bank: acct.bank_name, number: acct.account_number } : null) });
       }
       out.push({ phone: seller.phone, message: msg.sellerHandedOver(deal.code, courierFee, deal.courier_name, waitText(minutes), { buyerName, byCourier: courier, role, sum: this.sellerSum(deal) }) });
-      out.push({ phone: buyer.phone, message: msg.buyerHandedOver(deal.code, waitText(minutes)), fallback: dealTemplate('handedOver', [deal.code, waitText(minutes)], [`happy:${deal.code}`, `problem:${deal.code}`]) });
+      out.push({ phone: buyer.phone, message: msg.buyerHandedOver(deal.code, waitText(minutes), firstName(seller.display_name)), fallback: dealTemplate('handedOver', [deal.code, waitText(minutes)], [`happy:${deal.code}`, `problem:${deal.code}`]) });
       return 'ok';
     });
     if (payoutId) await this.submitPayout(payoutId);
@@ -1007,16 +1125,16 @@ export class DealService {
           `INSERT INTO chat_sessions (phone, state, data) VALUES ($1,'REFUND_BANK',$2)
            ON CONFLICT (phone) DO UPDATE SET state='REFUND_BANK', data=$2, updated_at=now()`,
           [buyer.phone, JSON.stringify({ code: deal.code, refundNow: by })]);
-        out.push({ phone: buyer.phone, message: msg.askRefundAccountNow(deal.code, by) });
-        if (by === 'seller') out.push({ phone: user.phone, message: msg.sellerRefundStarted(deal.code, false) });
+        out.push({ phone: buyer.phone, message: msg.askRefundAccountNow(deal.code, by, await this.who(tx, deal.seller_id)) });
+        if (by === 'seller') out.push({ phone: user.phone, message: msg.sellerRefundStarted(deal.code, false, firstName(buyer.display_name)) });
         return 'need-account';
       }
       const note = by === 'seller' ? 'Seller can\'t fulfil the order' : 'Not dispatched by the expected date; buyer asked for a refund';
       payoutId = await this.startRefund(tx, deal, by, note, acct.rows[0].id);
       const seller = await this.sellerOf(tx, deal);
-      if (by === 'seller') out.push({ phone: seller.phone, message: msg.sellerRefundStarted(deal.code, true) });
-      else out.push({ phone: seller.phone, message: msg.sellerBuyerTookRefund(deal.code) });
-      out.push({ phone: buyer.phone, message: msg.buyerRefundStarted(deal.code, by) });
+      if (by === 'seller') out.push({ phone: seller.phone, message: msg.sellerRefundStarted(deal.code, true, firstName(buyer.display_name)) });
+      else out.push({ phone: seller.phone, message: msg.sellerBuyerTookRefund(deal.code, firstName(buyer.display_name)) });
+      out.push({ phone: buyer.phone, message: msg.buyerRefundStarted(deal.code, by, firstName(seller.display_name)) });
       return 'refunding';
     });
     if (payoutId) await this.submitPayout(payoutId);
@@ -1068,7 +1186,7 @@ export class DealService {
     if (deal.status !== 'FUNDED' || deal.dispatched_at) { await this.o.messenger.send(buyer.phone, msg.dealStatusNow(deal.code, deal.status)); return; }
     const seller = await this.userById(this.o.db, deal.seller_id);
     await this.o.messenger.send(seller.phone, msg.sellerDispatchReminder(deal.code, deal.item, true, firstName(buyer.display_name) ?? 'The buyer'), dealTemplate('dispatchReminder', [deal.code], [`dispatch:${deal.code}`]));
-    await this.o.messenger.send(buyer.phone, msg.reminderSent(deal.code));
+    await this.o.messenger.send(buyer.phone, msg.reminderSent(deal.code, await this.who(this.o.db, deal.seller_id)));
   }
 
   // ---------- 5a. buyer is happy → pay the seller ----------
@@ -1137,8 +1255,8 @@ export class DealService {
       await this.move(tx, deal, 'DISPUTED', 'buyer');
       await tx.query('INSERT INTO disputes (deal_id, opened_by) VALUES ($1,$2)', [deal.id, buyer.id]);
       const seller = await this.sellerOf(tx, deal);
-      out.push({ phone: buyer.phone, message: msg.askProblem(deal.code) });
-      out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code), fallback: dealTemplate('problemReported', [deal.code], ['menu:human']) });
+      out.push({ phone: buyer.phone, message: msg.askProblem(deal.code, firstName(seller.display_name)) });
+      out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code, firstName(buyer.display_name)), fallback: dealTemplate('problemReported', [deal.code], ['menu:human']) });
     });
   }
 
@@ -1275,8 +1393,8 @@ export class DealService {
         } else {
           const buyer = await this.userById(tx, deal.buyer_id!);
           const seller = await this.sellerOf(tx, deal);
-          out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName), fallback: dealTemplate('refundSent', [deal.code, this.text(p.amount_minor), bankName]) });
-          out.push({ phone: seller.phone, message: msg.sellerRefunded(deal.code) });
+          out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName, firstName(seller.display_name)), fallback: dealTemplate('refundSent', [deal.code, this.text(p.amount_minor), bankName]) });
+          out.push({ phone: seller.phone, message: msg.sellerRefunded(deal.code, firstName(buyer.display_name)) });
         }
         return;
       }
@@ -1289,7 +1407,7 @@ export class DealService {
         await this.move(tx, deal, 'PAYOUT_PENDING', 'provider', `NEEDS_ATTENTION: payout ${reference} ${result.status}${result.message ? ': ' + result.message : ''}`);
         if (p.kind === 'SELLER') {
           const seller = await this.sellerOf(tx, deal);
-          out.push({ phone: seller.phone, message: msg.sellerPayoutDelayed(deal.code) });
+          out.push({ phone: seller.phone, message: msg.sellerPayoutDelayed(deal.code, await this.who(tx, deal.buyer_id)) });
         }
       }
     });
@@ -1347,7 +1465,7 @@ export class DealService {
           if (deal.status !== 'SHIPPED' || !deal.handed_over_at) return [];
           const ids = await this.startRelease(tx, deal, 'system', `No problem reported within ${waitText(this.autoReleaseMinutes())} of handover`);
           const buyer = await this.userById(tx, deal.buyer_id!);
-          out.push({ phone: buyer.phone, message: msg.autoReleased(deal.code) });
+          out.push({ phone: buyer.phone, message: msg.autoReleased(deal.code, await this.who(tx, deal.seller_id)) });
           return ids;
         });
         for (const id of ids) await this.submitPayout(id);
@@ -1355,18 +1473,18 @@ export class DealService {
       } catch (e) { this.log(`auto-release ${row.id}: ${(e as Error).message}`); }
     }
     const toNudge = await this.o.db.query(
-      `SELECT d.code, d.buyer_pays_minor, u.phone FROM deals d JOIN users u ON u.id=d.buyer_id
+      `SELECT d.code, d.buyer_pays_minor, u.phone, s.display_name AS seller_name FROM deals d JOIN users u ON u.id=d.buyer_id LEFT JOIN users s ON s.id=d.seller_id
        WHERE d.status='SHIPPED' AND d.reminded_at IS NULL AND d.shipped_at < now() - make_interval(hours => $1) LIMIT 50`,
       [opts.nudgeAfterHours]);
     for (const row of toNudge.rows) {
       await this.o.db.query('UPDATE deals SET reminded_at=now() WHERE code=$1', [row.code]);
-      await this.o.messenger.send(row.phone, msg.buyerNudge(row.code), dealTemplate('confirmReminder', [row.code, this.text(Number(row.buyer_pays_minor))], [`happy:${row.code}`, `problem:${row.code}`]));
+      await this.o.messenger.send(row.phone, msg.buyerNudge(row.code, firstName(row.seller_name)), dealTemplate('confirmReminder', [row.code, this.text(Number(row.buyer_pays_minor))], [`happy:${row.code}`, `problem:${row.code}`]));
       nudged++;
     }
     // Paid but not dispatched: remind the seller once.
     const waiting = await this.o.db.query(
       `SELECT d.code, d.item, u.phone, b.display_name AS buyer_name FROM deals d JOIN users u ON u.id=d.seller_id LEFT JOIN users b ON b.id=d.buyer_id
-       WHERE d.status='FUNDED' AND d.started_by='BUYER' AND d.dispatched_at IS NULL AND d.dispatch_reminded_at IS NULL
+       WHERE d.status='FUNDED' AND NOT d.legacy_ship AND d.dispatched_at IS NULL AND d.dispatch_reminded_at IS NULL
          AND d.funded_at < now() - make_interval(hours => $1) LIMIT 50`,
       [this.o.settings?.dispatchRemindHours() ?? 12]);
     for (const row of waiting.rows) {
@@ -1376,21 +1494,33 @@ export class DealService {
     }
     // Still not dispatched after the date the buyer expected: give the buyer their options, once.
     const late = await this.o.db.query(
-      `SELECT d.code, d.item, u.phone FROM deals d JOIN users u ON u.id=d.buyer_id
+      `SELECT d.code, d.item, d.started_by, u.phone, s.display_name AS seller_name FROM deals d JOIN users u ON u.id=d.buyer_id LEFT JOIN users s ON s.id=d.seller_id
        WHERE d.status='FUNDED' AND d.dispatched_at IS NULL AND d.overdue_notified_at IS NULL AND d.arrive_by IS NOT NULL
          AND (d.arrive_by + 1)::timestamp AT TIME ZONE 'Africa/Lagos' < now() LIMIT 50`);
     for (const row of late.rows) {
       await this.o.db.query('UPDATE deals SET overdue_notified_at=now() WHERE code=$1', [row.code]);
-      await this.o.messenger.send(row.phone, msg.buyerOverdue(row.code, row.item), dealTemplate('overdue', [row.code], [`remind:${row.code}`, `refundme:${row.code}`]));
+      await this.o.messenger.send(row.phone, msg.buyerOverdue(row.code, row.item, row.started_by === 'SELLER', firstName(row.seller_name)), dealTemplate('overdue', [row.code], [`remind:${row.code}`, `refundme:${row.code}`]));
       nudged++;
     }
     const stale = await this.o.db.query(
-      `SELECT id FROM deals WHERE status IN ('AWAITING_BUYER','AWAITING_PAYMENT') AND updated_at < now() - make_interval(hours => $1) LIMIT 100`,
+      `SELECT id FROM deals WHERE (status='AWAITING_PAYMENT' OR (status='AWAITING_BUYER' AND accept_by IS NULL)) AND updated_at < now() - make_interval(hours => $1) LIMIT 100`,
       [opts.expireUnpaidAfterHours ?? this.o.settings?.unpaidCloseHours() ?? 72]);
     for (const row of stale.rows) {
       await this.run(async (tx) => {
         const deal = await this.lockById(tx, row.id);
         if (deal.status === 'AWAITING_BUYER' || deal.status === 'AWAITING_PAYMENT') { await this.move(tx, deal, 'EXPIRED', 'system'); expired++; }
+      });
+    }
+    // a seller's order the buyer didn't accept in time (the same console time as for sellers)
+    const notAccepted = await this.o.db.query(`SELECT id FROM deals WHERE status='AWAITING_BUYER' AND accept_by < now() LIMIT 100`);
+    for (const row of notAccepted.rows) {
+      await this.run(async (tx, out) => {
+        const deal = await this.lockById(tx, row.id);
+        if (deal.status !== 'AWAITING_BUYER') return;
+        await this.move(tx, deal, 'EXPIRED', 'system', 'Buyer did not accept in time');
+        const seller = await this.userById(tx, deal.seller_id!);
+        out.push({ phone: seller.phone, message: msg.sellerBuyerExpired(deal.code), fallback: dealTemplate('buyerNoReply', [deal.code], ['menu:sell']) });
+        expired++;
       });
     }
     const unanswered = await this.o.db.query(`SELECT id FROM deals WHERE status='AWAITING_SELLER' AND accept_by < now() LIMIT 100`);
@@ -1400,7 +1530,7 @@ export class DealService {
         if (deal.status !== 'AWAITING_SELLER') return;
         await this.move(tx, deal, 'EXPIRED', 'system', 'Seller did not accept in time');
         const buyer = await this.userById(tx, deal.buyer_id!);
-        out.push({ phone: buyer.phone, message: msg.buyerSellerExpired(deal.code), fallback: dealTemplate('sellerNoReply', [deal.code], ['menu:buy']) });
+        out.push({ phone: buyer.phone, message: msg.buyerSellerExpired(deal.code, await this.labelFor(deal.invited_phone)), fallback: dealTemplate('sellerNoReply', [deal.code], ['menu:buy']) });
         expired++;
       });
     }

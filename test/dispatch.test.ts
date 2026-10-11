@@ -109,8 +109,8 @@ describe('dispatch', () => {
     expect(h.last(seller)).toMatch(/doesn't match.*4 tries left/s);
     await h.tap(seller, `hcode:${code}`);
     await h.say(seller, d.handover_code);
-    expect(h.last(buyer)).toMatch(/has been handed over to you/);
-    expect(h.last(buyer)).toMatch(/within 24 hours/);
+    expect(h.last(buyer)).toMatch(/handed over to you/);
+    expect(h.last(buyer)).toMatch(/within \*24 hours\*/);
     const after = await deal(code);
     expect(after.handed_over_at).not.toBeNull();
     expect(after.courier_paid_at).not.toBeNull();
@@ -133,11 +133,11 @@ describe('dispatch', () => {
     const real = (await deal(code)).handover_code;
     const wrong = real === '1234' ? '4321' : '1234';
     for (let i = 0; i < 5; i++) { await h.tap(seller, `hcode:${code}`); await h.say(seller, wrong); }
-    expect(h.last(seller)).toMatch(/Too many wrong codes/);
+    expect(h.last(seller)).toMatch(/too many wrong codes/i);
     await h.tap(seller, `hcode:${code}`);
-    expect(h.last(seller)).toMatch(/Too many wrong codes/);
+    expect(h.last(seller)).toMatch(/too many wrong codes/i);
     await h.app.deals.enterHandoverCode(code, (await h.app.deals.upsertUser(seller, null)), real);
-    expect(h.last(seller)).toMatch(/Too many wrong codes/);
+    expect(h.last(seller)).toMatch(/too many wrong codes/i);
     expect((await deal(code)).handed_over_at).toBeNull();
   });
 
@@ -146,7 +146,7 @@ describe('dispatch', () => {
     await h.tap(seller, `dispatch:${code}`);
     await h.tap(seller, 'dm:pickup');
     await h.say(seller, 'Shop 4, Rumuola Plaza');
-    expect(h.last(buyer)).toMatch(/ready for pickup at:\n_Shop 4, Rumuola Plaza_/);
+    expect(h.last(buyer)).toMatch(/ready for pickup at:\n\*Shop 4, Rumuola Plaza\*/);
     expect(h.last(seller)).toMatch(/When the buyer comes, ask them for their 4-digit handover code/);
     await h.tap(seller, `hcode:${code}`); await h.say(seller, (await deal(code)).handover_code);
     expect(await payouts(code)).toEqual([]);
@@ -164,7 +164,7 @@ describe('dispatch', () => {
     const r = await h.app.deals.sweep({ nudgeAfterHours: 9999 });
     expect(r.released).toBe(1);
     expect((await deal(code)).status).toBe('COMPLETED');
-    expect(h.last(buyer)).toMatch(/we've paid the seller/);
+    expect(h.last(buyer)).toMatch(/so we've paid \*Bayo\*/);
   });
 
   it('a problem after the handover: the refund is everything still held (the rider keeps the delivery fee)', async () => {
@@ -191,7 +191,7 @@ describe('dispatch', () => {
     await h.tap(seller, `srefund:${code}`);
     expect(h.last(seller)).toMatch(/This can't be undone/);
     await h.tap(seller, `srefundok:${code}`);
-    expect(h.last(buyer)).toMatch(/The seller can't fulfil order/);
+    expect(h.last(buyer)).toMatch(/the seller can't fulfil it/);
     await h.say(buyer, '1112223334 Kuda'); await h.tap(buyer, 'bank:yes');
     expect((await deal(code)).status).toBe('REFUNDED');
     expect((await payouts(code)).map((p) => [p.kind, p.amount_minor])).toEqual([['REFUND', 2_050_000]]);
@@ -201,7 +201,7 @@ describe('dispatch', () => {
     const { buyer, seller, code } = await paidBuyerOrder({ arriveBy: '2026-01-01' });
     await h.tap(buyer, `remind:${code}`);
     expect(h.last(seller)).toMatch(/\S+ sent you a reminder/);
-    expect(h.last(buyer)).toMatch(/Reminder sent/);
+    expect(h.last(buyer)).toMatch(/reminder sent to \*Bayo\*/);
     await h.say(buyer, '1112223334 Kuda'); // not asked: stays a normal message
     await h.tap(buyer, `refundme:${code}`);
     if (/Send your account number|account number/.test(h.last(buyer))) { await h.say(buyer, '1112223334 Kuda'); await h.tap(buyer, 'bank:yes'); }
@@ -233,7 +233,7 @@ describe('reminders', () => {
     await h.db.query(`UPDATE deals SET funded_at=now() - interval '13 hours' WHERE code=$1`, [code]);
     await h.app.deals.sweep({ nudgeAfterHours: 9999 });
     const sellerMsgs = () => h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n');
-    expect(sellerMsgs()).toMatch(new RegExp(`⏰ \\*\\S+\\* · \\*${code}\\* \\(Leather bag\\) is paid and waiting to be dispatched`)); // the buyer's name first
+    expect(sellerMsgs()).toMatch(new RegExp(`⏰ \\*\\S+\\* · Order \\*${code}\\* \\(Leather bag\\) is paid and \\*waiting to be dispatched\\*`)); // the buyer's name first
     expect(h.last(buyer)).toMatch(/hasn't been dispatched yet, and the date you expected it has passed/);
     expect(h.last(buyer)).toMatch(/\[🔔 Send reminder\] \[💸 Refund me\] \[Wait a bit\]/);
     const before = h.transcript.length;
@@ -266,7 +266,7 @@ describe('the rider or driver enters the code', () => {
 
     // one wrong try from the rider counts for the seller too
     await h.tap(rider, `hcode:${code}`);
-    expect(h.last(rider)).toMatch(/Type the 4-digit handover code \*Ada\* gave you/);
+    expect(h.last(rider)).toMatch(/type the 4-digit handover code \*Ada\* gave you/);
     await h.say(rider, d.handover_code === '0000' ? '1111' : '0000');
     expect(h.last(rider)).toMatch(/4 tries left/);
     await h.tap(seller, `hcode:${code}`);
@@ -278,8 +278,8 @@ describe('the rider or driver enters the code', () => {
     await h.say(rider, d.handover_code);
     expect(h.transcript.filter((t) => t.phone === rider).map((t) => t.text).join('\n')).toMatch(/\*Delivery confirmed\.\* \*Ada\* has the item[\s\S]*We're sending your \*₦2,000\* to \*MUSA IBRAHIM\*/);
     expect(h.last(rider)).toMatch(/Your delivery fee is sent:\* ₦2,000 to \*MUSA IBRAHIM\*/);
-    expect(h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n')).toMatch(/✅ \*Musa Ibrahim\* entered the right code\. Order \*HL-\w+\* is with \*Ada\*/);
-    expect(h.last(buyer)).toMatch(/has been handed over to you/);
+    expect(h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n')).toMatch(/✅ \*Ada\* · Order \*HL-\w+\*: \*Musa Ibrahim\* entered the right code\. It's with \*Ada\*/);
+    expect(h.last(buyer)).toMatch(/handed over to you/);
     const after = await deal(code);
     expect(after.handover_by).toBe('courier');
     expect(await payouts(code)).toEqual([{ kind: 'DELIVERY', amount_minor: 200_000, status: 'SUCCESS' }]);
@@ -306,7 +306,7 @@ describe('the rider or driver enters the code', () => {
       expect(t).not.toMatch(/code/i);
       expect(t).toMatch(new RegExp(`\\[Confirm delivery\\]`));
       await h.tap(rider, `hcode:${code}`);
-      expect(h.last(rider)).toMatch(/Type the 4-digit handover code \*Ada\* gave you/);
+      expect(h.last(rider)).toMatch(/type the 4-digit handover code \*Ada\* gave you/);
     } finally { m.setTemplateStatus('hoolam_delivery_for_rider', 'PENDING'); }
   });
 

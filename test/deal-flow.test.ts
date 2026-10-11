@@ -15,19 +15,9 @@ const people = () => {
 /** Seller creates a ₦15,000 deal through the chat, buyer opens it and asks to pay. Returns the deal code. */
 async function dealUpToPayment(seller: string, buyer: string): Promise<{ code: string; ref: string }> {
   await h.say(seller, 'hi', 'Mama Bella');
-  await h.sell(seller);
-  await h.say(seller, 'Sneakers size 42');
-  await h.say(seller, '15,000');
-  await h.tap(seller, 'sell:nophotos');
-  await h.tap(seller, 'sell:nophone');
-  if (/Send your account number|account number/.test(h.last(seller))) {
-    await h.say(seller, '0123456789 GTBank');
-    await h.tap(seller, 'bank:yes');
-  }
-  await h.tap(seller, 'sell:confirm');
-  const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
-  await h.say(buyer, `Pay ${code}`, 'Koffi');
-  await h.tap(buyer, `pay:${code}`);
+  await h.say(buyer, 'hi', 'Koffi');
+  const code = await h.sellOrder(seller, buyer, { item: 'Sneakers size 42', price: '15,000' });
+  await h.acceptOrder(buyer, code);
   const r = await h.db.query('SELECT pi.provider_reference FROM payment_intents pi JOIN deals d ON d.id=pi.deal_id WHERE d.code=$1', [code]);
   return { code, ref: r.rows[0].provider_reference };
 }
@@ -51,10 +41,10 @@ describe('the full deal', () => {
     h.provider.pay(ref);
     expect(await h.app.deals.handleCollection(ref)).toBe('funded');
     expect(await status(code)).toBe('FUNDED');
-    expect(h.last(seller)).toMatch(/Good news: \*Koffi\* has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,600\* is held safely/);
+    expect(h.last(seller)).toMatch(/💰 \*Koffi\* has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,600\* is held safely[\s\S]*Dispatch it now/);
 
-    await h.tap(seller, `shipped:${code}`);
-    expect(h.last(buyer)).toMatch(/on the way/);
+    await h.handOver(seller, code); // pickup, the buyer's code
+    expect(h.last(buyer)).toMatch(/handed over to you/);
     await h.tap(buyer, `happy:${code}`);
 
     expect(await status(code)).toBe('COMPLETED');
@@ -104,7 +94,7 @@ describe('problems and refunds', () => {
     const { code, ref } = await dealUpToPayment(seller, buyer);
     h.provider.pay(ref);
     await h.app.deals.handleCollection(ref);
-    await h.tap(seller, `shipped:${code}`);
+    await h.handOver(seller, code);
 
     await h.tap(buyer, `problem:${code}`);
     expect(await status(code)).toBe('DISPUTED');
@@ -113,14 +103,14 @@ describe('problems and refunds', () => {
     expect(h.last(buyer)).toMatch(/where should the money go/);
     await h.say(buyer, '8012345678 Opay');
     await h.tap(buyer, 'bank:yes');
-    expect(h.last(buyer)).toMatch(/Case C-[A-Z0-9]{6} is open/);
+    expect(h.last(buyer)).toMatch(/Case \*C-[A-Z0-9]{6}\* is open/);
 
     const dispute = await h.db.query(`SELECT reason, status FROM disputes WHERE deal_id=(SELECT id FROM deals WHERE code=$1)`, [code]);
     expect(dispute.rows[0]).toMatchObject({ reason: 'Wrong size, they sent 40 not 42', status: 'OPEN' });
 
     await h.app.deals.adminRefund(code, 'Seller sent the wrong size');
     expect(await status(code)).toBe('REFUNDED');
-    expect(h.last(buyer)).toMatch(/refund of ₦15,500/); // everything they paid, transaction fee included
+    expect(h.last(buyer)).toMatch(/refund of \*₦15,500\*/); // everything they paid, transaction fee included
     expect(await ledger(code)).toEqual({ 'cash:fake': 0, 'held:deal': 0, 'payable:buyer': 0 });
   }, 30_000);
 
@@ -205,8 +195,9 @@ describe('who can do what', () => {
     const { seller } = people();
     await h.sell(seller);
     await h.say(seller, 'Laptop');
+    await h.say(seller, 'Like new'); await h.tap(seller, 'cat:other');
     await h.say(seller, '2m');
-    expect(h.last(seller)).toMatch(/up to ₦50,000/);
+    expect(h.last(seller)).toMatch(/up to \*₦50,000\*/);
   }, 30_000);
 });
 

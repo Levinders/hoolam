@@ -25,14 +25,12 @@ for (const [p, name] of sellers) { await h.say(p!, 'hi', name); await h.tap(p!, 
 for (let i = 0; i < buyers.length; i++) await h.say(buyers[i]!, 'hi', buyerNames[i]);
 for (const [p, , shop] of sellers) await h.db.query('UPDATE users SET business_name=$2, city=$3 WHERE phone=$1', [p, shop, p!.startsWith('+229') ? 'Cotonou' : 'Lagos']);
 
-async function sellerDeal(i: number): Promise<string> {
-  const s = pick(sellers, i)[0]!;
-  await h.tap(s, 'menu:sell'); await h.say(s, pick(items, i)); await h.say(s, pick(prices, i * 3));
-  await h.tap(s, 'sell:nophotos'); await h.tap(s, 'sell:nophone'); await h.tap(s, 'sell:confirm');
-  return h.last(s).match(/HL-[A-Z2-9]{5}/)![0];
+// a seller's order sent to a buyer's number (the buyer accepts it when they pay)
+async function sellerDeal(i: number, buyer = pick(buyers, i)): Promise<string> {
+  return h.sellOrder(pick(sellers, i)[0]!, buyer, { item: pick(items, i), price: pick(prices, i * 3) });
 }
 async function pay(code: string, buyer: string) {
-  await h.say(buyer, `Pay ${code}`); await h.tap(buyer, `pay:${code}`);
+  await h.acceptOrder(buyer, code);
   const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1) ORDER BY created_at DESC LIMIT 1', [code]);
   h.provider.pay(r.rows[0].provider_reference); await h.app.deals.handleCollection(r.rows[0].provider_reference);
 }
@@ -46,39 +44,39 @@ const age = async (code: string, daysAgo: number) => h.db.query(
 
 // completed deals spread across 30 days, most with a 👍
 for (let i = 0; i < 26; i++) {
-  const code = await sellerDeal(i);
   const b = pick(buyers, i * 5 + (i % 3));
+  const code = await sellerDeal(i, b);
   await pay(code, b);
-  await h.tap(await seller(code), `shipped:${code}`);
+  await h.handOver(await seller(code), code);
   await h.tap(b, `happy:${code}`);
   if (i % 4 !== 3) await h.tap(b, i % 9 === 4 ? `ratedown:${code}` : `rateup:${code}`);
   await age(code, 29 - i + (i % 3) * 0.4);
 }
 // money held, on the way
-for (let i = 26; i < 30; i++) { const code = await sellerDeal(i); await pay(code, pick(buyers, i)); if (i % 2) await h.tap(await seller(code), `shipped:${code}`); await age(code, (30 - i) * 0.6); }
+for (let i = 26; i < 30; i++) { const code = await sellerDeal(i); await pay(code, pick(buyers, i)); if (i % 2) await h.handOver(await seller(code), code); await age(code, (30 - i) * 0.6); }
 // shipped a while ago, not confirmed (flagged)
-{ const code = await sellerDeal(31); await pay(code, buyers[2]!); await h.tap(await seller(code), `shipped:${code}`); await age(code, 5); }
+{ const code = await sellerDeal(31, buyers[2]!); await pay(code, buyers[2]!); await h.handOver(await seller(code), code); await age(code, 5); }
 // disputes
 for (const [i, why] of [[32, 'They sent size 40, I ordered 42. Seller not responding.'], [33, 'The wig is not the length in the photo. It is 14 inch, not 18.']] as const) {
-  const code = await sellerDeal(i); const b = pick(buyers, i);
-  await pay(code, b); await h.tap(await seller(code), `shipped:${code}`); await h.tap(b, `problem:${code}`); await h.say(b, why);
+  const b = pick(buyers, i); const code = await sellerDeal(i, b);
+  await pay(code, b); await h.handOver(await seller(code), code); await h.tap(b, `problem:${code}`); await h.say(b, why);
   if (/account number/.test(h.last(b))) { await h.say(b, '8012345678 Opay'); await h.tap(b, 'bank:yes'); }
   await age(code, i === 32 ? 2.2 : 0.4);
 }
 // a resolved dispute (refunded)
-{ const code = await sellerDeal(34); const b = buyers[4]!; await pay(code, b); await h.tap(b, `problem:${code}`); await h.say(b, 'Never arrived after a week.'); await h.say(b, '8012345678 Opay'); await h.tap(b, 'bank:yes'); await h.app.deals.adminRefund(code, 'Seller admitted it was never sent'); await age(code, 9); }
+{ const b = buyers[4]!; const code = await sellerDeal(34, b); await pay(code, b); await h.tap(b, `problem:${code}`); await h.say(b, 'Never arrived after a week.'); await h.say(b, '8012345678 Opay'); await h.tap(b, 'bank:yes'); await h.app.deals.adminRefund(code, 'Seller admitted it was never sent'); await age(code, 9); }
 // a payout waiting for OTP, and a failed one
 h.provider.payoutOutcome = 'NEEDS_AUTHORIZATION';
-{ const code = await sellerDeal(35); const b = buyers[5]!; await pay(code, b); await h.tap(await seller(code), `shipped:${code}`); await h.tap(b, `happy:${code}`); await age(code, 0.3); }
+{ const b = buyers[5]!; const code = await sellerDeal(35, b); await pay(code, b); await h.handOver(await seller(code), code); await h.tap(b, `happy:${code}`); await age(code, 0.3); }
 h.provider.payoutOutcome = 'FAILED';
-{ const code = await sellerDeal(36); const b = buyers[6]!; await pay(code, b); await h.tap(await seller(code), `shipped:${code}`); await h.tap(b, `happy:${code}`); await age(code, 1.1); }
+{ const b = buyers[6]!; const code = await sellerDeal(36, b); await pay(code, b); await h.handOver(await seller(code), code); await h.tap(b, `happy:${code}`); await age(code, 1.1); }
 h.provider.payoutOutcome = 'SUCCESS';
 // waiting deals (unpaid, buyer-started waiting for seller)
 for (let i = 37; i < 40; i++) { const code = await sellerDeal(i); await age(code, 0.2 * (i - 36)); }
-{ const b = buyers[7]!; await h.tap(b, 'menu:buy'); await h.say(b, 'Second-hand PS5 with 2 pads'); await h.say(b, '48000'); await h.tap(b, 'buy:nophotos'); await h.tap(b, 'buy:nophone'); await h.tap(b, 'buy:send');
+{ const b = buyers[7]!; await h.tap(b, 'menu:buy'); await h.say(b, 'Second-hand PS5 with 2 pads'); await h.say(b, 'Like new, both pads work'); await h.tap(b, 'cat:electronics'); await h.say(b, '48000'); await h.say(b, '4 Allen Avenue, Ikeja'); await h.tap(b, 'bdate:3'); await h.tap(b, 'buy:nophotos'); await h.say(b, '08031110003'); await h.tap(b, 'buy:send');
   const code = h.last(b).match(/HL-[A-Z2-9]{5}/)![0]; await h.db.query(`UPDATE deals SET accept_by = now() + interval '4 hours' WHERE code=$1`, [code]); }
 // a short payment needing attention
-{ const code = await sellerDeal(40); const b = buyers[1]!; await h.say(b, `Pay ${code}`); await h.tap(b, `pay:${code}`);
+{ const b = buyers[1]!; const code = await sellerDeal(40, b); await h.acceptOrder(b, code);
   const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
   h.provider.pay(r.rows[0].provider_reference, 500_000); await h.app.deals.handleCollection(r.rows[0].provider_reference); }
 // support messages

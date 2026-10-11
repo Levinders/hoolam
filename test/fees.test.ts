@@ -158,14 +158,14 @@ describe('picking a bank', () => {
   it('in the chat: send only the number, tap the bank', async () => {
     const p = phone();
     await h.say(p, 'hi'); await h.tap(p, 'menu:account');
-    expect(h.last(p)).toMatch(/Send your account number/);
+    expect(h.last(p)).toMatch(/Send your \*account number\*/);
     await h.say(p, '0000014579');
     expect(h.last(p)).toMatch(/Which bank is \*0000014579\* with\?/);
     expect(h.last(p)).toMatch(/First Bank/);
     expect(h.last(p)).toMatch(/GTBank/); // always listed
     expect(h.last(p)).not.toMatch(/Wema/);
     await h.tap(p, 'bpick:011');
-    expect(h.last(p)).toMatch(/Is this your account\?[\s\S]*First Bank 0000014579/);
+    expect(h.last(p)).toMatch(/Is this your account\?[\s\S]*First Bank \*0000014579\*/);
     await h.tap(p, 'bank:yes');
     expect(h.last(p)).toMatch(/Saved\. New orders pay into First Bank ••••4579/);
   });
@@ -176,7 +176,7 @@ describe('picking a bank', () => {
     await h.tap(p, 'bpick:other');
     expect(h.last(p)).toMatch(/Type the bank name/);
     await h.say(p, 'Wema');
-    expect(h.last(p)).toMatch(/Wema Bank 0000014579/);
+    expect(h.last(p)).toMatch(/Wema Bank \*0000014579\*/);
   });
 });
 
@@ -309,6 +309,6 @@ describe('promises and limits from the console', () => {
     await h.tap(p, 'menu:buy');
     await h.say(p, 'Bag'); await h.say(p, 'New'); await h.tap(p, 'cat:other'); await h.say(p, '9000'); await h.say(p, '12 Woji Road'); await h.tap(p, 'bdate:1'); await h.tap(p, 'buy:nophotos');
     await h.say(p, '08117663890');
-    expect(h.last(p)).toMatch(/That's Hoolam's number\. Please type the seller's WhatsApp number/);
+    expect(h.last(p)).toMatch(/That's Hoolam's number\. Please type the \*seller's\* WhatsApp number/);
   });
 });

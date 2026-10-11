@@ -41,7 +41,7 @@ const COMPANY = {
   payService: 'Monnify',
 };
 // The date the legal pages took effect. Change it (and say what changed) whenever their wording changes.
-const LEGAL_EFFECTIVE = '11 October 2026'; // transaction fee added; riders and drivers can enter the handover code
+const LEGAL_EFFECTIVE = '11 October 2026'; // transaction fee; riders and drivers enter the code; Sell something mirrors Buy something
 
 // What the console has, or these if the server can't be reached. Keep in step with src/pricing.ts and src/config.ts.
 const DEFAULTS = {

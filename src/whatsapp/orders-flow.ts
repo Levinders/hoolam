@@ -149,7 +149,7 @@ function fullOrdersFlowJson(example = '08012345678') {
           key: ex('💰 Total price ₦20,000'), info: ex('🛵 Rider Musa'), has_info: ex(false), hint: ex('👉 Dispatch it now'), warn: ex(''), has_warn: ex(false),
           photo1: ex(PIXEL), photo2: ex(PIXEL), photo3: ex(PIXEL), has_photo1: ex(true), has_photo2: ex(false), has_photo3: ex(false),
           primary: ex('dispatch'), primary_label: ex('Dispatch now'), secondary: ex('cantfulfil'), secondary_label: ex('Can\'t fulfil'), has_secondary: ex(true),
-          tertiary: ex('decline'), tertiary_label: ex('Decline order'), has_tertiary: ex(false), show_price: ex(false),
+          tertiary: ex('decline'), tertiary_label: ex('Decline order'), has_tertiary: ex(false), show_price: ex(false), show_address: ex(false),
         },
         layout: {
           type: 'SingleColumnLayout',
@@ -166,9 +166,10 @@ function fullOrdersFlowJson(example = '08012345678') {
             { type: 'TextCaption', text: '${data.hint}' },
             { type: 'TextInput', name: 'new_price', label: 'Your price (₦)', 'input-type': 'text', required: false, visible: '${data.show_price}', 'max-chars': 20, 'helper-text': 'Total, delivery included. e.g. 18000 or 18k' },
             { type: 'TextArea', name: 'reason', label: 'Why the new price?', required: false, visible: '${data.show_price}', 'max-length': 150, 'helper-text': 'The buyer sees this. Max 150 characters' },
+            { type: 'TextArea', name: 'address', label: 'Delivery address', required: false, visible: '${data.show_address}', 'max-length': 300, 'helper-text': 'Street, area and city. Empty = the one above' },
             { type: 'EmbeddedLink', text: '${data.secondary_label}', visible: '${data.has_secondary}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.secondary}', code: '${data.code}' } } },
             { type: 'EmbeddedLink', text: '${data.tertiary_label}', visible: '${data.has_tertiary}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.tertiary}', code: '${data.code}' } } },
-            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.primary}', code: '${data.code}', new_price: '${form.new_price}', reason: '${form.reason}' } } },
+            { type: 'Footer', label: '${data.primary_label}', 'on-click-action': { name: 'data_exchange', payload: { op: '${data.primary}', code: '${data.code}', new_price: '${form.new_price}', reason: '${form.reason}', address: '${form.address}' } } },
           ],
         },
       },
@@ -364,9 +365,9 @@ export interface OrdersFlowOptions {
   secret: string;
   /** Puts a chat into a typed-answer state (e.g. the seller's bank account), so the chat carries on. */
   setChatState: (phone: string, state: string, data: Record<string, unknown>) => Promise<void>;
-  /** The buyer's order before it's sent (from the chat), and the chat's Send / Edit / Start again. */
-  buyPreview?: (phone: string) => Promise<{ item: string; about: string; key: string; info: string; photos: string[] } | null>;
-  buyAction?: (phone: string, action: 'send' | 'edit' | 'restart') => Promise<void>;
+  /** A new order before it's sent (from the chat, either side), and the chat's Send / Edit / Start again. */
+  buyPreview?: (phone: string) => Promise<{ side: 'buy' | 'sell'; item: string; about: string; key: string; info: string; warn: string; photos: string[] } | null>;
+  buyAction?: (phone: string, action: 'send' | 'edit' | 'restart', side: 'buy' | 'sell') => Promise<void>;
   /** Hoolam's WhatsApp number (from the console): the example number in hints, and refused as someone else's number. */
   hoolamNumber?: () => string;
   /** Which forms are the backup versions (only if Meta refused the main ones). */
@@ -460,7 +461,7 @@ export class OrdersFlow {
         code: '-', heading: title.slice(0, 80), details: plain(message), hint: ' ',
         photo1: PIXEL, photo2: PIXEL, photo3: PIXEL, has_photo1: false, has_photo2: false, has_photo3: false,
         primary: 'close', primary_label: 'Back to the chat',
-        secondary: 'none', secondary_label: ' ', has_secondary: false, tertiary: 'none', tertiary_label: ' ', has_tertiary: false, show_price: false,
+        secondary: 'none', secondary_label: ' ', has_secondary: false, tertiary: 'none', tertiary_label: ' ', has_tertiary: false, show_price: false, show_address: false,
       },
     };
   }
@@ -536,7 +537,7 @@ export class OrdersFlow {
   // ----- one order -----
   private async mine(user: User, code: string): Promise<Deal> {
     const deal = await this.o.deals.findByCode(code);
-    if (deal && this.prospectiveSeller(deal, user)) return deal;
+    if (deal && (this.prospectiveSeller(deal, user) || this.prospectiveBuyer(deal, user))) return deal;
     if (!deal || ![deal.buyer_id, deal.seller_id, deal.counter_seller_id].includes(user.id)) throw new DealError('NOT_FOUND', 'We couldn\'t find that order.');
     return deal;
   }
@@ -544,6 +545,11 @@ export class OrdersFlow {
   /** A buyer's order still waiting for a seller: whoever was sent it (alert or link) can look at it as the seller. */
   private prospectiveSeller(d: Deal, user: User): boolean {
     return d.status === 'AWAITING_SELLER' && d.buyer_id !== user.id && !d.seller_id && (!d.counter_seller_id || d.counter_seller_id === user.id);
+  }
+
+  /** A seller's order still waiting for its buyer: whoever was sent it (alert or link) can look at it as the buyer. */
+  private prospectiveBuyer(d: Deal, user: User): boolean {
+    return d.status === 'AWAITING_BUYER' && !d.legacy_ship && d.seller_id !== user.id && !d.buyer_id;
   }
 
   private role(deal: Deal, user: User): Mode {
@@ -563,13 +569,18 @@ export class OrdersFlow {
           secondary: 'counterask', secondaryLabel: 'Update price', tertiary: 'decline', tertiaryLabel: 'Decline order',
         };
       }
-      if (d.status === 'AWAITING_PAYMENT') return none('Waiting for the buyer to pay');
+      if (d.status === 'AWAITING_BUYER') return { ...none(`Waiting for the buyer to accept${d.accept_by ? ` (${this.o.deals.hoursLeft(d)} h left)` : ''}`), secondary: 'scancel', secondaryLabel: 'Cancel order' };
+      if (d.status === 'AWAITING_PAYMENT') return none('Accepted. Waiting for the buyer to pay');
       if (d.status === 'FUNDED' && !d.dispatched_at) return { primary: 'dispatch', label: 'Dispatch now', hint: 'Paid: dispatch it now', needsYou: true, secondary: 'cantfulfil', secondaryLabel: 'Can\'t fulfil? Refund' };
       if (d.status === 'SHIPPED' && !handed && d.handover_code) return { primary: 'code', label: 'Enter handover code', hint: 'Enter the handover code at delivery', needsYou: true };
       if (d.status === 'SHIPPED' && handed) return none('Handed over. Waiting for the buyer to confirm');
       return none(STATUS_WORDS[d.status] ?? d.status);
     }
     if (d.status === 'AWAITING_SELLER') return { ...none('Waiting for the seller to accept'), secondary: 'cancel', secondaryLabel: 'Cancel order' };
+    if (d.status === 'AWAITING_BUYER' && !d.legacy_ship) {
+      const left = this.o.deals.hoursLeft(d);
+      return { primary: 'baccept', label: 'Accept order', hint: `New order: accept, then pay (within ${left} hour${left === 1 ? '' : 's'})`, needsYou: true, secondary: 'bdecline', secondaryLabel: 'Decline order' };
+    }
     if (d.status === 'AWAITING_PAYMENT') return { primary: 'pay', label: 'Pay now', hint: 'Accepted: pay to start', needsYou: true, secondary: 'cancel', secondaryLabel: 'Cancel order' };
     if (d.status === 'FUNDED' && this.o.deals.isOverdue(d)) return { primary: 'remind', label: 'Send reminder', hint: 'Not dispatched by the date you expected', needsYou: true, secondary: 'refundme', secondaryLabel: 'Refund me' };
     if (d.status === 'FUNDED') return none('Paid. Waiting for the seller to dispatch');
@@ -581,6 +592,9 @@ export class OrdersFlow {
   private async orderScreen(user: User, d: Deal, override?: { primary: string; label: string; note: string; showPrice?: boolean; warn?: string }): Promise<Res> {
     const mode = this.role(d, user);
     const nx = this.next(d, mode, user);
+    // a seller's new order, for its buyer: they confirm or type the delivery address right here, then Accept
+    const accepting = mode === 'buyer' && d.status === 'AWAITING_BUYER' && !d.legacy_ship;
+    const dateLine = d.arrive_by ? `📅 ${d.started_by === 'SELLER' ? 'Ready by' : 'Expected by'} ${dayText(String(d.arrive_by))}` : '';
     const photos = await this.thumbs(d.id);
     const fee = Number(d.delivery_fee_minor);
     const countered = d.status === 'AWAITING_SELLER' && d.counter_price_minor;
@@ -592,8 +606,8 @@ export class OrdersFlow {
       mode === 'buyer' && d.status !== 'AWAITING_SELLER' && d.buyer_pays_minor > d.price_minor ? `🧾 ${this.o.deals.buyerFeeLabel(d)} ${this.m(d.buyer_pays_minor - d.price_minor)}` : '',
       mode === 'buyer' && d.status !== 'AWAITING_SELLER' ? `💳 You pay ${this.m(d.buyer_pays_minor)}` : '',
       countered ? (mode === 'seller' ? `✏️ Your new price ${this.m(d.counter_price_minor!)}` : `✏️ Seller's new price ${this.m(d.counter_price_minor!)}`) : '',
-      d.delivery_address ? `📍 Deliver to: ${d.delivery_address}` : '',
-      d.arrive_by ? `📅 Expected by ${dayText(String(d.arrive_by))}` : '',
+      d.delivery_address ? `📍 Deliver to: ${d.delivery_address}` : accepting ? '📍 Add your delivery address below' : d.started_by === 'SELLER' && d.status === 'AWAITING_BUYER' ? '📍 The buyer adds the delivery address' : '',
+      dateLine,
       d.dispatch_method === 'PICKUP' ? `📍 Pickup at: ${d.pickup_address ?? ''}` : '',
       mode === 'buyer' && d.handover_code && !d.handed_over_at && d.status === 'SHIPPED' ? `🔑 Your handover code: ${d.handover_code}` : '',
       d.handed_over_at ? '✅ Handed over' : '',
@@ -612,6 +626,7 @@ export class OrdersFlow {
     const status = (STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase());
     const heading = mode === 'seller' && d.status === 'AWAITING_SELLER' && other
       ? `🛒 ${other} wants to buy from you`
+      : accepting && other ? `🛍️ ${other} · ${d.code} · New order for you`
       : other ? `${mode === 'seller' ? '👤' : '🛡️'} ${other} · ${d.code} · ${status}` : `${d.code} · ${status}`;
     return {
       screen: 'ORDER',
@@ -623,18 +638,19 @@ export class OrdersFlow {
         key: plain(key).slice(0, 2000),
         info: plain(info).slice(0, 1000), has_info: !!info,
         hint: plain(override ? override.note : (nx.needsYou ? '👉 ' : '') + nx.hint).slice(0, 400) || ' ',
-        warn: plain(override?.warn ?? ''), has_warn: !!override?.warn,
+        warn: plain(override?.warn ?? (accepting ? (d.delivery_address ? 'Is the address right? Leave the box empty to use it, or type another.' : 'Type your delivery address in the box below, then accept.') : '')),
+        has_warn: !!override?.warn || accepting,
         photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
         has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
         primary: p.primary, primary_label: p.label.slice(0, 35),
         secondary: nx.secondary ?? 'none', secondary_label: (nx.secondaryLabel ?? ' ').slice(0, 25), has_secondary: !override && !!nx.secondary,
         tertiary: nx.tertiary ?? 'none', tertiary_label: (nx.tertiaryLabel ?? ' ').slice(0, 25), has_tertiary: !override && !!nx.tertiary,
-        show_price: !!override?.showPrice,
+        show_price: !!override?.showPrice, show_address: accepting,
       },
     };
   }
 
-  /** The buyer's order before it's sent: photos, details, then Send to seller / Edit order / Start again. */
+  /** A new order before it's sent (either side): photos, details, then Send / Edit order / Start again. */
   private async previewScreen(user: User): Promise<Res> {
     const p = await this.o.buyPreview?.(user.phone);
     if (!p) return this.notice('ORDER', 'Nothing to check', 'This order has already been sent, or was started again. Check the chat.');
@@ -649,16 +665,16 @@ export class OrdersFlow {
     return {
       screen: 'ORDER',
       data: {
-        code: 'preview', heading: '🛒 Check your order',
+        code: 'preview', heading: p.side === 'sell' ? '🏷️ Check your order' : '🛒 Check your order',
         item: plain(p.item).slice(0, 300), about: plain(p.about).slice(0, 2000), has_about: !!p.about,
         key: plain(p.key).slice(0, 2000), info: plain(p.info).slice(0, 1000), has_info: !!p.info,
-        hint: 'Is everything right?', warn: 'Nothing to pay yet. You pay after the seller accepts.', has_warn: true,
+        hint: 'Is everything right?', warn: plain(p.warn), has_warn: true,
         photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
         has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
-        primary: 'bsend', primary_label: 'Send to seller',
+        primary: 'bsend', primary_label: p.side === 'sell' ? 'Send to buyer' : 'Send to seller',
         secondary: 'bedit', secondary_label: 'Edit order', has_secondary: true,
         tertiary: 'brestart', tertiary_label: 'Start again', has_tertiary: true,
-        show_price: false,
+        show_price: false, show_address: false,
       },
     };
   }
@@ -700,7 +716,9 @@ export class OrdersFlow {
     if (action === 'bsend' || action === 'bedit' || action === 'brestart') {
       const waiting = await this.o.buyPreview?.(user.phone);
       if (!waiting && action !== 'brestart') return this.done('Already sent', 'This order has already been sent, or was started again. Check the chat.');
-      await this.o.buyAction?.(user.phone, action === 'bsend' ? 'send' : action === 'bedit' ? 'edit' : 'restart');
+      const side = waiting?.side ?? (mode === 'seller' ? 'sell' : 'buy');
+      await this.o.buyAction?.(user.phone, action === 'bsend' ? 'send' : action === 'bedit' ? 'edit' : 'restart', side);
+      if (action === 'bsend' && side === 'sell') return this.done('📨 Sent to the buyer', 'Your order code and a backup link for the buyer are in the chat. We\'ll tell you the moment they accept.', 'Don\'t send anything before we confirm the money is held.');
       if (action === 'bsend') return this.done('📨 Sent to the seller', 'Your order code and the link for the seller are in the chat. We\'ll tell you when the seller answers.', 'Nothing to pay yet. You pay after the seller accepts.');
       if (action === 'bedit') return this.done('✏️ Edit your order', 'We\'ve sent it to the chat with your answers filled in.', 'Open it in the chat, change what you need, then review again.');
       return this.done('🔄 Start again', 'We\'ve sent a new order form to the chat.');
@@ -773,7 +791,20 @@ export class OrdersFlow {
       case 'refundconfirm':
         await this.o.deals.refundPaidOrder(code, 'seller', user);
         return this.done('💸 Refund started', 'The buyer is being refunded. We\'ve told them.');
+      case 'scancel':
+        await this.o.deals.cancelBySeller(code, user);
+        return this.done('Order cancelled', 'The buyer can\'t accept it any more. No money moved.');
       // ----- buyer -----
+      case 'baccept': {
+        await this.o.deals.setMenuMode(user, 'buyer');
+        const r = await this.o.deals.acceptAsBuyer(code, user, String(p.address ?? ''));
+        if (r === 'need-address') return this.orderScreen(user, deal, { primary: 'baccept', label: 'Accept order', note: 'Where should it be delivered?', warn: '⚠️ Type your delivery address (street, area and city), then accept.' });
+        if (r === 'closed') return this.done('😕 Not available', 'This order isn\'t waiting for you any more. Check the chat.');
+        return this.done('✅ Order accepted', 'Your payment details are in the chat now.', 'Your money stays with Hoolam until you have your item and you\'re happy.');
+      }
+      case 'bdecline':
+        await this.o.deals.declineAsBuyer(code, user);
+        return this.done('Order declined', 'The seller has been told. No money moved.');
       case 'pay':
         await this.o.deals.requestPayment(code, user);
         return this.done('💳 Payment details sent', 'Your money stays with Hoolam until you\'re happy.', 'The account to pay into is in the chat.');
@@ -940,9 +971,9 @@ export class OrdersFlow {
   private example(): string { return localPhone(this.o.hoolamNumber?.() ?? '') || '08012345678'; }
   private isHoolam(phone: string): boolean { const h = (this.o.hoolamNumber?.() ?? '').replace(/\D/g, ''); return !!h && phone.replace(/\D/g, '') === h; }
 
-  private codeScreen(d: Deal, error: string | null): Res {
+  private async codeScreen(d: Deal, error: string | null): Promise<Res> {
     if (d.status !== 'SHIPPED' || !d.handover_code || d.handed_over_at) return this.done('Nothing to do', `Order ${d.code} isn't waiting for a handover code.`);
-    return { screen: 'CODE', data: { code: d.code, heading: `🔑 ${d.code} · ${d.item}`.slice(0, 80), error: error ?? '', has_error: !!error } };
+    return { screen: 'CODE', data: { code: d.code, heading: `🔑 ${await this.buyerFirst(d)} · ${d.code} · ${d.item}`.slice(0, 80), error: error ?? '', has_error: !!error } };
   }
 
   /** The last screen. `important` is shown in bold under the message. */

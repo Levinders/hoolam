@@ -74,7 +74,7 @@ export const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0)
 export type Tone = 'teal' | 'gold' | 'green' | 'red' | 'grey';
 export const STATUS: Record<string, { label: string; tone: Tone }> = {
   AWAITING_SELLER: { label: 'Waiting for seller', tone: 'gold' },
-  AWAITING_BUYER: { label: 'Waiting for buyer', tone: 'gold' },
+  AWAITING_BUYER: { label: 'Waiting for buyer to accept', tone: 'gold' },
   AWAITING_PAYMENT: { label: 'Waiting for payment', tone: 'gold' },
   FUNDED: { label: 'Paid, money held', tone: 'teal' },
   SHIPPED: { label: 'On the way', tone: 'teal' },

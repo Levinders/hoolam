@@ -28,12 +28,14 @@ interface Step { label: string; at: Date | string | null; done: boolean; now?: b
 
 function steps(d: Deal): Step[] {
   const paid = !!d.funded_at || ['FUNDED', 'SHIPPED', 'RELEASING', 'PAYOUT_PENDING', 'COMPLETED', 'DISPUTED', 'REFUNDING', 'REFUNDED'].includes(d.status);
-  const accepted = !['AWAITING_SELLER'].includes(d.status) && !(d.status === 'CANCELLED' && !paid && !d.seller_id) && !(d.status === 'EXPIRED' && !d.seller_id);
+  // accepted: by the seller (buyer's order) or by the buyer (seller's order: the buyer is set when they accept)
+  const other = d.started_by === 'BUYER' ? d.seller_id : d.buyer_id;
+  const accepted = !['AWAITING_SELLER', 'AWAITING_BUYER'].includes(d.status) && !(['CANCELLED', 'EXPIRED'].includes(d.status) && !paid && !other);
   const closedEarly = ['CANCELLED', 'EXPIRED'].includes(d.status) && !paid;
   const refunded = ['REFUNDING', 'REFUNDED'].includes(d.status);
   const list: Step[] = [
     { label: 'Order sent', at: d.created_at, done: true },
-    { label: d.started_by === 'BUYER' ? 'Seller accepted' : 'Buyer joined', at: null, done: accepted },
+    { label: d.started_by === 'BUYER' ? 'Seller accepted' : d.legacy_ship ? 'Buyer joined' : 'Buyer accepted', at: null, done: accepted },
     { label: 'Paid, money held by Hoolam', at: d.funded_at, done: paid },
     { label: d.dispatch_method === 'PICKUP' ? 'Ready for pickup' : 'Dispatched', at: d.dispatched_at ?? d.shipped_at, done: !!(d.dispatched_at ?? d.shipped_at) },
     { label: 'Handed over', at: d.handed_over_at, done: !!d.handed_over_at || d.status === 'COMPLETED' },
@@ -57,7 +59,7 @@ export function orderPage(d: Deal, o: OrderPageOptions): string {
   const buyerFeeLabel = d.fee_payer === 'BUYER' ? 'Hoolam fee' : 'Transaction fee';
   const sellerFeeLabel = d.fee_payer === 'SELLER' ? 'Hoolam fee' : 'Transaction fee';
   const deliveryRow = deliveryFee ? [['Delivery fee', `−${m(deliveryFee)} <small>to the ${d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider'}</small>`] as [string, string]] : [];
-  const total: [string, string] = ['Total price', m(d.price_minor) + (d.started_by === 'BUYER' ? ' <small>delivery included</small>' : '')];
+  const total: [string, string] = ['Total price', m(d.price_minor) + (d.started_by === 'BUYER' || !d.legacy_ship ? ' <small>delivery included</small>' : '')];
   const rows: [string, string][] = o.viewer === 'buyer'
     ? [total, ...(buyerFee > 0 ? [[buyerFeeLabel, m(buyerFee)] as [string, string]] : []), ['You pay', `<b>${m(d.buyer_pays_minor)}</b>`]]
     : o.viewer === 'seller'
@@ -65,7 +67,7 @@ export function orderPage(d: Deal, o: OrderPageOptions): string {
       : [total, ['Buyer pays', `<b>${m(d.buyer_pays_minor)}</b>`], ...deliveryRow, ['Seller receives', `<b>${m(d.seller_gets_minor - deliveryFee)}</b>`]];
   const delivery: string[] = [
     d.delivery_address ? `${ICON.mapPin}<span><b>Deliver to</b>${esc(d.delivery_address)}</span>` : '',
-    d.arrive_by ? `${ICON.calendar}<span><b>Expected by</b>${esc(dayText(String(d.arrive_by)))}</span>` : '',
+    d.arrive_by ? `${ICON.calendar}<span><b>${d.started_by === 'SELLER' ? 'Ready by' : 'Expected by'}</b>${esc(dayText(String(d.arrive_by)))}</span>` : '',
     d.dispatch_method === 'PICKUP' ? `${ICON.mapPin}<span><b>Pickup at</b>${esc(d.pickup_address ?? '')}</span>` : '',
     d.dispatch_method === 'RIDER' ? `${ICON.truck}<span><b>Rider</b>${esc([d.courier_name, localPhone(d.courier_phone)].filter(Boolean).join(' · '))}</span>` : '',
     d.dispatch_method === 'WAYBILL' ? `${ICON.truck}<span><b>Waybill driver</b>${esc(localPhone(d.courier_phone))}${d.courier_location ? ` · to ${esc(d.courier_location)}` : ''}</span>` : '',

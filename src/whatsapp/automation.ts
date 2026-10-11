@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { buyEditFlowJson, buyEditFlowName, buyFlowJson, buyFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
+import { buyEditFlowJson, buyEditFlowName, buyFlowJson, buyFlowName, sellEditFlowJson, sellEditFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
 import { ordersFlowJson } from './orders-flow.js';
 import type { Template } from './client.js';
 
@@ -106,14 +106,17 @@ export const SELLER_ALERT = {
   buttons: ['View order', 'Not me'],
 };
 
-/** The buyer alert (a seller started the order and typed the buyer's number). */
-export const BUYER_ALERT = {
-  name: 'hoolam_order_payment_request', replaces: 'hoolam_payment_request',
+/**
+ * The buyer alert (a seller started the order and typed the buyer's number): the mirror of the seller alert.
+ * While Meta reviews it, the older approved version is used with the values it takes (seller, item, what they pay, order).
+ */
+export const BUYER_ALERT: TemplateDef = {
+  name: 'hoolam_new_order_for_buyer', replaces: 'hoolam_order_payment_request', replacesParams: [0, 1, 3, 4],
   body:
-    '💳 Payment request on Hoolam\n\n{{1}} is selling you {{2}} for {{3}}.\n\n' +
-    'You pay Hoolam, not the seller. We hold the money until you receive the item and are happy.\n\n' +
-    'Order {{4}}. Tap below to see the photos and pay.',
-  example: ['Bayo', 'Black sneakers, size 42', '₦15,000', 'HL-7K2QF'],
+    '🛍️ *New order for you* on *Hoolam*\n\n🏷️ Seller: *{{1}}*\n📦 Item: *{{2}}*\n💰 Total price: *{{3}}*\n💳 You pay: *{{4}}*\n\n' +
+    'You pay Hoolam, not the seller. We hold your money until you have your item and are happy.\n\n' +
+    'Order *{{5}}*. Tap below to see the photos and accept.',
+  example: ['Bayo Kicks', 'Black sneakers, size 42', '₦15,000', '₦15,500', 'HL-7K2QF'],
   footer: 'Not expecting this? Tap Not me.',
   buttons: ['View order', 'Not me'],
 };
@@ -211,6 +214,21 @@ export const DEAL_TEMPLATES = {
     body: '🙋 *Hoolam support:* an update about your order *{{1}}*.\n\n{{2}}\n\nReply here if you have any questions.',
     example: ['HL-7K2QF', 'Your rider is on the way and will call you in about 10 minutes.'],
   },
+  buyerAccepted: {
+    name: 'hoolam_buyer_accepted', label: 'The buyer accepted (to the seller)',
+    body: '✅ Good news: *{{1}}* accepted your order *{{2}}* on Hoolam.\n\nWe have asked them to pay. *Do not send the item until we tell you the money is held.*',
+    example: ['Ada', 'HL-7K2QF'],
+  },
+  buyerDeclined: {
+    name: 'hoolam_buyer_declined', label: 'The buyer declined (to the seller)',
+    body: 'Update on Hoolam: *{{1}}* declined your order *{{2}}*. No money moved.\n\nYou can start a new order any time.',
+    example: ['Ada', 'HL-7K2QF'], buttons: ['Sell something'],
+  },
+  buyerNoReply: {
+    name: 'hoolam_buyer_no_reply', label: 'The buyer did not accept in time (to the seller)',
+    body: 'Your order *{{1}}* on Hoolam has closed because the buyer did not accept it in time. No money moved.\n\nYou can start a new order any time.',
+    example: ['HL-7K2QF'], buttons: ['Sell something'],
+  },
   courierJob: {
     // To the rider or waybill driver at dispatch. No "code" anywhere (Meta rejects it in utility templates):
     // the button opens the chat, which then asks for the 4-digit code from the receiver.
@@ -232,7 +250,7 @@ export type DealTemplateKey = keyof typeof DEAL_TEMPLATES;
 /** Every template the server keeps on Meta, with a plain label for the console. */
 export const ALL_TEMPLATES: (TemplateDef & { label: string })[] = [
   { ...SELLER_ALERT, label: 'New order request (to a seller)' },
-  { ...BUYER_ALERT, label: 'Payment request (to a buyer)' },
+  { ...BUYER_ALERT, label: 'New order for you (to a buyer)' },
   ...Object.values(DEAL_TEMPLATES),
 ];
 
@@ -309,6 +327,11 @@ export async function ensureBuyEditFlow(o: MetaSetupOptions, json = buyEditFlowJ
 /** Makes sure the seller's form exists on Meta. */
 export async function ensureSellFlow(o: MetaSetupOptions, json = sellFlowJson()): Promise<string | null> {
   return ensureFlow(o, json, sellFlowName(json), 'seller form');
+}
+
+/** The seller's form filled in with their answers, for "Edit order". */
+export async function ensureSellEditFlow(o: MetaSetupOptions, json = sellEditFlowJson()): Promise<string | null> {
+  return ensureFlow(o, json, sellEditFlowName(json), 'seller edit form');
 }
 
 /** The live "My orders" form: talks to our encrypted endpoint. */

@@ -217,7 +217,7 @@ export function Deal() {
               <dl className="kv">
                 {d.category && <><dt>Category</dt><dd>{CATEGORY_NAMES[d.category] ?? d.category}</dd></>}
                 {d.delivery_address && <><dt>Deliver to</dt><dd>{d.delivery_address}</dd></>}
-                <dt>Price</dt><dd className="money">{money(d.price_minor, cur)}{d.started_by === 'BUYER' && <span className="muted small"> total, delivery included</span>}</dd>
+                <dt>Price</dt><dd className="money">{money(d.price_minor, cur)}{(d.started_by === 'BUYER' || !d.legacy_ship) && <span className="muted small"> total, delivery included</span>}</dd>
                 <dt>Hoolam fee</dt><dd className="money">{money(d.fee_minor, cur)} <span className="muted small">paid by {d.fee_payer === 'SELLER' ? 'seller' : 'buyer'}</span></dd>
                 {Number(d.txn_fee_minor) > 0 && <><dt>Transaction fee</dt><dd className="money">{money(d.txn_fee_minor, cur)} <span className="muted small">paid by {d.txn_fee_payer === 'BUYER' ? 'buyer' : 'seller'}</span></dd></>}
                 <dt>Buyer pays</dt><dd className="money" style={{ fontWeight: 600 }}>{money(d.buyer_pays_minor, cur)}</dd>
@@ -225,7 +225,7 @@ export function Deal() {
                 {d.counter_price_minor && <><dt>New price asked</dt><dd className="money">{money(d.counter_price_minor, cur)} <span className="pill gold plain">Waiting for buyer</span></dd></>}
                 {d.counter_reason && <><dt>Seller's reason</dt><dd>{d.counter_reason}</dd></>}
                 {d.accept_by && d.status === 'AWAITING_SELLER' && <><dt>Seller must accept</dt><dd>{ago(d.accept_by)} <span className="muted small">({dateTime(d.accept_by)})</span></dd></>}
-                {d.arrive_by && <><dt>Expected by</dt><dd>{d.arrive_by}</dd></>}
+                {d.arrive_by && <><dt>{d.started_by === 'SELLER' ? 'Ready by' : 'Expected by'}</dt><dd>{d.arrive_by}</dd></>}
                 {d.dispatch_method && <><dt>Dispatch</dt><dd>
                   {d.dispatch_method === 'PICKUP' ? <>Pickup<div className="cell-sub">{d.pickup_address}</div></>
                     : <>{d.dispatch_method === 'RIDER' ? `Rider${d.courier_name ? ': ' + d.courier_name : ''}` : 'Waybill'}<div className="cell-sub">{[phone(d.courier_phone), d.courier_location].filter(Boolean).join(' · ')}</div>

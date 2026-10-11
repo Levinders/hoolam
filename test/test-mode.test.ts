@@ -10,25 +10,17 @@ describe('test mode: one phone plays both sides', () => {
   it('runs a whole deal from a single phone, with "paid" standing in for the transfer', async () => {
     const me = '+2290190000001';
     await h.say(me, 'hi', 'Raphael');
-    await h.sell(me);
-    await h.say(me, 'Test sneakers');
-    await h.say(me, '10000');
-    await h.tap(me, 'sell:nophotos');
-    await h.tap(me, 'sell:nophone');
-    await h.say(me, '0123456789 GTBank');
-    await h.tap(me, 'bank:yes');
-    await h.tap(me, 'sell:confirm');
-    const code = h.last(me).match(/HL-[A-Z2-9]{5}/)![0];
+    const code = await h.sellOrder(me, me, { item: 'Test sneakers', price: '10000' }); // your own number is fine in test mode
 
     await h.say(me, `Pay ${code}`);
     expect(h.last(me)).toMatch(/\*You pay  ₦10,500\*/); // price + the buyer's ₦500 transaction fee (the seller started it)
-    await h.tap(me, `pay:${code}`);
+    await h.acceptOrder(me, code);
     expect(h.last(me)).toMatch(/TEST MODE: no real money/);
 
     await h.say(me, 'paid');
     const status = async () => (await h.db.query('SELECT status FROM deals WHERE code=$1', [code])).rows[0].status;
     expect(await status()).toBe('FUNDED');
-    await h.tap(me, `shipped:${code}`);
+    await h.handOver(me, code);
     await h.tap(me, `happy:${code}`);
     expect(await status()).toBe('COMPLETED');
     expect(h.last(me)).toMatch(/You've been paid/);

@@ -6,7 +6,7 @@ import { DealError, DealService, viewKey, type Deal } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { Media } from './whatsapp/media.js';
@@ -60,6 +60,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   let ordersForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
   let orderForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // one order on its own
   let buyEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the buyer's form, filled in
+  let sellEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the seller's form, filled in
   const backupForms = { list: false, one: false }; // true when Meta refused the main forms and the backups are in use
   let keys: FlowKeys | null = null;
   const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
@@ -70,23 +71,30 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log, media,
     // the buyer's order before it's sent: read from the chat, and Send / Edit / Start again work exactly like the chat buttons
     buyPreview: (phone) => chat.buyPreview(phone),
-    buyAction: (phone, action) => chat.handle({ id: `form-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: `buy:${action}`, mediaId: null }),
+    buyAction: (phone, action, side) => chat.handle({ id: `form-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: `${side}:${action}`, mediaId: null }),
     hoolamNumber: () => settings.waNumber(),
     backupForms: () => backupForms,
     openOrder: (user, code, screen) => openOrders(user.phone, user, { screen, code }),
   });
-  const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller'; item?: string; totalMinor?: number }): Promise<boolean> => {
+  const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller'; item?: string; totalMinor?: number; fresh?: boolean }): Promise<boolean> => {
     const form = at.screen === 'orders' ? ordersForm : orderForm;
     if (!form || !settings.formsEnabled()) return false;
     const mode = at.mode ?? (at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer');
     const titles: Record<Exclude<Entry, 'preview'>, [string, string]> = {
       orders: ['📋 My orders', mode === 'seller' ? 'Everything you\'re selling: what needs you first, then the rest.' : 'Everything you\'re buying, and where your money is.'],
-      order: at.mode === 'seller' ? ['🛒 New order for you', `Order ${at.code}: see the photos and details, then accept, update the price or decline.`] : ['📋 Your order', `Order ${at.code}: details, photos and the next step.`],
+      order: at.mode === 'seller' ? ['🛒 New order for you', `Order *${at.code}*: see the photos and details, then accept, update the price or decline.`]
+        : at.fresh ? ['🛍️ New order for you', `Order *${at.code}*: see the photos and details, then accept and pay, or decline. Your money stays with Hoolam until you're happy.`]
+        : ['📋 Your order', `Order *${at.code}*: details, photos and the next step.`],
       dispatch: ['🚚 Dispatch', `Order ${at.code}: pickup, rider or waybill. It takes a minute.`],
       code: ['🔑 Handover code', `Order ${at.code}: enter the receiver's 4-digit code.`],
     };
     if (at.screen === 'preview') {
-      const status = await messenger.send(phone, msg.buyReview(form.flowId, form.mode, signToken(formSecret, phone, 'buyer', 'preview', '-', 24), at.item ?? '', { minor: at.totalMinor ?? 0, currency: c.CURRENCY }));
+      const total = { minor: at.totalMinor ?? 0, currency: c.CURRENCY };
+      const token = signToken(formSecret, phone, at.mode === 'seller' ? 'seller' : 'buyer', 'preview', '-', 24);
+      const q = at.mode === 'seller' ? deals.previewDeal(total.minor, 'seller', Number.MAX_SAFE_INTEGER) : null;
+      const status = await messenger.send(phone, q
+        ? msg.sellReview(form.flowId, form.mode, token, at.item ?? '', deals.sellerSum({ price_minor: q.priceMinor, seller_gets_minor: q.sellerGetsMinor, fee_payer: 'SELLER' }))
+        : msg.buyReview(form.flowId, form.mode, token, at.item ?? '', total));
       return status !== 'FAILED';
     }
     const [header, text] = titles[at.screen as Exclude<Entry, 'preview'>];
@@ -102,6 +110,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL, media,
     buyForm: () => (settings.formsEnabled() ? buyForm : null), sellForm: () => (settings.formsEnabled() ? sellForm : null),
     buyEditForm: () => (settings.formsEnabled() && buyForm ? buyEditForm : null),
+    sellEditForm: () => (settings.formsEnabled() && sellForm ? sellEditForm : null),
     onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
     ordersForm: { open: openOrders },
     hoolamNumber: () => settings.waNumber(),
@@ -516,6 +525,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         buyEditForm = editId ? { flowId: editId, mode: c.WHATSAPP_FORM_MODE } : null;
         const sellId = await ensureSellFlow(o);
         sellForm = sellId ? { flowId: sellId, mode: c.WHATSAPP_FORM_MODE } : null;
+        const sellEditId = await ensureSellEditFlow(o);
+        sellEditForm = sellEditId ? { flowId: sellEditId, mode: c.WHATSAPP_FORM_MODE } : null;
       }
       if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {
         keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);

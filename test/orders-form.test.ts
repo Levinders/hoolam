@@ -381,7 +381,7 @@ describe('the buyer checks their order before it goes to the seller', () => {
     const before = chat.o.ordersForm;
     chat.o.ordersForm = { open: async (_p: string, _u: unknown, at: unknown) => { opened.push(at); return true; } };
     try { await filledIn(); } finally { chat.o.ordersForm = before; }
-    expect(opened).toEqual([{ screen: 'preview', item: 'Wig', totalMinor: 3_000_000 }]);
+    expect(opened).toEqual([{ screen: 'preview', item: 'Wig', totalMinor: 3_000_000, mode: 'buyer' }]);
   });
 
   it('shows everything, with the seller\'s number in full, and sends it', async () => {
@@ -500,5 +500,68 @@ describe('the backup forms (only if Meta refuses the main ones)', () => {
       expect(r.screen).toBe('DONE');
       expect(r.data.important).toMatch(/Open it there/);
     } finally { h.app.backupForms.list = false; }
+  });
+});
+
+describe('Sell something in the forms (the mirror of Buy something)', () => {
+  async function sellerFilledIn() {
+    const seller = phone(), buyer = phone();
+    await h.say(seller, 'hi', 'Bayo Shoes');
+    await h.app.chat.handle({ id: `s${++seq}`, phone: seller, name: 'Bayo Shoes', type: 'button', text: '', buttonId: 'menu:sell', mediaId: null });
+    if (/Use this name/.test(h.last(seller))) { await h.tap(seller, 'setup:wname'); await h.tap(seller, 'setup:nocity'); }
+    await h.app.chat.handle({
+      id: `s${++seq}`, phone: seller, name: 'Bayo Shoes', type: 'form', text: '', buttonId: null, mediaId: null,
+      form: { flow_token: 'sell:v2', item: 'Leather bag', description: 'Brown, medium', category: 'bags', price: '20000', address: '', arrive_by: '2099-12-31', other_phone: buyer, photos: [{ id: 'p1' }] },
+    });
+    if (/account number/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
+    return { seller, buyer, t: signToken(h.app.formSecret, seller, 'seller', 'preview', '-', 24) };
+  }
+
+  it('the seller checks it in the form: their own money, the buyer adds the address; Send to buyer', async () => {
+    const { seller, buyer, t } = await sellerFilledIn();
+    const r = await call(t, 'INIT');
+    expect(r.data).toMatchObject({ heading: '🏷️ Check your order', item: 'Leather bag', primary: 'bsend', primary_label: 'Send to buyer', has_warn: true });
+    expect(r.data.key).toMatch(/💰 Total price ₦20,000\n🧾 Hoolam fee −₦500\n💸 You receive ₦19,500/);
+    expect(r.data.key).toMatch(/📍 The buyer adds the delivery address/);
+    expect(r.data.key).toMatch(/📅 Ready by/);
+    expect(r.data.key).toContain(`Buyer's WhatsApp: ${buyer.replace('+234', '0')}`);
+    expect(r.data.warn).toMatch(/The buyer accepts, then pays Hoolam/);
+    const sent = await call(t, 'data_exchange', { op: 'bsend', code: 'preview' });
+    expect(sent.data.title).toBe('📨 Sent to the buyer');
+    const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
+    expect((await deal(code)).status).toBe('AWAITING_BUYER');
+  });
+
+  it('the buyer opens it in the form, types the address and accepts; the payment details come in the chat', async () => {
+    const { seller, buyer, t } = await sellerFilledIn();
+    await call(t, 'data_exchange', { op: 'bsend', code: 'preview' });
+    const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
+    await h.say(buyer, 'hi', 'Ada Obi');
+    const bt = signToken(h.app.formSecret, buyer, 'buyer', 'order', code);
+    const o = await call(bt, 'INIT');
+    expect(o.data.heading).toMatch(new RegExp(`🛍️ Bayo · ${code} · New order for you`));
+    expect(o.data).toMatchObject({ primary: 'baccept', primary_label: 'Accept order', secondary: 'bdecline', show_address: true, has_warn: true });
+    expect(o.data.key).toMatch(/Transaction fee ₦500\n💳 You pay ₦20,500/);
+    expect(o.data.key).toMatch(/📍 Add your delivery address below/);
+    const missing = await call(bt, 'data_exchange', { op: 'baccept', code, address: '' });
+    expect(missing.screen).toBe('ORDER');
+    expect(missing.data.warn).toMatch(/Type your delivery address/);
+    const ok = await call(bt, 'data_exchange', { op: 'baccept', code, address: '12 Woji Road, Port Harcourt' });
+    expect(ok.data.title).toBe('✅ Order accepted');
+    expect(h.last(buyer)).toMatch(/Transfer exactly \*₦20,500\*/);
+    expect(await deal(code)).toMatchObject({ status: 'AWAITING_PAYMENT', delivery_address: '12 Woji Road, Port Harcourt' });
+    expect(h.last(seller)).toMatch(/\*Ada\* · Order \*HL-\w+\* accepted/);
+  });
+
+  it('a seller\'s order opens in the form for the buyer when it\'s available', async () => {
+    const { seller, buyer, t } = await sellerFilledIn();
+    await call(t, 'data_exchange', { op: 'bsend', code: 'preview' });
+    const code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
+    const opened: unknown[] = [];
+    const chat = h.app.chat as any;
+    const before = chat.o.ordersForm;
+    chat.o.ordersForm = { open: async (_p: string, _u: unknown, at: unknown) => { opened.push(at); return true; } };
+    try { await h.tap(buyer, `bview:${code}`); } finally { chat.o.ordersForm = before; }
+    expect(opened).toEqual([{ screen: 'order', code, mode: 'buyer', fresh: true }]);
   });
 });

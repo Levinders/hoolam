@@ -83,10 +83,9 @@ describe('roles and the audit trail', () => {
 
     // a funded deal to act on
     const seller = '+2348090000001', buyer = '+2348090000002';
-    await h.say(seller, 'hi', 'Bayo'); await h.sell(seller); await h.say(seller, 'Bag'); await h.say(seller, '10000');
-    await h.tap(seller, 'sell:nophotos'); await h.tap(seller, 'sell:nophone'); await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); await h.tap(seller, 'sell:confirm');
-    code = h.last(seller).match(/HL-[A-Z2-9]{5}/)![0];
-    await h.say(buyer, `Pay ${code}`, 'Ada'); await h.tap(buyer, `pay:${code}`);
+    await h.say(seller, 'hi', 'Bayo'); await h.say(buyer, 'hi', 'Ada');
+    code = await h.sellOrder(seller, buyer, { item: 'Bag', price: '10000' });
+    await h.acceptOrder(buyer, code);
     const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
     h.provider.pay(r.rows[0].provider_reference); await h.app.deals.handleCollection(r.rows[0].provider_reference);
 
@@ -157,8 +156,8 @@ describe('people controls reach WhatsApp', () => {
     await h.say(p, 'hi', 'Kemi');
     const id = (await h.db.query('SELECT id FROM users WHERE phone=$1', [p])).rows[0].id;
     expect((await call('POST', `/people/${id}/cap`, { cap: 200000, reason: 'Verified wholesale seller' }, owner)).status).toBe(200);
-    await h.sell(p); await h.say(p, 'Fridge'); await h.say(p, '150000');
-    expect(h.last(p)).toMatch(/Add photos/); // allowed above the normal ₦50,000 cap
+    await h.sell(p); await h.say(p, 'Fridge'); await h.say(p, 'Double door, 2 years old'); await h.tap(p, 'cat:other'); await h.say(p, '150000');
+    expect(h.last(p)).toMatch(/buyer's delivery address/); // allowed above the normal ₦50,000 cap
     expect((await call('POST', `/people/${id}/pause`, { paused: true, reason: 'Reported for fake photos' }, owner)).status).toBe(200);
     await h.say(p, 'hi');
     expect(h.last(p)).toMatch(/account is paused/);
