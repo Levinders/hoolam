@@ -105,6 +105,8 @@ describe('landing page ↔ server', () => {
     expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).toContain('live now');
     expect(readFileSync('dist-site/v/1.1.0/index.html', 'utf8')).toContain('pf-btns'); // one picture
     expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('pf-paid'); // three moments
+    for (const v of ['1.1.0', '1.2.0']) expect(readFileSync(`dist-site/v/${v}/index.html`, 'utf8'), v).toContain('data-p="wa-local">08012345678<'); // the phone shows Hoolam's number from the console, as people write it
+    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toMatch(/pf-side buyer[\s\S]*?Buyer[\s\S]*?pf-side seller[\s\S]*?Seller/);
     expect(readFileSync('dist-site/sitemap.xml', 'utf8')).not.toContain('/v/');
     expect(readFileSync('dist-site/robots.txt', 'utf8')).not.toMatch(/Disallow: \/v\//); // crawlers must be able to read the noindex
     expect(readFileSync('render.yaml', 'utf8')).toMatch(/path: \/v\/\*[\s\S]*?X-Robots-Tag[\s\S]*?noindex/);

@@ -496,9 +496,15 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 .pf-m b { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; }
 .pf-m small { display: flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--soft); font-size: 12px; }
 .pf-m small strong { color: var(--ink); }
-.pf-pair { display: flex; }
-.pf-pair .av { width: 36px; box-shadow: 0 0 0 2px #fff; }
-.pf-pair .av + .av { margin-left: -12px; }
+.pf-ord { width: 94%; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+.pf-ord .pf-t { margin-top: -3px; }
+.pf-sides { display: flex; align-items: center; gap: 7px; padding: 6px 9px 6px 6px; border-radius: 12px; background: var(--bg); }
+.pf-side { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; }
+.pf-side i { font-style: normal; }
+.pf-side.buyer { color: var(--teal); }
+.pf-side.seller { color: #8A6417; }
+.pf-sides .av { width: 30px; box-shadow: 0 0 0 2px #fff, 0 0 0 3px currentColor; }
+.pf-line { flex: 1; min-width: 10px; height: 2px; background: repeating-linear-gradient(90deg, var(--rule) 0 5px, transparent 5px 9px); }
 .pf .pf-vault { width: 46px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 12%, transparent); }
 .pf-amt { font: 700 22px/1.05 var(--font-display) !important; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .pf .pf-held { margin-top: 5px; padding: 4px 9px 4px 7px; font-size: 11.5px; }
@@ -524,7 +530,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
   .pf .av { width: 40px; }
   .pf .vault { width: 56px; }
   .pf-btns span { font-size: 12px; }
-  .pf-pair .av { width: 32px; }
+  .pf-sides .av { width: 28px; }
   .pf-m { gap: 8px; }
 }
 
@@ -589,7 +595,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
             <div class="pf-head" aria-hidden="true">
               <svg class="pf-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               <span class="logo-mark" data-slot="mark" data-alt=""><span class="fb" style="display:grid"><svg><use href="#mark"/></svg></span></span>
-              <div class="pf-who"><b>Hoolam <svg class="ic pf-ok" aria-hidden="true"><use href="#i-badge-check"/></svg></b><span>Official business account</span></div>
+              <div class="pf-who"><b>Hoolam <svg class="ic pf-ok" aria-hidden="true"><use href="#i-badge-check"/></svg></b><span data-p="wa-local">{{WHATSAPP_LOCAL}}</span></div>
             </div>
             <div class="pf-chat" aria-hidden="true">
               <span class="pf-day pf-in">Today</span>
@@ -1205,6 +1211,7 @@ var HOOLAM_SITE = {
     document.querySelectorAll('[data-wa]').forEach(function (a) { a.setAttribute('href', href); });
     var w = C.whatsapp, ng = /^234\d{10}$/.test(w), cc = /^[17]/.test(w) ? w.slice(0, 1) : /^(2[1-9]\d|3[578]\d|42\d|5[09]\d|6[7-9]\d|8[5-9]\d|9[6-9]\d)/.test(w) ? w.slice(0, 3) : w.slice(0, 2), rest = w.slice(cc.length);
     var d = ng ? '0' + w.slice(3) : '+' + cc + ' ' + (rest.length === 10 ? rest.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1 $2 $3') : rest.replace(/(\d{2})(?=\d)/g, '$1 ')); // Nigerian numbers as people write them: 0803…
+    if (C.whatsapp) set('wa-local', d);
     set('wa-display', C.whatsapp ? ' Or message us on <a href="' + href + '" target="_blank" rel="noopener" style="color:var(--teal);font-weight:600;white-space:nowrap">' + d + '</a>.' : '');
   }
 

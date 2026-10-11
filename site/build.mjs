@@ -178,6 +178,7 @@ function homePage(src, version, preview) {
   let h = src
     .replaceAll('{{APP_URL}}', app)
     .replaceAll('{{WHATSAPP_NUMBER}}', wa)
+    .replaceAll('{{WHATSAPP_LOCAL}}', phoneText(wa) || 'WhatsApp')
     .replaceAll('{{SITE_URL}}/', site ? `${site}/` : '/')
     .replace('/*{{BAKED}}*/{}', JSON.stringify(pageBaked).replace(/</g, '\\u003c'))
     .replace('/*{{FOOTER_CSS}}*/', footerCss)

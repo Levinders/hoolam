@@ -1,4 +1,4 @@
-import { ArrowUpRight, CircleCheck, CloudUpload, Eye, Image as ImageIcon, ImageOff, Link2, Lock, RefreshCw, Rocket, Trash2, TriangleAlert, Upload } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, CircleCheck, CloudUpload, Eye, Image as ImageIcon, ImageOff, Link2, Lock, RefreshCw, Rocket, Trash2, TriangleAlert, Upload } from 'lucide-react';
 import { useRef, useState, type DragEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { post } from '../../api';
@@ -200,7 +200,8 @@ export function ContentPage() {
   const d = vs.data;
   const asked = params.get('v');
   const selected = d.versions.some((v) => v.version === asked) ? asked! : d.live;
-  const pick = (v: string) => { setParams(v === d.live ? {} : { v }, { replace: true }); document.getElementById('version-images')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const cur = d.versions.find((v) => v.version === selected)!;
+  const pick = (v: string) => setParams(v === d.live ? {} : { v }, { replace: true });
 
   return (
     <>
@@ -214,39 +215,44 @@ export function ContentPage() {
           </div></div>
         )}
 
-        <section className="panel">
-          <div className="panel-head"><div><h2>Home page versions</h2><span className="small muted">
-            Live now: <b>{d.live}</b>{d.lastLive && <> · made live by <b>{d.lastLive.actor}</b>, {ago(d.lastLive.at)}</>}
-          </span></div></div>
-          <div className="ver-list">
-            {d.versions.map((v) => (
-              <div key={v.version} className={`ver${v.live ? ' live' : ''}${v.version === selected ? ' sel' : ''}`}>
-                <div className="ver-num"><b>{v.version}</b>{v.live ? <span className="pill green">Live</span> : <span className="pill grey plain">Not live</span>}</div>
-                <div className="ver-body">
-                  <p>{v.notes}</p>
-                  <span className="small muted">{dateOnly(v.date)} · {v.images} of {d.websiteSpots} images are yours{v.from ? ` · started from ${v.from}` : ''}</span>
-                </div>
-                <div className="ver-actions">
-                  {d.siteUrl
-                    ? <a className="btn sm" href={previewUrl(d.siteUrl, v.version)} target="_blank" rel="noopener"><Eye />Preview</a>
-                    : <span className="btn sm" aria-disabled="true" title="Add SITE_URL on the server to preview">Preview</span>}
-                  <Button size="sm" variant={v.version === selected ? 'primary' : 'ghost'} icon={ImageIcon} onClick={() => pick(v.version)} aria-pressed={v.version === selected}>Images</Button>
-                  {!v.live && editable && <Button size="sm" variant="ghost" icon={Rocket} onClick={() => setSwitching(v)}>Make live</Button>}
-                </div>
+        <section className="panel ver-panel">
+          <div className="ver-pick">
+            <div className="field ver-field">
+              <label htmlFor="home-version">Home page version</label>
+              <div className="ver-select">
+                <select id="home-version" className="select" value={selected} onChange={(e) => pick(e.target.value)}>
+                  {d.versions.map((v) => <option key={v.version} value={v.version}>{v.version}{v.live ? '  ·  Live now' : ''}</option>)}
+                </select>
+                <ChevronDown aria-hidden="true" />
               </div>
-            ))}
+            </div>
+            <div className="ver-live small muted">
+              Live now: <b>{d.live}</b>{d.lastLive && <><span> · made live by <b>{d.lastLive.actor}</b>, {ago(d.lastLive.at)}</span></>}
+            </div>
+          </div>
+          <div className="ver-detail">
+            <div className="ver-title">
+              <b>Version {cur.version}</b>
+              {cur.live ? <span className="pill green">Live</span> : <span className="pill grey plain">Not live</span>}
+            </div>
+            <p>{cur.notes}</p>
+            <span className="small muted">{dateOnly(cur.date)} · {cur.images} of {d.websiteSpots} images are yours{cur.from ? ` · built on ${cur.from}` : ''}</span>
+            <div className="ver-actions">
+              {d.siteUrl
+                ? <a className="btn" href={previewUrl(d.siteUrl, cur.version)} target="_blank" rel="noopener"><Eye />Preview<ArrowUpRight className="ext" /></a>
+                : <span className="btn" aria-disabled="true" title="Add SITE_URL on the server to preview"><Eye />Preview</span>}
+              {!cur.live && editable && <Button variant="primary" icon={Rocket} onClick={() => setSwitching(cur)}>Make live</Button>}
+            </div>
           </div>
           <div className="ver-foot small muted">
-            New versions are made when you approve a set of home page changes. Previews can be opened by anyone with the link, but search engines are told never to list them.
+            A new version is made when you approve a set of home page changes. Anyone with a preview link can open it, but search engines never list previews.
             {d.siteUrl && <> <a href={`${d.siteUrl.replace(/\/+$/, '')}/v/draft/`} target="_blank" rel="noopener">See the work in progress<ArrowUpRight /></a></>}
           </div>
         </section>
 
         <div id="version-images" className="ver-images-head">
-          <div><h3>Images for version {selected}</h3><span className="small muted">{selected === d.live ? 'This version is live, so changes show on the website within about a minute.' : 'This version isn’t live. Changes show in its preview, and on the website once it’s live.'}</span></div>
-          <div className="seg" role="tablist" aria-label="Version">
-            {d.versions.map((v) => <button key={v.version} type="button" role="tab" aria-selected={v.version === selected} className={v.version === selected ? 'on' : ''} onClick={() => setParams(v.version === d.live ? {} : { v: v.version }, { replace: true })}>{v.version}{v.live && <span className="n">Live</span>}</button>)}
-          </div>
+          <h3>Images for version {selected}</h3>
+          <span className="small muted">{selected === d.live ? 'This version is live, so changes show on the website within about a minute.' : 'This version isn’t live. Changes show in its preview, and on the website once it’s live.'}</span>
         </div>
         <div className="banner grey" style={{ margin: 0 }}><Link2 /><div>The logo is shared by every version. <Link to="/settings/brand">Change it on the Brand page</Link>.</div></div>
         <VersionImages key={selected} version={selected} live={d.live} onChanged={vs.reload} />
