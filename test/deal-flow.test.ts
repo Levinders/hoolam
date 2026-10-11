@@ -45,20 +45,20 @@ describe('the full deal', () => {
   it('seller creates, buyer pays, seller ships, buyer is happy, seller is paid', async () => {
     const { seller, buyer } = people();
     const { code, ref } = await dealUpToPayment(seller, buyer);
-    expect(h.last(buyer)).toMatch(/Transfer exactly ₦15,500/); // the seller started it: they pay Hoolam's fee, the buyer a ₦500 transaction fee
+    expect(h.last(buyer)).toMatch(/Transfer exactly \*₦15,500\*/); // the seller started it: they pay Hoolam's fee, the buyer a ₦500 transaction fee
     expect(await status(code)).toBe('AWAITING_PAYMENT');
 
     h.provider.pay(ref);
     expect(await h.app.deals.handleCollection(ref)).toBe('funded');
     expect(await status(code)).toBe('FUNDED');
-    expect(h.last(seller)).toMatch(/Good news: Koffi has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,600\* is held safely/);
+    expect(h.last(seller)).toMatch(/Good news: \*Koffi\* has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,600\* is held safely/);
 
     await h.tap(seller, `shipped:${code}`);
     expect(h.last(buyer)).toMatch(/on the way/);
     await h.tap(buyer, `happy:${code}`);
 
     expect(await status(code)).toBe('COMPLETED');
-    expect(h.last(seller)).toMatch(/₦14,600 has been sent to your/);
+    expect(h.last(seller)).toMatch(/Total price  ₦15,000\nHoolam fee  −₦400\n\*Paid to you  ₦14,600\*\n\nIt's been sent to your/);
     // Everything held for the deal has been paid out; only Hoolam's ₦400 fee and the buyer's ₦500 transaction fee remain as cash.
     expect(await ledger(code)).toEqual({ 'cash:fake': 90_000, 'held:deal': 0, 'payable:seller': 0, 'revenue:fees': -90_000 });
   }, 30_000);

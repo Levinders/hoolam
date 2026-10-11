@@ -78,7 +78,7 @@ describe('seller creates a deal: whoever starts the deal pays the fee', () => {
 
     await h.app.chat.handle({ id: `b${++n}`, phone: buyer, name: 'Ada', type: 'button', text: 'View deal', buttonId: `bview:${code}`, mediaId: null });
     expect(await outs(buyer, 'image')).toHaveLength(2);
-    expect(h.last(buyer)).toMatch(/Price               ₦15,000\nTransaction fee    ₦500\n\*You pay           ₦15,500\*/);
+    expect(h.last(buyer)).toMatch(/Total price  ₦15,000\nTransaction fee  ₦500\n\*You pay  ₦15,500\*/);
     expect(h.last(buyer)).not.toMatch(/Hoolam fee/); // the seller started it, so Hoolam's fee is the seller's
     expect(h.last(buyer)).toMatch(/\[✕ Cancel order\]/);
     expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
@@ -126,15 +126,16 @@ describe('Change price', () => {
     expect(h.last(seller)).toMatch(/where should we pay you/);
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
     expect(h.last(seller)).toMatch(/We've asked \*Ada\* if \*₦17,000\* works/);
+    expect(h.last(seller)).toMatch(/If they accept:\nTotal price  ₦17,000\nTransaction fee  −₦500\n\*You receive  ₦16,500\*/);
     expect(h.last(buyer)).toMatch(/\*Chidi\* updated the price/);
     expect(h.last(buyer)).toMatch(/💬 Reason: The price went up at the market/);
     expect(h.last(buyer)).toMatch(/~₦15,000~ → \*₦17,000\*/);
-    expect(h.last(buyer)).toMatch(/New price       ₦17,000\nHoolam fee     ₦400\n\*You'd pay       ₦17,400\*/); // the full breakdown
+    expect(h.last(buyer)).toMatch(/Total price  ₦17,000\nHoolam fee  ₦400\n\*You'd pay  ₦17,400\*/); // the full breakdown
 
     await h.tap(buyer, `cyes:${code}`);
     const d = await deal(code);
     expect(d).toMatchObject({ status: 'AWAITING_PAYMENT', price_minor: 1_700_000, buyer_pays_minor: 1_740_000, seller_gets_minor: 1_650_000, counter_price_minor: null }); // seller: ₦17,000 − ₦500 transaction fee
-    expect(h.last(seller)).toMatch(/\*Ada\* accepted your price for order \*HL-[A-Z2-9]{5}\*\. You'll receive \*₦16,500\*/);
+    expect(h.last(seller)).toMatch(/\*Ada\* accepted your new price for order \*HL-[A-Z2-9]{5}\*\.\n\nTotal price  ₦17,000\nTransaction fee  −₦500\n\*You receive  ₦16,500\*/); // the full breakdown, not just the total
     expect(h.last(seller)).toMatch(/\*Don't ship before we confirm the money is held\.\*/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\]/);
   });

@@ -228,10 +228,11 @@ export function Deal() {
                 {d.arrive_by && <><dt>Expected by</dt><dd>{d.arrive_by}</dd></>}
                 {d.dispatch_method && <><dt>Dispatch</dt><dd>
                   {d.dispatch_method === 'PICKUP' ? <>Pickup<div className="cell-sub">{d.pickup_address}</div></>
-                    : <>{d.dispatch_method === 'RIDER' ? `Rider${d.courier_name ? ': ' + d.courier_name : ''}` : 'Waybill'}<div className="cell-sub">{[phone(d.courier_phone), d.courier_location].filter(Boolean).join(' · ')}</div></>}
+                    : <>{d.dispatch_method === 'RIDER' ? `Rider${d.courier_name ? ': ' + d.courier_name : ''}` : 'Waybill'}<div className="cell-sub">{[phone(d.courier_phone), d.courier_location].filter(Boolean).join(' · ')}</div>
+                      {d.courier_alert && <div className="cell-sub">{d.courier_alert === 'sent' ? `WhatsApp message sent: the ${d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider'} can enter the code` : d.courier_alert === 'skipped' ? 'No message: that number is the buyer\'s or the seller\'s' : 'No message: we couldn\'t reach that number on WhatsApp (seller enters the code)'}</div>}</>}
                 </dd></>}
                 {Number(d.delivery_fee_minor) > 0 && <><dt>Delivery fee</dt><dd className="money">{money(d.delivery_fee_minor, cur)} <span className="muted small">{d.courier_paid_at ? 'paid to the ' + (d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider') : 'paid when the code is right'}</span></dd></>}
-                {d.dispatched_at && <><dt>Handover code</dt><dd>{d.handed_over_at ? <>Confirmed <span className="muted small">{dateTime(d.handed_over_at)}</span></> : <span className="muted">Not entered yet{d.handover_tries ? ` · ${d.handover_tries} wrong ${d.handover_tries === 1 ? 'try' : 'tries'}` : ''}</span>}</dd></>}
+                {d.dispatched_at && <><dt>Handover code</dt><dd>{d.handed_over_at ? <>Confirmed{d.handover_by ? ` by the ${d.handover_by === 'courier' ? (d.dispatch_method === 'WAYBILL' ? 'driver' : 'rider') : 'seller'}` : ''} <span className="muted small">{dateTime(d.handed_over_at)}</span></> : <span className="muted">Not entered yet{d.handover_tries ? ` · ${d.handover_tries} wrong ${d.handover_tries === 1 ? 'try' : 'tries'}` : ''}</span>}</dd></>}
                 {data.sellerAccount && <><dt>Pays out to</dt><dd>{data.sellerAccount.account_name}<div className="cell-sub">{data.sellerAccount.bank_name} ••••{data.sellerAccount.last4}</div></dd></>}
               </dl>
             </div>

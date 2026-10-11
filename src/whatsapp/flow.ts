@@ -179,9 +179,10 @@ export class Conversation {
           if (code !== 'yes') { const { pendingAccount: _p, ...rest } = s.data; return this.dispatchStep(m.phone, user, { ...rest, account: undefined }); }
           return this.dispatchStep(m.phone, user, { ...s.data, account: s.data.pendingAccount, pendingAccount: undefined });
         }
-        case 'hcode':
-          await this.save(m.phone, 'HANDOVER_CODE', { code });
-          return this.send(m.phone, msg.askHandoverCode(code!));
+        case 'hcode': // the seller, or the rider/driver from the message Hoolam sent them at dispatch
+          if (await this.o.deals.askForHandoverCode(code!, user)) await this.save(m.phone, 'HANDOVER_CODE', { code });
+          else await this.save(m.phone, 'IDLE');
+          return;
         case 'hcodeshow': return this.o.deals.showHandoverCode(code!, user);
         case 'srefund': await this.save(m.phone, 'IDLE'); return this.send(m.phone, msg.confirmSellerRefund(code!));
         case 'srefundok': await this.save(m.phone, 'IDLE'); await this.o.deals.refundPaidOrder(code!, 'seller', user); return;
@@ -745,7 +746,8 @@ export class Conversation {
     const orders = await this.o.deals.recentOrders(user.id, mode);
     const lines = orders.map((d) => {
       const amount = mode === 'seller' ? d.seller_gets_minor : d.buyer_pays_minor;
-      return `*${d.code}* · ${d.item.slice(0, 28)}\n${formatMoney(amount, d.currency)} · ${STATUS_WORDS[d.status] ?? d.status}`;
+      const who = d.other_name ? `*${String(d.other_name).split(' ')[0]}* · ` : '';
+      return `${who}*${d.code}* · ${d.item.slice(0, 28)}\n${formatMoney(amount, d.currency)} · ${STATUS_WORDS[d.status] ?? d.status}`;
     });
     return this.send(phone, msg.ordersList(lines, mode));
   }

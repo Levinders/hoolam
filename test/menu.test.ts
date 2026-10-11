@@ -109,7 +109,7 @@ describe('the menu in the chat', () => {
     await h.say(p, 'hi', 'Ada Obi');
     const first = await lastBody(p);
     expect(first.kind).toBe('buttons');
-    expect(h.last(p)).toMatch(/Hi Ada 👋 \*Welcome to Hoolam\*/);
+    expect(h.last(p)).toMatch(/Hi \*Ada\* 👋 \*Welcome to Hoolam\*/);
     expect(h.last(p)).toMatch(/Hoolam holds the money/);
     expect(h.last(p)).toMatch(/\[🛒 I’m buying\] \[🏷️ I’m selling\] \[💡 How it works\]/);
     await h.say(p, 'hi');

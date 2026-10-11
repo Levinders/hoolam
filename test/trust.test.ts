@@ -57,7 +57,7 @@ describe('the numbers', () => {
     expect(card).toMatch(/⚖️ No problems reported/);
     expect(card).toMatch(/👍 3 of 4 buyers happy/);
     expect(card).toMatch(/Paid out to Test A\., bank-verified/);
-    expect(msg.trustLine(t)).toBe('🛡️ Bayo · ✅ 4 orders');
+    expect(msg.trustLine(t)).toBe('🛡️ *Bayo* · ✅ 4 orders');
   });
 
   it('a refund after review shows on the card; a new seller shows "New on Hoolam"', async () => {
@@ -74,7 +74,7 @@ describe('the numbers', () => {
     expect(t).toMatchObject({ problems: 1, refunded: 1, completed: 0, isNew: true });
     expect(msg.trustCardText(t)).toMatch(/🌱 New on Hoolam: no completed orders yet/);
     expect(msg.trustCardText(t)).toMatch(/⚖️ 1 problem reported · 1 refunded after review/);
-    expect(msg.trustLine(t)).toBe('🛡️ Kemi · 🌱 New on Hoolam · ⚖️ 1 refunded');
+    expect(msg.trustLine(t)).toBe('🛡️ *Kemi* · 🌱 New on Hoolam · ⚖️ 1 refunded');
     const b = (await h.app.trust.buyer(await userId(buyer)))!;
     expect(msg.buyerLine(b)).toMatch(/⚖️ 1 problem reported \(1 refunded\)/);
   });
@@ -98,9 +98,9 @@ describe('where buyers see it', () => {
     const code = codeIn(h.last(seller));
     const buyer = phone();
     await h.say(buyer, `Pay ${code}`, 'Tolu');
-    expect(h.last(buyer)).toMatch(/🛡️ Bayo · ✅ 3 orders/);
+    expect(h.last(buyer)).toMatch(/🛡️ \*Bayo\* · ✅ 3 orders/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[🛡️ Seller's record\] \[✕ Cancel order\]/);
-    expect(h.last(seller)).toMatch(/👤 Tolu · 🌱 new buyer on Hoolam/); // sellers see the buyer too
+    expect(h.last(seller)).toMatch(/👤 \*Tolu\* · 🌱 new buyer on Hoolam/); // sellers see the buyer too
     await h.tap(buyer, `record:${code}`);
     expect(h.last(buyer)).toMatch(/✅ 3 orders completed/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[Main menu\]/);
@@ -143,7 +143,7 @@ describe('ratings', () => {
   it('one tap, once, only by the buyer; a 👎 comment stays private', async () => {
     const seller = await newSeller(); const buyer = phone();
     const code = await completeDeal(seller, buyer);
-    expect(h.last(buyer)).toMatch(/To help other buyers like you, how was Bayo\?/);
+    expect(h.last(buyer)).toMatch(/To help other buyers like you, how was \*Bayo\*\?/);
     expect(h.last(buyer)).toMatch(/\[👍 Great\] \[👎 Not great\]/);
     await h.tap(seller, `rateup:${code}`); // the seller can't rate themselves
     expect((await h.app.trust.seller(await userId(seller)))!.rated).toBe(0);
@@ -179,7 +179,7 @@ describe('the seller\'s own card and public page', () => {
     await h.tap(seller, 'card:share');
     const shared = h.transcript.filter((t) => t.phone === seller).slice(-2).map((t) => t.text);
     expect(shared[0]).toMatch(/Your page is live:\nhttps:\/\/hoolam\.test\/s\/bayo-kicks-lagos/);
-    expect(shared[1]).toMatch(/Buy from Bayo Kicks Lagos safely with Hoolam/);
+    expect(shared[1]).toMatch(/Buy from \*Bayo Kicks Lagos\* safely with Hoolam/);
 
     const page = await h.app.app.inject({ method: 'GET', url: '/s/bayo-kicks-lagos' });
     expect(page.statusCode).toBe(200);

@@ -211,6 +211,16 @@ export const DEAL_TEMPLATES = {
     body: '🙋 *Hoolam support:* an update about your order *{{1}}*.\n\n{{2}}\n\nReply here if you have any questions.',
     example: ['HL-7K2QF', 'Your rider is on the way and will call you in about 10 minutes.'],
   },
+  courierJob: {
+    // To the rider or waybill driver at dispatch. No "code" anywhere (Meta rejects it in utility templates):
+    // the button opens the chat, which then asks for the 4-digit code from the receiver.
+    name: 'hoolam_delivery_for_rider', label: 'Delivery details and fee (to the rider or driver)',
+    body: '🛵 *Delivery on Hoolam* from {{1}}\n\n👤 Receiver: *{{2}}*\n📞 {{3}}\n📍 Deliver to: {{4}}\n\n💸 Your delivery fee: *{{5}}*\n🏦 Paid to: {{6}}\n\n' +
+      'When you hand over the item, tap Confirm delivery. Your fee is paid as soon as the receiver is confirmed.',
+    example: ['Bayo Kicks', 'Ada', '08031234567', '12 Woji Road, Port Harcourt', '₦2,000', 'Musa Ibrahim, OPay 9876543210'],
+    footer: 'Not expecting this? You can ignore it.',
+    buttons: ['Confirm delivery'],
+  },
   overdue: {
     name: 'hoolam_order_overdue', label: 'Not dispatched by the expected date (to the buyer)',
     body: 'Order {{1}} has not been dispatched yet, and the date you expected it has passed. Your money is still held by Hoolam.\n\nWhat would you like to do?',

@@ -605,16 +605,20 @@ export class OrdersFlow {
     ].filter(Boolean).join('\n');
     const about = [d.description ?? '', d.category ? `🏷️ ${categoryTitle(d.category)}` : ''].filter(Boolean).join('\n');
     const p = override ?? { primary: nx.primary, label: nx.label, note: '' };
-    const buyerName = mode === 'seller' && d.buyer_id ? (await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [d.buyer_id])).rows[0]?.display_name : null;
-    const heading = mode === 'seller' && d.status === 'AWAITING_SELLER' && buyerName
-      ? `🛒 ${String(buyerName).split(' ')[0]} wants to buy from you`
-      : `${d.code} · ${(STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase())}`;
+    // the other person's name comes first: buyer's name, order ID, then everything else
+    const otherId = mode === 'seller' ? d.buyer_id : d.seller_id ?? d.counter_seller_id;
+    const otherName = otherId ? (await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [otherId])).rows[0]?.display_name : null;
+    const other = otherName ? String(otherName).split(' ')[0] : null;
+    const status = (STATUS_WORDS[d.status] ?? d.status).replace(/^./, (c) => c.toUpperCase());
+    const heading = mode === 'seller' && d.status === 'AWAITING_SELLER' && other
+      ? `🛒 ${other} wants to buy from you`
+      : other ? `${mode === 'seller' ? '👤' : '🛡️'} ${other} · ${d.code} · ${status}` : `${d.code} · ${status}`;
     return {
       screen: 'ORDER',
       data: {
         code: d.code,
         heading: heading.slice(0, 80),
-        item: plain(`${d.item}${heading.startsWith(d.code) ? '' : ` (${d.code})`}`).slice(0, 300),
+        item: plain(`${d.item}${heading.includes(d.code) ? '' : ` (${d.code})`}`).slice(0, 300),
         about: plain(about).slice(0, 2000), has_about: !!about,
         key: plain(key).slice(0, 2000),
         info: plain(info).slice(0, 1000), has_info: !!info,

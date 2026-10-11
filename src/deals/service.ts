@@ -5,13 +5,14 @@ import type { Currency } from '../money.js';
 import { DEFAULT_TXN_BANDS, quote, type FeePayer, type Quote, type TxnFees } from '../pricing.js';
 import type { PaymentProvider, PayoutResult } from '../payments/provider.js';
 import type { Messenger, Outbound, SendStatus, Template } from '../whatsapp/client.js';
+import { localPhone } from '../phone.js';
 import type { Media } from '../whatsapp/media.js';
 import type { Trust } from '../trust.js';
 import type { Settings } from '../settings.js';
 import type { PricingRules } from '../pricing.js';
 import { BUYER_ALERT, DEAL_TEMPLATES, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
 import { categoryTitle } from './categories.js';
-import { msg } from '../whatsapp/messages.js';
+import { msg, type BuyerSum, type SellerSum } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
 
 export interface Deal {
@@ -25,6 +26,7 @@ export interface Deal {
   delivery_address: string | null; dispatch_method: 'PICKUP' | 'RIDER' | 'WAYBILL' | null; pickup_address: string | null;
   courier_name: string | null; courier_phone: string | null; courier_location: string | null; courier_account_id: string | null;
   dispatched_at: Date | null; handover_code: string | null; handover_tries: number; handed_over_at: Date | null; courier_paid_at: Date | null;
+  handover_by?: 'seller' | 'courier' | null; courier_alert?: string | null;
   view_token: string | null;
 }
 
@@ -267,9 +269,11 @@ export class DealService {
   }
 
   /** Orders where this person is the buyer, or the seller. */
-  async recentOrders(userId: string, as: MenuMode, limit = 8): Promise<Deal[]> {
+  async recentOrders(userId: string, as: MenuMode, limit = 8): Promise<(Deal & { other_name: string | null })[]> {
     const col = as === 'seller' ? 'seller_id' : 'buyer_id';
-    const r = await this.o.db.query(`SELECT * FROM deals WHERE ${col}=$1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
+    const other = as === 'seller' ? 'd.buyer_id' : 'COALESCE(d.seller_id, d.counter_seller_id)';
+    const r = await this.o.db.query(
+      `SELECT d.*, (SELECT display_name FROM users WHERE id=${other}) AS other_name FROM deals d WHERE d.${col}=$1 ORDER BY d.created_at DESC LIMIT $2`, [userId, limit]);
     return r.rows;
   }
 
@@ -301,6 +305,28 @@ export class DealService {
   /** The flat transaction fee bands (from the console; built-in defaults without settings). */
   txnFees(): TxnFees { return this.o.settings?.txnFees() ?? { seller: DEFAULT_TXN_BANDS, buyer: DEFAULT_TXN_BANDS }; }
   private txnPayer(q: Quote): 'BUYER' | 'SELLER' | null { return q.txnPayer === 'buyer' ? 'BUYER' : q.txnPayer === 'seller' ? 'SELLER' : null; }
+
+  /** The seller's money on an order, line by line (total price, their fee, what they receive). */
+  sellerSum(d: Pick<Deal, 'price_minor' | 'seller_gets_minor' | 'fee_payer'>): SellerSum {
+    return { price: this.money(d.price_minor), fee: this.money(d.price_minor - d.seller_gets_minor), feeLabel: this.sellerFeeLabel(d as Deal), gets: this.money(d.seller_gets_minor) };
+  }
+  /** The buyer's money on an order, line by line (total price, their fee, what they pay). */
+  buyerSum(d: Pick<Deal, 'price_minor' | 'buyer_pays_minor' | 'fee_payer'>): BuyerSum {
+    return { price: this.money(d.price_minor), fee: this.money(d.buyer_pays_minor - d.price_minor), feeLabel: this.buyerFeeLabel(d as Deal), pay: this.money(d.buyer_pays_minor) };
+  }
+  /** The same from a fresh quote (a new price the buyer hasn't accepted yet, or just accepted). */
+  private quoteSums(q: Quote, feePayer: 'BUYER' | 'SELLER'): { seller: SellerSum; buyer: BuyerSum } {
+    return {
+      seller: this.sellerSum({ price_minor: q.priceMinor, seller_gets_minor: q.sellerGetsMinor, fee_payer: feePayer }),
+      buyer: this.buyerSum({ price_minor: q.priceMinor, buyer_pays_minor: q.buyerPaysMinor, fee_payer: feePayer }),
+    };
+  }
+  /** The seller's public trust card page, when they have it switched on. */
+  async sellerCardUrl(sellerId: string | null): Promise<string | null> {
+    if (!sellerId || !this.o.trust || !this.o.orderPageBase) return null;
+    const t = await this.o.trust.seller(sellerId);
+    return t?.isPublic && t.slug ? `${this.o.orderPageBase.replace(/\/$/, '')}/s/${t.slug}` : null;
+  }
 
   async createDeal(args: SellerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
     const q = this.previewDeal(args.priceMinor, 'seller', this.capFor(await this.userById(this.o.db, args.sellerId)));
@@ -521,8 +547,8 @@ export class DealService {
       await tx.query('UPDATE deals SET seller_id=$2, seller_account_id=$3 WHERE id=$1', [deal.id, seller.id, accountId]);
       await this.move(tx, deal, 'AWAITING_PAYMENT', 'seller', 'Seller accepted the buyer\'s deal');
       const buyer = await this.userById(tx, deal.buyer_id!);
-      out.push({ phone: seller.phone, message: msg.sellerAcceptedOk(deal.code, firstName(buyer.display_name) ?? 'The buyer', acct.rows[0].bank_name, String(acct.rows[0].account_number).slice(-4)) });
-      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, { price: this.money(deal.price_minor), fee: this.money(deal.buyer_pays_minor - deal.price_minor), pay: this.money(deal.buyer_pays_minor), feeLabel: this.buyerFeeLabel(deal) }, await this.trustLineFor(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(deal.buyer_pays_minor)], [`pay:${deal.code}`]) });
+      out.push({ phone: seller.phone, message: msg.sellerAcceptedOk(deal.code, firstName(buyer.display_name) ?? 'The buyer', acct.rows[0].bank_name, String(acct.rows[0].account_number).slice(-4), this.sellerSum(deal)) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, { price: this.money(deal.price_minor), fee: this.money(deal.buyer_pays_minor - deal.price_minor), pay: this.money(deal.buyer_pays_minor), feeLabel: this.buyerFeeLabel(deal) }, await this.trustLineFor(seller.id), await this.sellerCardUrl(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(deal.buyer_pays_minor)], [`pay:${deal.code}`]) });
     });
   }
 
@@ -542,7 +568,7 @@ export class DealService {
       await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', `Suggested a new price: ${newPriceMinor}${reason ? `. Reason: ${reason}` : ''}`]);
       const buyer = await this.userById(tx, deal.buyer_id!);
       const q = quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer', this.txnFees());
-      out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor)) });
+      out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor), this.quoteSums(q, 'BUYER').seller) });
       out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor), reason, this.money(q.buyerPaysMinor - newPriceMinor)), fallback: dealTemplate('counterOffer', [deal.code, this.text(newPriceMinor), reason || 'not given', this.text(q.buyerPaysMinor - newPriceMinor), this.text(q.buyerPaysMinor)], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
     });
   }
@@ -560,8 +586,9 @@ export class DealService {
         [deal.id, q.priceMinor, q.feeMinor, q.buyerPaysMinor, q.sellerGetsMinor, deal.counter_seller_id, deal.counter_account_id, q.txnFeeMinor, this.txnPayer(q)]);
       const seller = await this.userById(tx, deal.counter_seller_id);
       await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer', `Buyer accepted the new price ${q.priceMinor}`);
-      out.push({ phone: seller.phone, message: msg.sellerCounterAccepted(deal.code, firstName(buyer.display_name) ?? 'The buyer', this.money(q.sellerGetsMinor)) });
-      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, { price: this.money(q.priceMinor), fee: this.money(q.buyerPaysMinor - q.priceMinor), pay: this.money(q.buyerPaysMinor) }, await this.trustLineFor(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(q.buyerPaysMinor)], [`pay:${deal.code}`]) });
+      const sums = this.quoteSums(q, deal.fee_payer);
+      out.push({ phone: seller.phone, message: msg.sellerCounterAccepted(deal.code, firstName(buyer.display_name) ?? 'The buyer', sums.seller) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, sums.buyer, await this.trustLineFor(seller.id), await this.sellerCardUrl(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(q.buyerPaysMinor)], [`pay:${deal.code}`]) });
     });
   }
 
@@ -593,6 +620,7 @@ export class DealService {
     const canSee = peek && ['AWAITING_BUYER', 'AWAITING_PAYMENT'].includes(peek.status) && (!peek.buyer_id || peek.buyer_id === buyer.id);
     const photoIds = canSee ? await this.photoIdsForSending(peek.id) : [];
     const trust = canSee ? await this.trustLineFor(peek.seller_id) : undefined;
+    const cardUrl = canSee ? await this.sellerCardUrl(peek.seller_id) : null;
     const buyerLine = canSee && !peek.buyer_id ? await this.buyerLineFor(buyer.id) : undefined;
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
@@ -608,7 +636,7 @@ export class DealService {
       for (const mediaId of photoIds) out.push({ phone: buyer.phone, message: { kind: 'image', mediaId } });
       out.push({
         phone: buyer.phone,
-        message: msg.dealForBuyer(deal.code, deal.item, firstName(seller.display_name) ?? 'Seller', this.money(deal.price_minor), this.money(deal.buyer_pays_minor - deal.price_minor), this.money(deal.buyer_pays_minor), trust, this.buyerFeeLabel(deal)),
+        message: msg.dealForBuyer(deal.code, deal.item, firstName(seller.display_name) ?? 'Seller', this.money(deal.price_minor), this.money(deal.buyer_pays_minor - deal.price_minor), this.money(deal.buyer_pays_minor), trust, this.buyerFeeLabel(deal), cardUrl),
       });
     });
   }
@@ -626,7 +654,7 @@ export class DealService {
          ORDER BY created_at DESC LIMIT 1`, [deal.id]);
       const pi = existing.rows[0];
       if (pi) {
-        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, minutesLeft(pi.expires_at), deal.code, this.payHint()));
+        await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(pi.amount_minor), pi.account_number, pi.bank_name, pi.account_name, expiry(pi.expires_at), deal.code, this.payHint()));
         return;
       }
     }
@@ -645,7 +673,7 @@ export class DealService {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [deal.id, this.o.provider.name, paymentReference, instr.providerReference, deal.buyer_pays_minor, deal.currency, instr.accountNumber, instr.accountName, instr.bankName, instr.expiresAt],
     );
-    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, minutesLeft(instr.expiresAt), deal.code, this.payHint()));
+    await this.o.messenger.send(buyer.phone, msg.payInstructions(this.money(deal.buyer_pays_minor), instr.accountNumber, instr.bankName, instr.accountName, expiry(instr.expiresAt), deal.code, this.payHint()));
   }
 
   /** Test mode only: the newest unpaid payment this person asked for. */
@@ -721,12 +749,12 @@ export class DealService {
         ],
       });
       await this.move(tx, deal, 'FUNDED', 'provider', extra > 0 ? `NEEDS_ATTENTION: overpaid by ${extra}` : undefined);
-      if (buyer) out.push({ phone: buyer.phone, message: msg.buyerFunded(this.money(deal.buyer_pays_minor), deal.code, firstName(seller.display_name) ?? 'the seller') });
+      if (buyer) out.push({ phone: buyer.phone, message: msg.buyerFunded(this.money(deal.buyer_pays_minor), deal.code, firstName(seller.display_name) ?? 'the seller', this.buyerSum(deal)) });
       const buyerName = firstName(buyer?.display_name ?? null) ?? 'The buyer';
       if (deal.started_by === 'BUYER') {
-        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal, 'seller'), buyerName), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
+        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal, 'seller'), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
       } else {
-        out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor), buyerName), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
+        out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
       }
       return 'funded';
     });
@@ -805,10 +833,68 @@ export class DealService {
           courier ? d.courierPhone ?? null : null, courier ? d.location?.slice(0, 300) ?? null : null, fee, accountId, handover]);
       await this.move(tx, deal, 'SHIPPED', 'seller', `Dispatched: ${d.method}${fee ? `, delivery fee ${fee}` : ''}`);
       const buyer = await this.userById(tx, deal.buyer_id!);
+      const buyerName = firstName(buyer.display_name) ?? 'Buyer';
+      const sellerName = await this.shownSellerName(seller);
       const info = { code: deal.code, method: d.method, pickupAddress: d.pickupAddress ?? null, courierName: d.courierName ?? null, courierPhone: d.courierPhone ?? null, location: d.location ?? null };
-      out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, page: this.orderPageUrl(deal, 'seller'), fee: fee ? this.money(fee) : null, buyerName: firstName(buyer.display_name) ?? 'Buyer' }) });
-      out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, page: this.orderPageUrl(deal, 'buyer'), handover }), fallback: dealTemplate('orderDispatched', [deal.code], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
+
+      // the rider/driver gets the delivery details and can enter the buyer's code themselves (second way in; the seller's stays)
+      let alert: 'sent' | 'not-sent' | 'skipped' | null = null;
+      const courierPhone = courier ? d.courierPhone ?? null : null;
+      if (courierPhone) {
+        if (courierPhone === seller.phone || courierPhone === buyer.phone) alert = 'skipped';
+        else alert = (await this.canReach(courierPhone, DEAL_TEMPLATES.courierJob.name)) ? 'sent' : 'not-sent';
+        await tx.query('UPDATE deals SET courier_alert=$2 WHERE id=$1', [deal.id, alert]);
+      }
+      if (courierPhone && alert === 'sent') {
+        const role = d.method === 'WAYBILL' ? 'driver' : 'rider';
+        const account = d.account && fee ? { name: d.account.account_name, bank: d.account.bank_name, number: d.account.account_number } : null;
+        const address = d.location ?? deal.delivery_address ?? null;
+        out.push({
+          phone: courierPhone,
+          message: msg.courierJob({ code: deal.code, role, sellerName, buyerName, buyerPhone: buyer.phone, address, fee: fee ? this.money(fee) : null, account }),
+          fallback: dealTemplate('courierJob', [
+            sellerName, buyerName, localPhone(buyer.phone), address ?? 'ask the seller',
+            fee ? this.text(fee) : 'none through Hoolam', account ? `${account.name}, ${account.bank} ${account.number}` : 'not needed',
+          ], [`hcode:${deal.code}`]),
+        });
+      }
+      out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, page: this.orderPageUrl(deal, 'seller'), fee: fee ? this.money(fee) : null, buyerName, courierAlerted: alert === 'sent', sum: this.sellerSum(deal) }) });
+      out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, page: this.orderPageUrl(deal, 'buyer'), handover, sellerName }), fallback: dealTemplate('orderDispatched', [deal.code], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
     });
+  }
+
+  /** Can we message this number now: they wrote to Hoolam in the last 24 hours, or the template is approved? */
+  private async canReach(phone: string, template: string): Promise<boolean> {
+    const m = this.o.messenger as Partial<Messenger>;
+    if (typeof m.windowOpen === 'function' && (await m.windowOpen(phone))) return true;
+    return typeof m.canUseTemplate === 'function' ? m.canUseTemplate(template) : false;
+  }
+
+  /** The seller's name as buyers see it (their trust card name), else their first name. */
+  private async shownSellerName(seller: User): Promise<string> {
+    const t = this.o.trust ? await this.o.trust.seller(seller.id).catch(() => null) : null;
+    return t?.name ?? firstName(seller.display_name) ?? 'Your seller';
+  }
+
+  /** Is this person the rider/driver on this order (and not the buyer or seller)? */
+  private isCourier(deal: Deal, user: User): boolean {
+    return !!deal.courier_phone && deal.dispatch_method !== 'PICKUP' && user.phone === deal.courier_phone && user.id !== deal.buyer_id && user.id !== deal.seller_id;
+  }
+
+  /** "Enter code" (seller or rider/driver): asks for the 4 digits if the order is waiting for them. True = now waiting for the digits. */
+  async askForHandoverCode(code: string, who: User): Promise<boolean> {
+    const deal = await this.findByCode(code);
+    if (!deal) throw new DealError('NOT_FOUND');
+    const courier = deal.seller_id !== who.id && this.isCourier(deal, who);
+    if (deal.seller_id !== who.id && !courier) throw new DealError('NOT_ALLOWED');
+    if (deal.status !== 'SHIPPED' || !deal.handover_code || deal.handed_over_at) {
+      await this.o.messenger.send(who.phone, courier ? msg.courierNothingToDo(deal.code, !!deal.handed_over_at) : msg.dealStatusNow(deal.code, deal.status));
+      return false;
+    }
+    if (deal.handover_tries >= this.handoverTries()) { await this.o.messenger.send(who.phone, msg.handoverLocked(deal.code)); return false; }
+    const r = await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [deal.buyer_id]);
+    await this.o.messenger.send(who.phone, msg.askHandoverCode(deal.code, firstName(r.rows[0]?.display_name ?? null)));
+    return true;
   }
 
   /** Shows the buyer their handover code again. */
@@ -820,41 +906,59 @@ export class DealService {
       return;
     }
     // the delivery details with the code (this is what "Delivery details" on the dispatched alert brings up)
+    const seller = deal.seller_id ? await this.userById(this.o.db, deal.seller_id) : null;
     await this.o.messenger.send(buyer.phone, msg.buyerDispatched({
       code: deal.code, method: deal.dispatch_method ?? 'PICKUP', pickupAddress: deal.pickup_address, courierName: deal.courier_name,
       courierPhone: deal.courier_phone, location: deal.courier_location, handover: deal.handover_code, page: this.orderPageUrl(deal, 'buyer'),
+      sellerName: seller ? await this.shownSellerName(seller) : undefined,
     }));
   }
 
   /**
-   * The seller types the 4 digits the receiver gave the rider. Right: the item reached the right person, the
-   * rider/driver is paid their fee, and the buyer gets a set time to say "I'm happy" or report a problem.
-   * Five wrong tries lock it for the team.
+   * The 4 digits the buyer gives at handover. Two people can enter them: the seller (as always), or the rider/driver
+   * themselves from their own WhatsApp (if the number the seller gave is on WhatsApp). Same code, same shared tries;
+   * whoever enters it first confirms the handover. Right: the rider/driver is paid their fee, and the buyer gets a set
+   * time to say "I'm happy" or report a problem. Too many wrong tries (console → Limits) lock it for the team.
    */
-  async enterHandoverCode(code: string, seller: User, digits: string): Promise<CodeResult> {
+  async enterHandoverCode(code: string, who: User, digits: string): Promise<CodeResult> {
     let payoutId: string | null = null;
     const result = await this.run(async (tx, out): Promise<CodeResult> => {
       const deal = await this.lockByCode(tx, code);
-      if (deal.seller_id !== seller.id) throw new DealError('NOT_ALLOWED');
-      if (deal.status !== 'SHIPPED' || !deal.handover_code || deal.handed_over_at) { out.push({ phone: seller.phone, message: msg.dealStatusNow(deal.code, deal.status) }); return 'not-ready'; }
-      if (deal.handover_tries >= this.handoverTries()) { out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) }); return 'locked'; }
+      const courier = deal.seller_id !== who.id && this.isCourier(deal, who);
+      if (deal.seller_id !== who.id && !courier) throw new DealError('NOT_ALLOWED');
+      if (deal.status !== 'SHIPPED' || !deal.handover_code || deal.handed_over_at) {
+        out.push({ phone: who.phone, message: courier ? msg.courierNothingToDo(deal.code, !!deal.handed_over_at) : msg.dealStatusNow(deal.code, deal.status) });
+        return 'not-ready';
+      }
+      const seller = await this.userById(tx, deal.seller_id!);
+      if (deal.handover_tries >= this.handoverTries()) { out.push({ phone: who.phone, message: msg.handoverLocked(deal.code) }); return 'locked'; }
       if (digits.replace(/\D/g, '') !== deal.handover_code) {
         const tries = deal.handover_tries + 1;
         await tx.query('UPDATE deals SET handover_tries=$2 WHERE id=$1', [deal.id, tries]);
         if (tries >= this.handoverTries()) {
-          await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', 'NEEDS_ATTENTION: handover code locked after 5 wrong tries']);
-          out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) });
+          await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)',
+            [deal.id, deal.status, courier ? 'courier' : 'seller', `NEEDS_ATTENTION: handover code locked after ${tries} wrong tries`]);
+          out.push({ phone: who.phone, message: msg.handoverLocked(deal.code) });
+          if (courier) out.push({ phone: seller.phone, message: msg.handoverLocked(deal.code) });
           return 'locked';
         }
-        out.push({ phone: seller.phone, message: msg.handoverWrong(deal.code, this.handoverTries() - tries) });
+        out.push({ phone: who.phone, message: msg.handoverWrong(deal.code, this.handoverTries() - tries) });
         return 'wrong';
       }
-      await tx.query('UPDATE deals SET handed_over_at=now(), updated_at=now() WHERE id=$1', [deal.id]);
-      await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', 'Handover code confirmed']);
+      await tx.query('UPDATE deals SET handed_over_at=now(), handover_by=$2, updated_at=now() WHERE id=$1', [deal.id, courier ? 'courier' : 'seller']);
+      await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)',
+        [deal.id, deal.status, courier ? 'courier' : 'seller', `Handover code confirmed by the ${courier ? (deal.dispatch_method === 'WAYBILL' ? 'driver' : 'rider') : 'seller'}`]);
       payoutId = await this.payCourier(tx, deal);
       const buyer = await this.userById(tx, deal.buyer_id!);
+      const buyerName = firstName(buyer.display_name) ?? 'The buyer';
       const minutes = this.autoReleaseMinutes();
-      out.push({ phone: seller.phone, message: msg.sellerHandedOver(deal.code, payoutId ? this.money(Number(deal.delivery_fee_minor)) : null, deal.courier_name, waitText(minutes)) });
+      const role = deal.dispatch_method === 'WAYBILL' ? 'driver' : 'rider';
+      const courierFee = payoutId ? this.money(Number(deal.delivery_fee_minor)) : null;
+      if (courier) {
+        const acct = deal.courier_account_id ? (await tx.query('SELECT account_name, bank_name, account_number FROM bank_accounts WHERE id=$1', [deal.courier_account_id])).rows[0] : null;
+        out.push({ phone: who.phone, message: msg.courierConfirmed(deal.code, buyerName, courierFee, acct ? { name: acct.account_name, bank: acct.bank_name, number: acct.account_number } : null) });
+      }
+      out.push({ phone: seller.phone, message: msg.sellerHandedOver(deal.code, courierFee, deal.courier_name, waitText(minutes), { buyerName, byCourier: courier, role, sum: this.sellerSum(deal) }) });
       out.push({ phone: buyer.phone, message: msg.buyerHandedOver(deal.code, waitText(minutes)), fallback: dealTemplate('handedOver', [deal.code, waitText(minutes)], [`happy:${deal.code}`, `problem:${deal.code}`]) });
       return 'ok';
     });
@@ -1163,7 +1267,11 @@ export class DealService {
         const bankName = acct.rows[0]?.bank_name ?? 'bank';
         if (p.kind === 'SELLER') {
           const seller = await this.sellerOf(tx, deal);
-          out.push({ phone: seller.phone, message: msg.sellerPaid(deal.code, this.money(p.amount_minor), bankName), fallback: dealTemplate('sellerPaid', [deal.code, this.text(p.amount_minor), bankName]) });
+          const buyerName = deal.buyer_id ? firstName((await this.userById(tx, deal.buyer_id)).display_name) : null;
+          const delivery = Number(deal.delivery_fee_minor ?? 0) && deal.courier_paid_at ? this.money(Number(deal.delivery_fee_minor)) : null;
+          const sum = { ...this.sellerSum(deal), delivery, role: deal.dispatch_method === 'WAYBILL' ? 'driver' as const : 'rider' as const };
+          const exact = sum.gets.minor - (delivery?.minor ?? 0) === Number(p.amount_minor);
+          out.push({ phone: seller.phone, message: msg.sellerPaid(deal.code, this.money(p.amount_minor), bankName, buyerName, exact ? sum : undefined), fallback: dealTemplate('sellerPaid', [deal.code, this.text(p.amount_minor), bankName]) });
         } else {
           const buyer = await this.userById(tx, deal.buyer_id!);
           const seller = await this.sellerOf(tx, deal);
@@ -1196,8 +1304,15 @@ export class DealService {
         dealId: deal.id, currency: deal.currency, memo: `Delivery fee ${p.reference} sent`,
         lines: [{ account: 'payable:courier', amountMinor: Number(p.amount_minor) }, { account: `cash:${p.provider}`, amountMinor: -Number(p.amount_minor) }],
       });
-      const acct = await tx.query('SELECT account_name, bank_name FROM bank_accounts WHERE id=$1', [p.bank_account_id]);
-      out.push({ phone: seller.phone, message: msg.courierPaid(deal.code, this.money(Number(p.amount_minor)), acct.rows[0]?.account_name ?? 'the rider', acct.rows[0]?.bank_name ?? 'bank') });
+      const acct = await tx.query('SELECT account_name, bank_name, account_number FROM bank_accounts WHERE id=$1', [p.bank_account_id]);
+      const a = acct.rows[0];
+      const buyerName = deal.buyer_id ? firstName((await this.userById(tx, deal.buyer_id)).display_name) : null;
+      out.push({ phone: seller.phone, message: msg.courierPaid(deal.code, this.money(Number(p.amount_minor)), a?.account_name ?? 'the rider', a?.bank_name ?? 'bank', buyerName) });
+      // the rider/driver too, if they're in the chat with Hoolam (no template for this one: it's a bonus, not a must)
+      const m = this.o.messenger as Partial<Messenger>;
+      if (a && deal.courier_phone && deal.courier_alert === 'sent' && typeof m.windowOpen === 'function' && (await m.windowOpen(deal.courier_phone))) {
+        out.push({ phone: deal.courier_phone, message: msg.courierFeeSent(buyerName ?? 'the buyer', this.money(Number(p.amount_minor)), { name: a.account_name, bank: a.bank_name, number: a.account_number }) });
+      }
       return;
     }
     await tx.query('UPDATE payouts SET status=$2, provider_message=$3, updated_at=now() WHERE id=$1', [p.id, result.status, result.message ?? null]);
@@ -1312,9 +1427,8 @@ export function dayText(d: string | Date): string {
   return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' }).replace(',', '');
 }
 
-function minutesLeft(expiresAt: Date | string | null): number | null {
-  if (!expiresAt) return null;
-  return Math.max(1, Math.round((new Date(expiresAt).getTime() - Date.now()) / 60_000));
+function expiry(expiresAt: Date | string | null): Date | null {
+  return expiresAt ? new Date(expiresAt) : null;
 }
 
 export { DealStatus };

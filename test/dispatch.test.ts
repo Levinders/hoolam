@@ -37,11 +37,11 @@ async function paidBuyerOrder(opts: { arriveBy?: string } = {}): Promise<{ buyer
   return { buyer, seller, code };
 }
 
-async function dispatchByRider(seller: string, code: string, fee = '2,000') {
+async function dispatchByRider(seller: string, code: string, fee = '2,000', riderPhone = '08031234567') {
   await h.tap(seller, `dispatch:${code}`);
   await h.tap(seller, 'dm:rider');
   await h.say(seller, 'Musa Ibrahim');
-  await h.say(seller, '08031234567');
+  await h.say(seller, riderPhone);
   await h.say(seller, fee);
   await h.tap(seller, 'dloc:buyer');
   if (/Send your account number|account number/.test(h.last(seller))) {
@@ -88,7 +88,11 @@ describe('dispatch', () => {
     const acct = await h.db.query('SELECT holder, is_default, account_name FROM bank_accounts WHERE id=$1', [d.courier_account_id]);
     expect(acct.rows[0]).toEqual({ holder: 'COURIER', is_default: false, account_name: 'MUSA IBRAHIM' });
 
-    expect(h.last(seller)).toMatch(/ask the receiver for their 4-digit handover code/);
+    expect(h.last(seller)).toMatch(/Musa Ibrahim must get the 4-digit handover code from Ada\* before handing over the item/);
+    expect(h.last(seller)).toMatch(/When \*Musa Ibrahim\* shares the code with you, tap \*Enter code\*/); // the rider never wrote to Hoolam and the template isn't approved here
+    expect(h.last(seller)).toMatch(/Total price  ₦20,000\nTransaction fee  −₦500\nRider's fee  −₦2,000\n\*You receive  ₦17,500\*/);
+    expect(d.courier_alert).toBe('not-sent');
+    expect(h.last(buyer)).toMatch(/\*Give your code to the rider when you have the item\.\*/);
     expect(h.last(seller)).toMatch(/\[🔑 Enter code\]/);
     expect(h.last(buyer)).toMatch(new RegExp(`Your handover code: \\*${d.handover_code}\\*`));
     expect(h.last(buyer)).toMatch(/Rider: \*Musa Ibrahim\*/);
@@ -111,7 +115,7 @@ describe('dispatch', () => {
     expect(after.handed_over_at).not.toBeNull();
     expect(after.courier_paid_at).not.toBeNull();
     expect(await payouts(code)).toEqual([{ kind: 'DELIVERY', amount_minor: 200_000, status: 'SUCCESS' }]);
-    expect(h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n')).toMatch(/Delivery fee sent: ₦2,000 to (MUSA IBRAHIM|TEST ACCOUNT HOLDER) \(OPay\)/);
+    expect(h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n')).toMatch(/Delivery fee sent: ₦2,000 to \*(MUSA IBRAHIM|TEST ACCOUNT HOLDER)\* \(OPay\) for \*Ada\* · order \*HL-/);
 
     await h.tap(buyer, `happy:${code}`);
     expect((await deal(code)).status).toBe('COMPLETED');
@@ -130,7 +134,9 @@ describe('dispatch', () => {
     const wrong = real === '1234' ? '4321' : '1234';
     for (let i = 0; i < 5; i++) { await h.tap(seller, `hcode:${code}`); await h.say(seller, wrong); }
     expect(h.last(seller)).toMatch(/Too many wrong codes/);
-    await h.tap(seller, `hcode:${code}`); await h.say(seller, real);
+    await h.tap(seller, `hcode:${code}`);
+    expect(h.last(seller)).toMatch(/Too many wrong codes/);
+    await h.app.deals.enterHandoverCode(code, (await h.app.deals.upsertUser(seller, null)), real);
     expect(h.last(seller)).toMatch(/Too many wrong codes/);
     expect((await deal(code)).handed_over_at).toBeNull();
   });
@@ -233,5 +239,126 @@ describe('reminders', () => {
     const before = h.transcript.length;
     await h.app.deals.sweep({ nudgeAfterHours: 9999 });
     expect(h.transcript.slice(before).filter((t) => t.phone === seller || t.phone === buyer)).toHaveLength(0);
+  });
+});
+
+describe('the rider or driver enters the code', () => {
+  const local = (p: string) => '0' + p.slice(4);
+
+  it('on WhatsApp: the rider gets the delivery details, enters the code, and is paid; tries are shared with the seller', async () => {
+    const { buyer, seller, code } = await paidBuyerOrder();
+    const rider = phone();
+    await h.say(rider, 'hi', 'Musa'); // their WhatsApp is open with Hoolam
+    h.provider.accountNames['999992:9876543210'] = 'MUSA IBRAHIM';
+    await dispatchByRider(seller, code, '2,000', local(rider));
+    const d = await deal(code);
+    expect(d.courier_alert).toBe('sent');
+
+    const job = h.last(rider);
+    expect(job).toMatch(/\*Delivery on Hoolam\* from \*Bayo/);
+    expect(job).toMatch(/👤 Receiver: \*Ada\*/);
+    expect(job).toMatch(new RegExp(`📞 ${local(buyer)}`));
+    expect(job).toMatch(/📍 Deliver to: 12 Woji Road, Port Harcourt/);
+    expect(job).toMatch(/💸 Your delivery fee: \*₦2,000\*\n🏦 Paid to: \*MUSA IBRAHIM\*, .* 9876543210/);
+    expect(job).toMatch(/\[🔑 Enter code\]/);
+    expect(job).not.toContain(d.handover_code); // the rider never sees the code: it has to come from the buyer
+    expect(h.last(seller)).toMatch(/We've sent \*Musa Ibrahim\* a WhatsApp message, so they can enter the code themselves/);
+
+    // one wrong try from the rider counts for the seller too
+    await h.tap(rider, `hcode:${code}`);
+    expect(h.last(rider)).toMatch(/Type the 4-digit handover code \*Ada\* gave you/);
+    await h.say(rider, d.handover_code === '0000' ? '1111' : '0000');
+    expect(h.last(rider)).toMatch(/4 tries left/);
+    await h.tap(seller, `hcode:${code}`);
+    await h.say(seller, d.handover_code === '2222' ? '3333' : '2222');
+    expect(h.last(seller)).toMatch(/3 tries left/);
+    await h.app.chat.handle({ id: `r${seq}`, phone: seller, name: null, type: 'text', text: 'menu', buttonId: null, mediaId: null });
+
+    await h.tap(rider, `hcode:${code}`);
+    await h.say(rider, d.handover_code);
+    expect(h.transcript.filter((t) => t.phone === rider).map((t) => t.text).join('\n')).toMatch(/\*Delivery confirmed\.\* \*Ada\* has the item[\s\S]*We're sending your \*₦2,000\* to \*MUSA IBRAHIM\*/);
+    expect(h.last(rider)).toMatch(/Your delivery fee is sent:\* ₦2,000 to \*MUSA IBRAHIM\*/);
+    expect(h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n')).toMatch(/✅ \*Musa Ibrahim\* entered the right code\. Order \*HL-\w+\* is with \*Ada\*/);
+    expect(h.last(buyer)).toMatch(/has been handed over to you/);
+    const after = await deal(code);
+    expect(after.handover_by).toBe('courier');
+    expect(await payouts(code)).toEqual([{ kind: 'DELIVERY', amount_minor: 200_000, status: 'SUCCESS' }]);
+
+    // done: the seller (or the rider again) can't enter it twice
+    await h.tap(rider, `hcode:${code}`);
+    expect(h.last(rider)).toMatch(/already confirmed/);
+    await h.tap(seller, `hcode:${code}`);
+    expect(h.last(seller)).toMatch(/on the way, money held/);
+  });
+
+  it('not in the chat: the approved template goes out with the buyer\'s name, number, address and the payout account (no code)', async () => {
+    const m = h.app.messenger;
+    m.setTemplateStatus('hoolam_delivery_for_rider', 'APPROVED');
+    try {
+      const { buyer, seller, code } = await paidBuyerOrder();
+      const rider = phone();
+      h.provider.accountNames['999992:9876543210'] = 'MUSA IBRAHIM';
+      await dispatchByRider(seller, code, '2,000', local(rider));
+      const t = h.last(rider);
+      expect(t).toMatch(/^\[template hoolam_delivery_for_rider\]/);
+      expect(t).toMatch(new RegExp(`Receiver: \\*Ada\\*\\n📞 ${local(buyer)}\\n📍 Deliver to: 12 Woji Road`));
+      expect(t).toMatch(/Paid to: MUSA IBRAHIM, .* 9876543210/);
+      expect(t).not.toMatch(/code/i);
+      expect(t).toMatch(new RegExp(`\\[Confirm delivery\\]`));
+      await h.tap(rider, `hcode:${code}`);
+      expect(h.last(rider)).toMatch(/Type the 4-digit handover code \*Ada\* gave you/);
+    } finally { m.setTemplateStatus('hoolam_delivery_for_rider', 'PENDING'); }
+  });
+
+  it('no message when the number is the buyer\'s own; strangers can\'t enter a code', async () => {
+    const { buyer, seller, code } = await paidBuyerOrder();
+    await dispatchByRider(seller, code, '2,000', local(buyer));
+    expect((await deal(code)).courier_alert).toBe('skipped');
+    expect(h.last(seller)).toMatch(/When \*Musa Ibrahim\* shares the code with you/);
+    const stranger = phone();
+    await h.tap(stranger, `hcode:${code}`);
+    expect(h.last(stranger)).toMatch(/isn't available for this order/);
+  });
+});
+
+describe('names and money, in full', () => {
+  const all = (p: string) => h.transcript.filter((t) => t.phone === p).map((t) => t.text).join('\n---\n');
+
+  it('the seller sees the breakdown at each step; names are bold; the account number shows its exact end time', async () => {
+    const { buyer, seller, code } = await paidBuyerOrder();
+    const s = all(seller), b = all(buyer);
+    // accepted, then paid: total price, the seller's transaction fee, what they receive
+    expect(s).toMatch(/✅ \*Ada\* · Order \*HL-\w+\* accepted\.\n\nTotal price  ₦20,000\nTransaction fee  −₦500\n\*You receive  ₦19,500\*/);
+    expect(h.last(seller)).toMatch(/💰 \*Ada\* has paid for order \*HL-\w+\*[\s\S]*Total price  ₦20,000\nTransaction fee  −₦500\n\*You receive  ₦19,500\*/);
+    // the buyer: the exact time the account number stops working, and what they paid
+    expect(b).toMatch(/⏳ \*This account number works until \d{1,2}:\d{2} (AM|PM) (today|tomorrow)\* \(Nigeria time\)/);
+    expect(h.last(buyer)).toMatch(/Total price  ₦20,000\nHoolam fee  ₦500\n\*You paid  ₦20,500\*[\s\S]*We've told \*Bayo\* to send your item/);
+    // My orders in the chat: the other person's name first
+    await h.tap(seller, 'menu:orders');
+    expect(h.last(seller)).toMatch(new RegExp(`\\*Ada\\* · \\*${code}\\*`));
+
+    await dispatchByRider(seller, code);
+    await h.tap(seller, `hcode:${code}`); await h.say(seller, (await deal(code)).handover_code);
+    expect(all(seller)).toMatch(/Delivery fee sent: ₦2,000 to \*[A-Z ]+\* \(OPay\) for \*Ada\* · order/);
+    expect(all(seller)).toMatch(/Total price  ₦20,000\nTransaction fee  −₦500\nRider's fee  −₦2,000\n\*You receive  ₦17,500\*\n\n💸 You'll be paid when \*Ada\* taps/);
+    await h.tap(buyer, `happy:${code}`);
+    expect(h.last(seller)).toMatch(/💸 \*You've been paid\* for \*Ada\* · order \*HL-\w+\*\.\n\nTotal price  ₦20,000\nTransaction fee  −₦500\nRider's fee  −₦2,000\n\*Paid to you  ₦17,500\*/);
+  });
+
+  it('the buyer gets the seller\'s trust card link when the seller\'s page is on', async () => {
+    const buyer = phone(), seller = phone();
+    await h.say(seller, 'hi', 'Bayo Shoes');
+    await h.tap(seller, 'menu:sell'); if (/Use this name/.test(h.last(seller))) await h.tap(seller, 'setup:wname'); await h.tap(seller, 'setup:nocity');
+    await h.tap(seller, 'card:share');
+    await h.say(buyer, 'hi', 'Ada Obi');
+    await h.app.chat.handle({
+      id: `t${seq}`, phone: buyer, name: 'Ada Obi', type: 'form', text: '', buttonId: null, mediaId: null,
+      form: { flow_token: 'buy:v1', item: 'Leather bag', description: 'Brown', category: 'bags', price: '20000', address: '12 Woji Road', arrive_by: '2099-12-31', other_phone: seller, photos: [{ id: 'p1' }] },
+    });
+    await h.tap(buyer, 'buy:send');
+    const code = h.last(buyer).match(/HL-[A-Z2-9]{5}/)![0];
+    await h.tap(seller, `saccept:${code}`);
+    if (/account number/.test(h.last(seller))) { await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes'); }
+    expect(h.last(buyer)).toMatch(/accepted your order![\s\S]*🔗 Their trust card: https?:\/\/\S+\/s\/bayo/);
   });
 });

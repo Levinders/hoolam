@@ -175,20 +175,21 @@ describe('the seller answers', () => {
     expect(h.last(seller)).toMatch(/where should we pay you/);
     await h.say(seller, '0123456789 GTBank');
     await h.tap(seller, 'bank:yes');
-    expect(h.last(seller)).toMatch(/Order HL-.* accepted/);
+    expect(h.last(seller)).toMatch(/Order \*HL-.*\* accepted/);
+    expect(h.last(seller)).toMatch(/Total price  ₦[\d,]+\nTransaction fee  −₦[\d,]+\n\*You receive  ₦[\d,]+\*/); // the seller's own breakdown
     expect(h.last(buyer)).toMatch(/\*Bayo\* \*accepted your order!\*/);
-    expect(h.last(buyer)).toMatch(/Hoolam fee     ₦400/); // the buyer sees Hoolam's fee only, never the seller's transaction fee
+    expect(h.last(buyer)).toMatch(/Hoolam fee  ₦400/); // the buyer sees Hoolam's fee only, never the seller's transaction fee
     expect(h.last(buyer)).not.toMatch(/Transaction fee/);
     expect(h.last(buyer)).toMatch(/\*Your money stays with Hoolam until you have your item and you're happy\.\*/);
     expect(h.last(buyer)).toMatch(/\[💳 Pay now\] \[🛡️ Seller's record\] \[✕ Cancel order\]/);
     expect((await deal(code)).status).toBe('AWAITING_PAYMENT');
 
     await h.tap(buyer, `pay:${code}`);
-    expect(h.last(buyer)).toMatch(/Transfer exactly ₦15,400/);
+    expect(h.last(buyer)).toMatch(/Transfer exactly \*₦15,400\*/);
     const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]);
     h.provider.pay(r.rows[0].provider_reference);
     await h.app.deals.handleCollection(r.rows[0].provider_reference);
-    expect(h.last(seller)).toMatch(/Ada has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,500\* is held.*Dispatch it now/s);
+    expect(h.last(seller)).toMatch(/\*Ada\* has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,500\* is held.*Dispatch it now/s);
     await h.tap(seller, `dispatch:${code}`); await h.tap(seller, 'dm:pickup'); await h.say(seller, 'Shop 4, Rumuola Plaza');
     await h.tap(buyer, `happy:${code}`);
     expect((await deal(code)).status).toBe('COMPLETED');
@@ -288,7 +289,7 @@ describe('buyer side, edges', () => {
     await h.say(seller, 'Seller paid less at the market');
     await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
     await h.tap(buyer, `cyes:${d.code}`);
-    expect(h.last(buyer)).toMatch(/Total price    ₦14,000\nHoolam fee     ₦400\n\*You pay        ₦14,400\*/);
+    expect(h.last(buyer)).toMatch(/Total price  ₦14,000\nHoolam fee  ₦400\n\*You pay  ₦14,400\*/);
     const after = await deal(d.code);
     expect(Number(after.buyer_pays_minor)).toBe(1_440_000);
     expect(Number(after.seller_gets_minor)).toBe(1_350_000);
