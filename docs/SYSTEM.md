@@ -84,6 +84,8 @@ Owner-only values are marked. Changes apply to new orders; an order keeps the fe
 | Timing | Reps reply within; problem cases answered within | 30 min; 24 h |
 | WhatsApp | Hoolam's WhatsApp number (owner); alerts by number; WhatsApp forms | on; on |
 | Contact | Email, phone for calls, social links | shown on the website and legal pages |
+| Brand | Logo and logo icon (shared by every home page version) | built-in Hoolam logo |
+| Website content | Which home page version is live; each version's images | 1.0.0 |
 
 ## Architecture
 
@@ -112,7 +114,8 @@ Everything passes through the one server: messages come in from Meta, money move
 | `/o/:code?k=` | Private order page (buyer's link, seller's link, or the neutral link) |
 | `/s/:slug` | A seller's public trust page |
 | `/:code`, `/v/:code`, `/chat` | Short links that open the WhatsApp chat at the right step |
-| `/site.json` | Live fees, limits, timings and contact details for the website |
+| `/site.json` | Live fees, limits, timings, contact details, the live home page version (`homeVersion`) and the images for every version (`versions`) for the website |
+| `/media/<slot>` | Uploaded images: `logo`, `mark`, or `<spot>@<version>` for website images |
 | `/health` | Health check for Render |
 
 ### Database (Postgres, migrations in `db/migrations`, run on every start)
@@ -122,9 +125,10 @@ Everything passes through the one server: messages come in from Meta, money move
 | People | `users`, `bank_accounts`, `user_photos`, `alert_refusals` (who said Not me to whom) |
 | Orders | `deals` (incl. `handover_by`: seller or courier; `courier_alert`: sent, not-sent, skipped; `legacy_ship`: a seller's order from before Sell something was rebuilt), `deal_events`, `deal_photos`, `deal_notes`, `deal_ratings`, `disputes` |
 | Money | `payment_intents`, `payouts`, `ledger_entries` |
-| WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages`, `media` |
+| WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages` |
+| Website | `media` (logo, logo icon, and each version's website images as `<spot>@<version>`; migration 017 moved the existing ones to 1.0.0) |
 | Team | `staff`, `staff_invites`, `staff_sessions`, `audit_log`, `support_requests`, `inbox_dismissals` |
-| System | `settings` (console values), `app_secrets` (forms key), `contact_optouts` (old, now empty) |
+| System | `settings` (console values, incl. `home_version`), `app_secrets` (forms key), `contact_optouts` (old, now empty) |
 
 ### Ledger accounts
 
@@ -411,7 +415,7 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 | Buyers & sellers | Each person's record, orders, bank accounts, trust card, who they said "Not me" to, order limit, pause, **Message them** |
 | Support | The inbox of "Talk to a rep" and problem messages, with replies |
 | Insights | Trends: orders, value, fees, conversion |
-| Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, template statuses), Contact, Brand, Website images, History |
+| Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, template statuses), Contact, Brand, Website content (home page versions and their images), History |
 | Team, Audit | Staff and roles; the full audit trail |
 
 **Roles:** Owner (everything, including fees, limits and Hoolam's number), Admin (orders, money moves, people, most settings), Finance (payouts, exports, audit), Support (messages, notes, support inbox).
@@ -429,6 +433,7 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 - **Fees:** Hoolam's fee and the two transaction fee tables (each folds open with an arrow), with a "Try it" calculator.
 - **Changes apply to new orders.** Fee, limit and number changes also rebuild the website within about a minute.
 - **Phone numbers** are typed as 08117663890; the country code is added behind the scenes.
+- **Website content:** every home page version with **Preview**, **Images** and **Make live** (needs a reason; audited; the website takes about 2 minutes to switch). Images are edited per version; the logo is shared and changed on Brand. The old /settings/images address opens this page.
 
 ## Website, legal pages and private pages
 
@@ -436,6 +441,12 @@ The website reads its live values (fees, both transaction fee tables, the larges
 
 - **Home page (hoolam.com):** how it works, the worked example (a ₦10,000 order: buyer pays ₦10,300, seller receives ₦9,500), a fee calculator (who starts the order; Hoolam fee and transaction fee; what the buyer pays and the seller gets), FAQ, and "Chat on WhatsApp" buttons. Light theme only.
 - **Legal pages** (`/legal/...`): terms, holding agreement (how money is held, released, refunded, the fees and who pays, the auto-release window), disputes, money, privacy, cookies, acceptable use, delete your data. Values are filled in at build time. Effective date: 11 October 2026 (transaction fee added; riders and drivers can enter the handover code; privacy says what the rider sees; a seller's order is accepted by the buyer before paying). The holding agreement promises 7 days' notice before important changes such as fees.
+- **Home page versions:** each version is a frozen page in `site/versions/<version>.html`, listed in `site/versions/versions.json` (number, date, notes, the version it started from). `site/index.html` is the work in progress. The live version is the `home_version` setting; the build puts it at hoolam.com and builds every version at `/v/<version>/` and the work in progress at `/v/draft/`.
+  - **Versions so far:** 1.0.0, the order card in the hero (live); 1.1.0, the hero inside a phone as one picture (buyer, Hoolam holding the money, seller, "I'm happy" / "Report a problem"); 1.2.0, the hero inside a phone as three moments (order, money held, on the way with the code, "I'm happy", seller paid).
+  - **Previews** are public links with a "Preview · version X" label, but search engines never list them: a `noindex` tag on each page and an `X-Robots-Tag: noindex` header on `/v/*` (render.yaml). `/v/` is deliberately not blocked in robots.txt, because a blocked page can't be read, so its noindex would never be seen.
+  - **Making a version:** changes are gathered first; a new version is only made when the owner confirms that's everything for this round. Numbers: patch (1.0.1) for small fixes, minor (1.1.0) for new or changed sections, major (2.0.0) for a redesign. Claude suggests the number; the owner confirms.
+  - A new version starts with a copy of the images of the version it came from (when it has none of its own).
+- **Phones first:** the home page and legal pages are checked at 360, 390 and 430 px wide with no sideways scrolling.
 - **Footer:** company name, RC number and address (fixed), Hoolam's WhatsApp and phone in the 0803… format, email and socials from the console.
 - **Seller pages** (`/s/<slug>`) and **share images** are served by the server.
 - **Private order pages** (`/o/HL-X?k=…`): one link for the buyer, one for the seller, each showing only that person's own fee; order links sent before 11 October 2026 open a neutral version with neither fee. Not indexed by search engines; the handover code never appears.
@@ -460,7 +471,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 ### Running and testing (developers)
 
-- `npm run dev` (local server), `npm test` (Vitest, a real embedded Postgres, 259 tests), `npm run typecheck`, `npm run build`, `npm run build:site`.
+- `npm run dev` (local server), `npm test` (Vitest, a real embedded Postgres, 264 tests), `npm run typecheck`, `npm run build`, `npm run build:site`.
 - `npm run chat` plays a WhatsApp chat in the terminal; `npm run console:demo` fills a demo console.
 - **Test mode** (`PAYMENT_PROVIDER=fake`, `ALLOW_SELF_DEAL=true`): one phone can be buyer and seller, and typing "paid" stands in for a transfer.
 
@@ -477,6 +488,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 11 Oct 2026 | Home page versions (1.0.0 live; 1.1.0 and 1.2.0 put the hero inside a phone), previews at /v/<version>/ never listed in search, each version with its own images, console **Website content** page with Make live; migration 017; mobile fixes on the legal pages and the fee line | f6c3873 |
 | 11 Oct 2026 | Names before order IDs in six more messages: the seller's problem question, case opened, buyer didn't accept in time, waiting for a price answer, closed by the team, the rider's already-confirmed reply | 8f195cd |
 | 11 Oct 2026 | Sell something rebuilt as the mirror of Buy something (buyer accepts, confirms the address, then pays; same dispatch after); seller's number required on Buy something; names before order IDs; 4 new templates; migration 016 | 7946ba3 |
 | 11 Oct 2026 | Riders and drivers enter the handover code from their own WhatsApp (new template, shared tries); full money breakdowns at every step; exact pay-account end time; seller's trust card link; buyer's name first on the order summary and in My orders; every name bold; migration 015 | f74f198 |
