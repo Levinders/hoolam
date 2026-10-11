@@ -189,7 +189,7 @@ export const msg = {
     button: 'Choose order',
     sections: [{ title: 'Your open orders', rows: rows.slice(0, 10).map((r) => ({ id: `sproblem:${r.code}`, title: r.code, description: r.item.slice(0, 72) })) }],
   }),
-  askSellerProblem: (code: string): Outbound => ({ kind: 'text', text: `🚩 What's wrong with order ${code}? Type it, or send a photo.\n\nA live rep replies right here within ${repText()}.` }),
+  askSellerProblem: (code: string, buyerName?: string | null): Outbound => ({ kind: 'text', text: `🚩 ${ref(code, buyerName)}: what's wrong? Type it, or send a photo.\n\nA live rep replies right here within ${repText()}.` }),
   pickDealForProblem: (rows: { code: string; item: string }[]): Outbound => ({
     kind: 'list',
     text: '🚩 Which order has a problem?\n\nWe\'ll freeze its money while we sort it out.',
@@ -504,7 +504,7 @@ export const msg = {
     `✏️ Sent. We've asked *${buyerName}* if *${m(price)}* works.\n\n` +
     (sum ? `If they accept:\n${sellerSum(sum)}\n_Minus the rider's fee, if you send one._\n\n` : '') +
     `We'll tell you when they answer. (Order *${code}*)`),
-  counterWaiting: (code: string): Outbound => withMenu(`⏳ Order ${code}: we're waiting for the buyer to answer your price.`),
+  counterWaiting: (code: string, buyerName?: string | null): Outbound => withMenu(`⏳ ${ref(code, buyerName)}: we're waiting for ${buyerName ? `*${buyerName}*` : 'the buyer'} to answer your price.`),
   buyerCounterOffer: (code: string, sellerName: string, item: string, oldPrice: Money, newPrice: Money, newTotal: Money, reason = '', fee?: Money): Outbound => ({
     kind: 'buttons',
     text: `✏️ *${sellerName}* updated the price\n\n*${item}*\n~${m(oldPrice)}~ → *${m(newPrice)}*\n` +
@@ -521,7 +521,7 @@ export const msg = {
     text: 'No problem. Which is it?',
     buttons: [{ id: `sno:${code}`, title: 'Not interested' }, { id: `snotme:${code}`, title: '🚫 Wrong number' }],
   }),
-  cancelledByHoolam: (code: string): Outbound => withMenu(`Order ${code} has been closed by the Hoolam team. No money moved.\n\nQuestions? Tap Main menu → Talk to a rep.`),
+  cancelledByHoolam: (code: string, otherName?: string | null): Outbound => withMenu(`${ref(code, otherName)} has been closed by the Hoolam team. No money moved.\n\nQuestions? Tap Main menu → Talk to a rep.`),
   fromTeam: (text: string): Outbound => withMenu(`🙋 From the Hoolam team:\n\n${text}`),
   /** A console message sent as a chat message (no order to attach it to, or the template isn't approved yet). */
   fromSupport: (text: string, code: string | null): Outbound => withMenu(`🙋 *Hoolam support*${code ? `: an update about your order *${code}*` : ''}\n\n${text}\n\nReply here if you have any questions.`),
@@ -671,9 +671,9 @@ export const msg = {
     text: `😕 *${buyerName}* · Order *${code}* declined. No money moved.`,
     buttons: [{ id: 'menu:sell', title: '🏷️ Sell something' }, { id: 'menu:open', title: 'Main menu' }],
   }),
-  sellerBuyerExpired: (code: string): Outbound => ({
+  sellerBuyerExpired: (code: string, buyerLabel?: string | null): Outbound => ({
     kind: 'buttons',
-    text: `⏳ Order *${code}*: the buyer didn't accept in time, so it's closed. No money moved.`,
+    text: `⏳ ${ref(code, buyerLabel)}: the buyer didn't accept in time, so it's closed. No money moved.`,
     buttons: [{ id: 'menu:sell', title: '🏷️ Sell something' }, { id: 'menu:open', title: 'Main menu' }],
   }),
   sellerCancelledOk: (code: string, buyerLabel: string): Outbound => withMenu(`Done. *${buyerLabel}* · Order *${code}* is cancelled. No money moved.`),
@@ -837,9 +837,9 @@ export const msg = {
     `💸 *Your delivery fee is sent:* ${m(fee)} to *${account.name}*, ${account.bank} ${account.number}, for *${buyerName}*'s order.`,
   ),
   /** The rider/driver tapped Enter code, but the handover is already done (or the order moved on). */
-  courierNothingToDo: (code: string, done: boolean): Outbound => withMenu(done
-    ? `✅ This delivery is already confirmed. (Order ${code})`
-    : `This order isn't waiting for a handover code right now. (Order ${code})`),
+  courierNothingToDo: (code: string, done: boolean, buyerName?: string | null): Outbound => withMenu(done
+    ? `✅ ${ref(code, buyerName)}: this delivery is already confirmed.`
+    : `${ref(code, buyerName)}: this order isn't waiting for a handover code right now.`),
   feeTooHigh: (max: Money): Outbound => ({ kind: 'text', text: `The delivery fee has to be less than what you receive (${m(max)}). Please type a smaller amount.` }),
   askHandoverCode: (code: string, buyerName?: string | null): Outbound => ({ kind: 'text', text: `🔑 ${ref(code, buyerName)}: type the 4-digit handover code ${buyerName ? `*${buyerName}*` : 'the receiver'} gave you.` }),
   handoverWrong: (code: string, left: number, buyerName?: string | null): Outbound => ({
@@ -921,7 +921,7 @@ export const msg = {
     kind: 'text',
     text: 'If we need to refund you, where should the money go? Send your account number, like _0123456789_. We\'ll show you the banks to pick from.',
   }),
-  problemLogged: (code: string, caseRef: string): Outbound => withMenu(`✅ Got it. Case *${caseRef}* is open for order *${code}*. A real person will reply within *${problemText()}*. The money stays frozen until it's sorted.`),
+  problemLogged: (code: string, caseRef: string, otherName?: string | null): Outbound => withMenu(`✅ ${ref(code, otherName)}: got it. Case *${caseRef}* is open. A real person will reply within *${problemText()}*. The money stays frozen until it's sorted.`),
   sellerProblem: (code: string, buyerName?: string | null): Outbound => ({
     kind: 'text',
     text: `🚩 ${ref(code, buyerName)}: the buyer reported a problem. *The money is frozen* while a person from Hoolam looks into it. We may contact you.`,

@@ -286,7 +286,7 @@ describe('the rider or driver enters the code', () => {
 
     // done: the seller (or the rider again) can't enter it twice
     await h.tap(rider, `hcode:${code}`);
-    expect(h.last(rider)).toMatch(/already confirmed/);
+    expect(h.last(rider)).toMatch(/✅ \*Ada\* · Order \*HL-\w+\*: this delivery is already confirmed/);
     await h.tap(seller, `hcode:${code}`);
     expect(h.last(seller)).toMatch(/on the way, money held/);
   });

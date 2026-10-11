@@ -162,7 +162,7 @@ describe('Sell something: the mirror of Buy something', () => {
     await h.db.query(`UPDATE deals SET accept_by = now() - interval '1 minute' WHERE code=$1`, [c]);
     await h.app.deals.sweep({ nudgeAfterHours: 9999 });
     expect((await deal(c)).status).toBe('EXPIRED');
-    expect(h.last(seller)).toMatch(/the buyer didn't accept in time/);
+    expect(h.last(seller)).toMatch(/⏳ \*0\d+\* · Order \*HL-\w+\*: the buyer didn't accept in time/); // the buyer's number when they have no name yet
   });
 
   it('"Not me" from the buyer: closed, the seller is told; that seller can\'t alert them again, others can', async () => {
@@ -251,7 +251,7 @@ describe('Change price', () => {
     await h.say(s2, `View ${code}`);
     expect(h.last(s2)).toMatch(/already has a seller/);
     await h.say(s1, `View ${code}`);
-    expect(h.last(s1)).toMatch(/waiting for the buyer to answer your price/);
+    expect(h.last(s1)).toMatch(/⏳ \*Ada\* · Order \*HL-\w+\*: we're waiting for \*Ada\* to answer your price/);
   });
 
   it('the buyer can cancel instead; the seller who suggested the price is told', async () => {

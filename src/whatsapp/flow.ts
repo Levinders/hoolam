@@ -162,7 +162,7 @@ export class Conversation {
           return this.openMenuItem(m.phone, user, 'open');
         case 'sproblem':
           await this.save(m.phone, 'HUMAN_MESSAGE', { code });
-          return this.send(m.phone, msg.askSellerProblem(code!));
+          return this.send(m.phone, msg.askSellerProblem(code!, await this.buyerNameFor(code!)));
         case 'account':
           await this.save(m.phone, 'ACCOUNT_BANK');
           return this.send(m.phone, msg.askNewAccount());
@@ -507,7 +507,7 @@ export class Conversation {
         const hasAccount = await this.o.deals.defaultBankAccount(user.id);
         if (hasAccount) {
           await this.save(m.phone, 'IDLE');
-          return this.send(m.phone, msg.problemLogged(s.data.code, caseRef(ref)));
+          return this.send(m.phone, msg.problemLogged(s.data.code, caseRef(ref), await this.sellerNameFor(s.data.code)));
         }
         await this.save(m.phone, 'REFUND_BANK', { code: s.data.code, caseId: ref });
         return this.send(m.phone, msg.askRefundBank());
@@ -612,7 +612,7 @@ export class Conversation {
     if (r.rows.length === 0) return this.send(phone, msg.noOrdersToReport());
     if (r.rows.length === 1) {
       await this.save(phone, 'HUMAN_MESSAGE', { code: r.rows[0].code });
-      return this.send(phone, msg.askSellerProblem(r.rows[0].code));
+      return this.send(phone, msg.askSellerProblem(r.rows[0].code, await this.buyerNameFor(r.rows[0].code)));
     }
     return this.send(phone, msg.pickOrderForSellerProblem(r.rows));
   }
@@ -689,6 +689,10 @@ export class Conversation {
     if (code === 'noaddress' && side === 'sell') return this.continueBuying(phone, { ...d, address: null });
     return this.continueBuying(phone, d);
   }
+
+  /** The buyer's / seller's first name on an order (for "Ada · Order HL-X"). */
+  private async buyerNameFor(code: string) { return this.o.deals.nameOf((await this.o.deals.findByCode(code))?.buyer_id); }
+  private async sellerNameFor(code: string) { return this.o.deals.nameOf((await this.o.deals.findByCode(code))?.seller_id); }
 
   /** The other person's number can't be Hoolam's, or (outside test mode) their own. */
   private wrongNumber(other: string, mine: string, who: 'seller' | 'buyer'): Outbound | null {
@@ -1108,7 +1112,7 @@ export class Conversation {
     }
     await this.save(phone, 'IDLE');
     if (rest.refundNow) { await this.o.deals.refundPaidOrder(rest.code, rest.refundNow, user, true); return; }
-    return this.send(phone, msg.problemLogged(rest.code, caseRef(rest.caseId ?? '')));
+    return this.send(phone, msg.problemLogged(rest.code, caseRef(rest.caseId ?? ''), await this.sellerNameFor(rest.code)));
   }
 
   // ===== DISPATCH (chat version; the orders form does the same in one screen) =====

@@ -529,7 +529,7 @@ export class DealService {
       return;
     }
     if (deal.counter_seller_id) {
-      await this.o.messenger.send(viewer.phone, deal.counter_seller_id === viewer.id ? msg.counterWaiting(deal.code) : msg.dealHasSeller(deal.code));
+      await this.o.messenger.send(viewer.phone, deal.counter_seller_id === viewer.id ? msg.counterWaiting(deal.code, await this.nameOf(deal.buyer_id)) : msg.dealHasSeller(deal.code));
       return;
     }
     const buyer = await this.userById(this.o.db, deal.buyer_id!);
@@ -1005,7 +1005,7 @@ export class DealService {
     const courier = deal.seller_id !== who.id && this.isCourier(deal, who);
     if (deal.seller_id !== who.id && !courier) throw new DealError('NOT_ALLOWED');
     if (deal.status !== 'SHIPPED' || !deal.handover_code || deal.handed_over_at) {
-      await this.o.messenger.send(who.phone, courier ? msg.courierNothingToDo(deal.code, !!deal.handed_over_at) : msg.dealStatusNow(deal.code, deal.status));
+      await this.o.messenger.send(who.phone, courier ? msg.courierNothingToDo(deal.code, !!deal.handed_over_at, await this.nameOf(deal.buyer_id)) : msg.dealStatusNow(deal.code, deal.status));
       return false;
     }
     if (deal.handover_tries >= this.handoverTries()) { await this.o.messenger.send(who.phone, msg.handoverLocked(deal.code, await this.who(this.o.db, deal.buyer_id))); return false; }
@@ -1044,7 +1044,7 @@ export class DealService {
       const courier = deal.seller_id !== who.id && this.isCourier(deal, who);
       if (deal.seller_id !== who.id && !courier) throw new DealError('NOT_ALLOWED');
       if (deal.status !== 'SHIPPED' || !deal.handover_code || deal.handed_over_at) {
-        out.push({ phone: who.phone, message: courier ? msg.courierNothingToDo(deal.code, !!deal.handed_over_at) : msg.dealStatusNow(deal.code, deal.status) });
+        out.push({ phone: who.phone, message: courier ? msg.courierNothingToDo(deal.code, !!deal.handed_over_at, await this.who(tx, deal.buyer_id)) : msg.dealStatusNow(deal.code, deal.status) });
         return 'not-ready';
       }
       const seller = await this.userById(tx, deal.seller_id!);
@@ -1281,9 +1281,12 @@ export class DealService {
       const paid = await tx.query(`SELECT 1 FROM payment_intents WHERE deal_id=$1 AND status IN ('PAID','PARTIAL')`, [deal.id]);
       if (paid.rowCount) throw new DealError('NOT_ALLOWED', 'Money has arrived on this deal. Use Refund instead.');
       await this.move(tx, deal, 'CANCELLED', 'admin', note);
-      for (const id of new Set([deal.buyer_id, deal.seller_id ?? deal.counter_seller_id].filter(Boolean) as string[])) {
+      const sellerId = deal.seller_id ?? deal.counter_seller_id;
+      for (const id of new Set([deal.buyer_id, sellerId].filter(Boolean) as string[])) {
         const u = await this.userById(tx, id);
-        out.push({ phone: u.phone, message: msg.cancelledByHoolam(deal.code) });
+        // each side sees the other person's name first
+        const other = id === deal.buyer_id ? await this.who(tx, sellerId) : await this.who(tx, deal.buyer_id);
+        out.push({ phone: u.phone, message: msg.cancelledByHoolam(deal.code, other) });
       }
     });
   }
@@ -1519,7 +1522,7 @@ export class DealService {
         if (deal.status !== 'AWAITING_BUYER') return;
         await this.move(tx, deal, 'EXPIRED', 'system', 'Buyer did not accept in time');
         const seller = await this.userById(tx, deal.seller_id!);
-        out.push({ phone: seller.phone, message: msg.sellerBuyerExpired(deal.code), fallback: dealTemplate('buyerNoReply', [deal.code], ['menu:sell']) });
+        out.push({ phone: seller.phone, message: msg.sellerBuyerExpired(deal.code, await this.labelFor(deal.invited_phone)), fallback: dealTemplate('buyerNoReply', [deal.code], ['menu:sell']) });
         expired++;
       });
     }

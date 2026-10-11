@@ -103,7 +103,7 @@ describe('problems and refunds', () => {
     expect(h.last(buyer)).toMatch(/where should the money go/);
     await h.say(buyer, '8012345678 Opay');
     await h.tap(buyer, 'bank:yes');
-    expect(h.last(buyer)).toMatch(/Case \*C-[A-Z0-9]{6}\* is open/);
+    expect(h.last(buyer)).toMatch(/\*Mama\* · Order \*HL-\w+\*: got it\. Case \*C-[A-Z0-9]{6}\* is open/);
 
     const dispute = await h.db.query(`SELECT reason, status FROM disputes WHERE deal_id=(SELECT id FROM deals WHERE code=$1)`, [code]);
     expect(dispute.rows[0]).toMatchObject({ reason: 'Wrong size, they sent 40 not 42', status: 'OPEN' });

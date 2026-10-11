@@ -358,7 +358,7 @@ describe('buying and selling menus', () => {
     const seller = phone(), buyer = phone();
     const code = await paidDeal(seller, buyer, 'Speaker');
     await h.tap(seller, 'menu:problem');
-    expect(h.last(seller)).toMatch(new RegExp(`What's wrong with order ${code}`));
+    expect(h.last(seller)).toContain(`🚩 *Tolu* · Order *${code}*: what's wrong?`);
     await h.say(seller, 'Buyer is not picking up the delivery calls');
     expect(h.last(seller)).toMatch(/Ref S-\d+/);
     const r = await h.db.query('SELECT message FROM support_requests WHERE phone=$1', [seller]);
