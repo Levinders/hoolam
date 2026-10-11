@@ -496,15 +496,14 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 .pf-m b { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; }
 .pf-m small { display: flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--soft); font-size: 12px; }
 .pf-m small strong { color: var(--ink); }
-.pf-ord { width: 94%; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
-.pf-ord .pf-t { margin-top: -3px; }
-.pf-sides { display: flex; align-items: center; gap: 7px; padding: 6px 9px 6px 6px; border-radius: 12px; background: var(--bg); }
-.pf-side { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; }
-.pf-side i { font-style: normal; }
-.pf-side.buyer { color: var(--teal); }
-.pf-side.seller { color: #8A6417; }
-.pf-sides .av { width: 30px; box-shadow: 0 0 0 2px #fff, 0 0 0 3px currentColor; }
-.pf-line { flex: 1; min-width: 10px; height: 2px; background: repeating-linear-gradient(90deg, var(--rule) 0 5px, transparent 5px 9px); }
+.pf-pair { display: flex; flex: none; }
+.pf-pair .av { width: 36px; box-shadow: 0 0 0 2px #fff; }
+.pf-pair .av:first-child { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--teal); }
+.pf-pair .av + .av { margin-left: -10px; box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--gold); }
+.pf-item { display: flex !important; align-items: baseline; gap: 5px; }
+.pf-role { font-style: normal; font-size: 11.5px; font-weight: 600; letter-spacing: .01em; }
+.pf-role.buyer { color: var(--teal); }
+.pf-role.seller { color: #8A6417; margin-left: -1px; }
 .pf .pf-vault { width: 46px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 12%, transparent); }
 .pf-amt { font: 700 22px/1.05 var(--font-display) !important; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .pf .pf-held { margin-top: 5px; padding: 4px 9px 4px 7px; font-size: 11.5px; }
@@ -530,7 +529,8 @@ details p { padding: 0 20px 18px; color: var(--soft); }
   .pf .av { width: 40px; }
   .pf .vault { width: 56px; }
   .pf-btns span { font-size: 12px; }
-  .pf-sides .av { width: 28px; }
+  .pf-pair .av { width: 30px; }
+  .pf-m b { font-size: 13.5px; }
   .pf-m { gap: 8px; }
 }
 
