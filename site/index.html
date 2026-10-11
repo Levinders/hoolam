@@ -440,7 +440,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 /* phone hero: the order as it looks on WhatsApp */
 .pf-wrap { position: relative; display: grid; place-items: center; min-width: 0; padding-block: 6px; }
 .pf-wrap::before { content: ""; position: absolute; z-index: 0; width: min(460px, 110%); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in srgb, var(--gold) 30%, transparent), color-mix(in srgb, var(--gold) 8%, transparent) 62%, transparent); pointer-events: none; }
-.pf { position: relative; z-index: 1; width: min(300px, 100%); aspect-ratio: 300 / 612; border-radius: 46px; background: linear-gradient(150deg, #2B3335, #121718 40%); padding: 9px; box-shadow: inset 0 0 0 1.5px #424b4d, inset 0 0 0 3px #161b1c, 0 50px 70px -36px rgba(14,40,38,.6), 0 24px 34px -22px rgba(14,40,38,.4); transform: rotate(-2.5deg); transition: transform .9s var(--ease); }
+.pf { position: relative; z-index: 1; width: min(310px, 100%); aspect-ratio: 310 / 626; border-radius: 46px; background: linear-gradient(150deg, #2B3335, #121718 40%); padding: 9px; box-shadow: inset 0 0 0 1.5px #424b4d, inset 0 0 0 3px #161b1c, 0 50px 70px -36px rgba(14,40,38,.6), 0 24px 34px -22px rgba(14,40,38,.4); transform: rotate(-2.5deg); transition: transform .9s var(--ease); }
 @media (hover: hover) { .pf-wrap:hover .pf { transform: rotate(0deg) translateY(-4px); } }
 .pf-screen { position: relative; height: 100%; border-radius: 38px; overflow: hidden; display: flex; flex-direction: column; background: #EEE7DC; font-family: var(--font-body); color: var(--ink); }
 .pf-screen::after { content: ""; position: absolute; left: 50%; bottom: 7px; width: 104px; height: 4px; margin-left: -52px; border-radius: 4px; background: rgba(27,35,33,.35); }
@@ -455,12 +455,22 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 .pf-who b { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 600; }
 .pf-who span { font-size: 11.5px; opacity: .78; white-space: nowrap; }
 .pf-ok { width: 15px; height: 15px; color: #8BE0B4; }
-.pf-chat { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 7px; padding: 12px 10px 8px; background-color: #EEE7DC; background-image: radial-gradient(color-mix(in srgb, var(--teal) 9%, transparent) 1.1px, transparent 1.4px); background-size: 15px 15px; }
+.pf-chat { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 7px; padding: 12px 8px 8px; background-color: #EEE7DC; background-image: radial-gradient(color-mix(in srgb, var(--teal) 9%, transparent) 1.1px, transparent 1.4px); background-size: 15px 15px; }
 .pf-day { align-self: center; margin-bottom: 2px; padding: 5px 10px; border-radius: 8px; background: rgba(255,253,249,.9); color: var(--soft); font: 600 11px/1 var(--font-body); box-shadow: 0 1px 1px rgba(0,0,0,.05); }
 .pf-b { position: relative; align-self: flex-start; max-width: 94%; padding: 9px 11px 6px; border-radius: 4px 15px 15px 15px; background: #fff; box-shadow: 0 1px 1px rgba(0,0,0,.07); font-size: 13.5px; line-height: 1.3; }
 .pf-b.me { align-self: flex-end; border-radius: 15px 4px 15px 15px; background: #D9FDD3; display: flex; align-items: flex-end; gap: 10px; padding: 8px 9px 6px 11px; }
 .pf-t { display: flex; justify-content: flex-end; align-items: center; gap: 2px; margin-top: 3px; color: #7A8481; font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pf-b.me .pf-t { margin-top: 0; }
+/* chat bubble with a tail at the top corner, the way WhatsApp draws a new message */
+.pf-b.tail { margin-left: 7px; max-width: calc(96% - 7px); border-radius: 0 15px 15px 15px; box-shadow: none; filter: drop-shadow(0 1px .6px rgba(0,0,0,.09)); }
+.pf-b.tail::before { content: ""; position: absolute; top: 0; left: -7px; width: 8px; height: 12px; background: inherit; clip-path: path('M8 0 H1.6 C.3 0 -.3 1.5 .6 2.4 L8 12 Z'); }
+.pf-first { align-self: stretch; max-width: none; padding: 9px 12px 6px 10px; }
+.pf-first .pf-m { gap: 8px; }
+.pf-first .pf-pair .av + .av { margin-left: -12px; }
+.pf-first .pf-item { gap: 4px; }
+.pf-first .pf-pair .av { width: 32px; }
+.pf-first .pf-m b { font-size: 13.5px; }
+.pf-first small { white-space: nowrap; }
 .pf-read { width: 16px; height: 16px; color: #3BA5E0; }
 .pf-in { animation: pf-in .7s var(--ease) both; animation-delay: .5s; }
 .pf-in.d1 { animation-delay: .75s; } .pf-in.d2 { animation-delay: 1.35s; } .pf-in.d3 { animation-delay: 1.95s; } .pf-in.d4 { animation-delay: 2.6s; } .pf-in.d5 { animation-delay: 3.2s; }
@@ -529,9 +539,21 @@ details p { padding: 0 20px 18px; color: var(--soft); }
   .pf .av { width: 40px; }
   .pf .vault { width: 56px; }
   .pf-btns span { font-size: 12px; }
-  .pf-pair .av { width: 30px; }
-  .pf-m b { font-size: 13.5px; }
-  .pf-m { gap: 8px; }
+  .pf-first .pf-pair .av { width: 28px; }
+  .pf-first .pf-m b { font-size: 13px; }
+  .pf-role { font-size: 10.5px; }
+  .pf-chat { padding-inline: 8px; }
+  .pf-first { padding: 9px 10px 6px; }
+  .pf-first .pf-m { gap: 7px; }
+}
+@media (max-width: 340px) {
+  .pf-chat { padding-inline: 6px; }
+  .pf-first { padding: 8px 8px 6px; }
+  .pf-first .pf-m { gap: 6px; }
+  .pf-first .pf-pair .av { width: 24px; }
+  .pf-first .pf-m b { font-size: 12px; }
+  .pf-first small { font-size: 10.5px; gap: 3px; }
+  .pf-role { font-size: 9.5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -599,7 +621,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
             </div>
             <div class="pf-chat" aria-hidden="true">
               <span class="pf-day pf-in">Today</span>
-              <div class="pf-b pf-in d1">
+              <div class="pf-b tail pf-first pf-in d1">
                 <div class="pf-m"><span class="pf-pair"><span class="av" data-slot="s1-1" data-alt="Buyer"><svg class="scene-svg" viewBox="0 0 240 240" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Buyer portrait"><defs>
 <filter id="a2b2" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2"/></filter>
 <filter id="a2b6" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter>
@@ -617,11 +639,11 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 <path d="M0 30 Q6 24 12 30 Q6 36 0 30Z" fill="#174C51" opacity=".8"/></pattern><linearGradient id="a1l9" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD9A0"/><stop offset="1" stop-color="#00000000"/></linearGradient></defs><rect width="240" height="240" fill="url(#a1l1)"/><g filter="url(#a1b14)"><circle cx="220" cy="217" r="23" fill="#fff" opacity=".18"/><circle cx="21" cy="92" r="30" fill="#E0A458" opacity=".18"/><circle cx="64" cy="155" r="33" fill="#fff" opacity=".18"/><circle cx="148" cy="174" r="30" fill="#2F7F86" opacity=".18"/><circle cx="163" cy="100" r="66" fill="#E0A458" opacity=".18"/><circle cx="139" cy="239" r="48" fill="#E0A458" opacity=".18"/><circle cx="230" cy="9" r="21" fill="#E0A458" opacity=".18"/><circle cx="119" cy="238" r="40" fill="#2F7F86" opacity=".18"/><circle cx="108" cy="228" r="53" fill="#C9992E" opacity=".18"/><circle cx="143" cy="45" r="35" fill="#C9992E" opacity=".18"/><circle cx="6" cy="45" r="40" fill="#C9992E" opacity=".18"/><circle cx="34" cy="130" r="52" fill="#E0A458" opacity=".18"/><circle cx="131" cy="172" r="55" fill="#C9992E" opacity=".18"/><circle cx="228" cy="114" r="70" fill="#2F7F86" opacity=".18"/></g><g transform="translate(25 18) rotate(0) scale(0.95 0.95)"><path d="M118 22 Q176 -26 196 30 Q168 26 146 44Z" fill="url(#a1l5)"/><path d="M80 118 L80 176 Q100 188 120 176 L120 118Z" fill="#7A4B2E"/><path d="M80 132 Q100 150 120 132 L120 146 Q100 162 80 146Z" fill="#4E2E1B" opacity=".55"/><path d="M28 450 L20 268 Q16 196 70 176 Q100 186 130 176 Q184 196 180 268 L172 450Z" fill="url(#a1l4)"/><path d="M28 450 L20 268 Q16 196 70 176 Q100 186 130 176 Q184 196 180 268 L172 450Z" fill="url(#a1w2)" opacity=".55"/><path d="M28 450 L20 268 Q16 196 70 176 Q100 186 130 176 Q184 196 180 268 L172 450Z" fill="url(#a1l6)"/><path d="M60 260 Q70 330 58 420 M140 270 Q132 340 146 430 M96 300 Q100 360 92 440" stroke="#000" stroke-width="3" fill="none" opacity=".12"/><path d="M74 176 Q100 230 126 176 Q100 190 74 176Z" fill="#7A4B2E"/><path d="M74 176 Q100 230 126 176" stroke="#7E2219" stroke-width="5" fill="none"/><path d="M80 184 Q100 214 120 184" stroke="#C9992E" stroke-width="3" fill="none"/><circle cx="100" cy="206" r="4.5" fill="#C9992E"/><path d="M40 214 L26 330" stroke="#7E2219" stroke-width="42" stroke-linecap="round"/><path d="M40 214 L26 330" stroke="#C0392B" stroke-width="23.1" stroke-linecap="round" opacity=".55"/><path d="M26 330 L30 440" stroke="#7A4B2E" stroke-width="29.4" stroke-linecap="round"/><path d="M26 326 L30 436" stroke="#A06A47" stroke-width="9.24" stroke-linecap="round" opacity=".6"/><path d="M8 330 L44 330" stroke="#7E2219" stroke-width="16" stroke-linecap="round"/><path d="M160 214 L174 330" stroke="#7E2219" stroke-width="42" stroke-linecap="round"/><path d="M160 214 L174 330" stroke="#C0392B" stroke-width="23.1" stroke-linecap="round" opacity=".55"/><path d="M174 330 L170 440" stroke="#7A4B2E" stroke-width="29.4" stroke-linecap="round"/><path d="M174 326 L170 436" stroke="#A06A47" stroke-width="9.24" stroke-linecap="round" opacity=".6"/><path d="M156 330 L192 330" stroke="#7E2219" stroke-width="16" stroke-linecap="round"/><ellipse cx="57" cy="90" rx="8" ry="13" fill="#7A4B2E"/><ellipse cx="143" cy="90" rx="8" ry="13" fill="#7A4B2E"/><path d="M56 80 Q56 28 100 26 Q144 28 144 80 Q144 122 120 136 Q100 146 80 136 Q56 122 56 80Z" fill="url(#a1r3)"/><path d="M136 60 Q148 96 128 132 Q140 96 130 62Z" fill="#4E2E1B" opacity=".35"/><ellipse cx="78" cy="104" rx="10" ry="6" fill="#fff" opacity=".06"/><ellipse cx="88" cy="58" rx="16" ry="8" fill="#fff" opacity=".08"/><ellipse cx="81" cy="88" rx="9" ry="5.6" fill="#F1E9DF"/><circle cx="81" cy="88" r="4.6" fill="#2A1A12"/><circle cx="81" cy="88" r="2" fill="#0d0805"/><circle cx="82.6" cy="86.4" r="1.2" fill="#fff" opacity=".9"/><path d="M71 87 Q81 79 91 87" stroke="#1b110b" stroke-width="2.4" fill="none" stroke-linecap="round"/><ellipse cx="119" cy="88" rx="9" ry="5.6" fill="#F1E9DF"/><circle cx="119" cy="88" r="4.6" fill="#2A1A12"/><circle cx="119" cy="88" r="2" fill="#0d0805"/><circle cx="120.6" cy="86.4" r="1.2" fill="#fff" opacity=".9"/><path d="M109 87 Q119 79 129 87" stroke="#1b110b" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M70 73 Q81 66 92 71 M108 71 Q119 66 130 73" stroke="#1a110c" stroke-width="4" fill="none" stroke-linecap="round"/><path d="M100 92 Q97 106 91 110 Q100 116 109 110" stroke="#4E2E1B" stroke-width="2.4" fill="none" stroke-linecap="round"/><ellipse cx="100" cy="112" rx="10" ry="4" fill="#4E2E1B" opacity=".25"/><path d="M85 121 Q100 136 115 121 Q100 127 85 121Z" fill="#5A2C22"/><path d="M88 122.5 Q100 130 112 122.5 Q100 125.5 88 122.5Z" fill="#F4EEE6"/><path d="M82 119 Q85 122 86 121 M118 119 Q115 122 114 121" stroke="#4E2E1B" stroke-width="1.6" fill="none"/><path d="M50 74 Q36 14 102 8 Q172 4 154 66 Q146 40 100 40 Q62 42 50 74Z" fill="url(#a1l7)"/><path d="M50 74 Q36 14 102 8 Q172 4 154 66 Q146 40 100 40 Q62 42 50 74Z" fill="url(#a1w8)" opacity=".35"/><path d="M60 52 Q100 22 146 44 M66 34 Q104 10 140 26" stroke="#000" stroke-width="3" fill="none" opacity=".15"/></g><rect width="240" height="240" fill="url(#a1l9)" opacity=".22" style="mix-blend-mode:soft-light"/><rect width="240" height="240" fill="url(#a1vig)"/></svg></span></span><div><b class="pf-item"><i class="pf-role buyer">Buyer:</i>2 pairs of sneakers</b><small>From <strong>Mama Bella</strong><i class="pf-role seller">(seller)</i></small></div></div>
                 <span class="pf-t">9:38</span>
               </div>
-              <div class="pf-b pf-in d2">
+              <div class="pf-b tail pf-in d2">
                 <div class="pf-m"><span class="vault pf-vault" data-slot="mark" data-alt=""><svg class="fb" viewBox="0 0 54 54" aria-hidden="true"><g class="coinb"><circle cx="27" cy="19" r="10" fill="#C9992E"/><circle cx="27" cy="19" r="6.5" fill="none" stroke="#fff" stroke-width="1.8" opacity=".7"/></g><path d="M9 27c0 10 8 17 18 17s18-7 18-17" fill="none" stroke="var(--teal)" stroke-width="5" stroke-linecap="round"/></svg></span><div><b class="pf-amt">₦10,300</b><span class="held pf-held"><span class="pulse"></span>Held safely</span></div></div>
                 <span class="pf-t">9:39</span>
               </div>
-              <div class="pf-b pf-in d3">
+              <div class="pf-b tail pf-in d3">
                 <div class="pf-m"><span class="pf-tile"><svg class="ic " aria-hidden="true"><use href="#i-truck"/></svg></span><div><b>On the way</b><small class="pf-code"><svg class="ic " aria-hidden="true"><use href="#i-key-round"/></svg>Your code <strong>4821</strong></small></div></div>
                 <span class="pf-t">9:40</span>
               </div>
