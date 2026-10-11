@@ -227,7 +227,7 @@ The top row runs until the money is held; the bottom row runs right to left from
 - **Seller (📨 template when needed):** "**New order request** on **Hoolam**" with buyer, item and total price on bold lines; **View order** · **Not me**.
 - **Not me** closes this order only. That buyer can't alert that number again; everyone else still can. The console shows it on both people's pages.
 
-**Names are always bold** in the chat (buyers, sellers, riders, the greeting), and **the other person's name comes before the order ID** in chat messages and form headings ("**Ada** · Order **HL-X**: …"). Vital details (amounts, dates, addresses, account numbers, what to do next) are in bold. Wherever a fee applies, the person sees the full breakdown, not just the total: the seller sees Total price, their fee (Transaction fee or Hoolam fee), the rider's fee once there is one, and **You receive**; the buyer sees Total price, their fee and **You pay** (or **You paid**).
+**Names are always bold** in the chat (buyers, sellers, riders, the greeting), and **the other person's name comes before the order ID** in chat messages and form headings ("**Ada** · Order **HL-X**: …"; the other person's number when they have no name yet). Short status replies and the Meta templates keep "Order HL-X" alone. Vital details (amounts, dates, addresses, account numbers, what to do next) are in bold. Wherever a fee applies, the person sees the full breakdown, not just the total: the seller sees Total price, their fee (Transaction fee or Hoolam fee), the rider's fee once there is one, and **You receive**; the buyer sees Total price, their fee and **You pay** (or **You paid**).
 
 ### 4. The seller looks at it
 
@@ -477,6 +477,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 11 Oct 2026 | Names before order IDs in six more messages: the seller's problem question, case opened, buyer didn't accept in time, waiting for a price answer, closed by the team, the rider's already-confirmed reply | 8f195cd |
 | 11 Oct 2026 | Sell something rebuilt as the mirror of Buy something (buyer accepts, confirms the address, then pays; same dispatch after); seller's number required on Buy something; names before order IDs; 4 new templates; migration 016 | 7946ba3 |
 | 11 Oct 2026 | Riders and drivers enter the handover code from their own WhatsApp (new template, shared tries); full money breakdowns at every step; exact pay-account end time; seller's trust card link; buyer's name first on the order summary and in My orders; every name bold; migration 015 | f74f198 |
 | 11 Oct 2026 | Console support messages any time (template); Not me is per person, old blocked list cleared; backup forms with every field required; reply times, unpaid window and code tries in the console; chat asks the expected date; Hoolam's number as the example; GTBank, Fidelity, Zenith always listed; full account numbers; buyer's name first in dispatch messages; new rating line | bf20d2a |
