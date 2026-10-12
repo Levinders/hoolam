@@ -183,7 +183,7 @@ function homePage(src, version, preview) {
     .replace('/*{{BAKED}}*/{}', JSON.stringify(pageBaked).replace(/</g, '\\u003c'))
     .replace('/*{{FOOTER_CSS}}*/', footerCss)
     .replace('<!--{{FOOTER}}-->', footer);
-  h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, INCORPORATED: shared.INCORPORATED });
+  h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, BANK_SHORT: String(shared.BANK_PARTNER).replace(/\s*Microfinance Bank$/, ' MFB'), INCORPORATED: shared.INCORPORATED });
   h = h.replace(/<link rel="icon" href="\/?assets\/favicon\.svg" type="image\/svg\+xml">\n<link rel="apple-touch-icon" href="\/?assets\/icon-180\.png">/, iconTags('/', imgs));
   if (preview) {
     // never in search results; a small label so nobody mistakes it for the live page
