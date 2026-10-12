@@ -111,6 +111,7 @@ describe('landing page ↔ server', () => {
     expect(v12).toContain('This time, with Hoolam');
     expect(v12).toContain('data-p="buyer-x"'); // pricing: the breakdown under each amount
     expect(v12).not.toContain('all‑in');
+    expect(v12).toMatch(/<\/header>\s*<div class="scrim" id="scrim" hidden><\/div>\s*<aside class="drawer" id="sheet"/); // phones: the menu is a sidebar
     expect(v12).toMatch(/No hidden charges<\/li>\s*<\/ul>\s*<p class="plimits">Starting from/);
     expect(v12).toMatch(/Step 2 of 5 · Buyer[\s\S]*Step 3 of 5 · Seller[\s\S]*Step 4 of 5 · Buyer[\s\S]*Step 5 of 5 · Seller/);
     expect(v12).toContain("set('story-seller', '+' + naira(s.seller));"); // the seller's money follows the live fees
