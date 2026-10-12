@@ -82,14 +82,21 @@ describe('Prembly answers', () => {
     }) as unknown as typeof fetch;
     const bvn = new PremblyChecker({ apiKey: 'k', appId: 'a', fetch: answer(200, { status: true, response_code: '00', data: { firstName: 'JOHN', middleName: 'DOE', lastName: 'JANE', dateOfBirth: '01-Jan-2000' }, verification: { reference: 'R1' } }) });
     expect(await bvn.check('BVN', '54651333604')).toEqual({ found: true, name: 'JOHN DOE JANE', dob: '2000-01-01', reference: 'R1' });
-    expect(seen[0]!.url).toBe('https://api.prembly.com/verification/bvn_validation');
+    expect(seen[0]!.url).toBe('https://api.prembly.com/identitypass/verification/bvn');
     expect(JSON.parse(seen[0]!.body)).toEqual({ number: '54651333604' });
     expect(seen[0]!.headers['x-api-key']).toBe('k');
     expect(seen[0]!.headers['app-id']).toBe('a');
     const nin = new PremblyChecker({ apiKey: 'k', fetch: answer(200, { status: true, response_code: '00', data: { firstname: 'CHIDERA', middlename: 'ANITA', surname: 'JOHNSON', birthdate: '22-05-1998' } }) });
     expect(await nin.check('NIN', '12345678901')).toMatchObject({ found: true, name: 'CHIDERA ANITA JOHNSON', dob: '1998-05-22' });
-    expect(seen[1]!.url).toBe('https://api.prembly.com/verification/vnin');
-    expect(JSON.parse(seen[1]!.body)).toEqual({ number_nin: '12345678901' });
+    expect(seen[1]!.url).toBe('https://api.prembly.com/identitypass/verification/nin');
+    expect(JSON.parse(seen[1]!.body)).toEqual({ number: '12345678901', number_nin: '12345678901' });
+    // the dashboard's answer: first_name, last_name, dob, verification_reference
+    const dash = new PremblyChecker({ apiKey: 'k', fetch: answer(200, { status: true, detail: 'Verification Successful', data: { first_name: 'JOHN', last_name: 'DOE', dob: '1990-01-01', verification_reference: 'REF_123456' } }) });
+    expect(await dash.check('BVN', '12345678901')).toEqual({ found: true, name: 'JOHN DOE', dob: '1990-01-01', reference: 'REF_123456' });
+    // a wrong address or a refused request is our setup: "try again", never "not found"
+    expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(404, { detail: 'Not Found' }) }).check('NIN', '1')).toMatchObject({ unavailable: true });
+    expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(400, { status: false, detail: 'number_nin is required' }) }).check('NIN', '1')).toMatchObject({ unavailable: true });
+    expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(400, { status: false, detail: 'No record found for this NIN' }) }).check('NIN', '1')).toMatchObject({ found: false });
     expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(200, { status: false, response_code: '01', detail: 'Record not found' }) }).check('BVN', '1')).toMatchObject({ found: false });
     expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(200, { status: false, detail: 'Insufficient wallet balance' }) }).check('BVN', '1')).toMatchObject({ unavailable: true });
     expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(503, { detail: 'down' }) }).check('BVN', '1')).toMatchObject({ unavailable: true });

@@ -35,8 +35,8 @@ export interface PremblyOptions {
   apiKey: string;
   appId?: string;
   baseUrl?: string;        // https://api.prembly.com
-  bvnPath?: string;        // /verification/bvn_validation  (body: { number })
-  ninPath?: string;        // /verification/vnin            (body: { number_nin })
+  bvnPath?: string;        // /identitypass/verification/bvn  (from the Prembly dashboard)
+  ninPath?: string;        // /identitypass/verification/nin  (the same pattern)
   fetch?: typeof fetch;
   timeoutMs?: number;
   log?: (line: string) => void;
@@ -48,8 +48,9 @@ export class PremblyChecker implements KycChecker {
 
   async check(method: KycMethod, number: string): Promise<CheckerAnswer> {
     const base = (this.o.baseUrl || 'https://api.prembly.com').replace(/\/$/, '');
-    const path = method === 'BVN' ? this.o.bvnPath || '/verification/bvn_validation' : this.o.ninPath || '/verification/vnin';
-    const body = method === 'BVN' ? { number } : { number_nin: number };
+    const path = method === 'BVN' ? this.o.bvnPath || '/identitypass/verification/bvn' : this.o.ninPath || '/identitypass/verification/nin';
+    // NIN: both names Prembly has used for the number, so either version of the address understands it
+    const body = method === 'BVN' ? { number } : { number, number_nin: number };
     const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json', 'x-api-key': this.o.apiKey };
     if (this.o.appId) headers['app-id'] = this.o.appId;
     let res: Response;
@@ -64,12 +65,17 @@ export class PremblyChecker implements KycChecker {
     try { json = await res.json(); } catch { /* not JSON */ }
     const detail = String(json?.detail ?? json?.message ?? '').slice(0, 200);
     // our side (keys, wallet) or theirs (down, busy): tell the person to try again, nothing is lost
-    if (res.status >= 500 || res.status === 401 || res.status === 403 || res.status === 429 || res.status === 402) {
-      this.o.log?.(`prembly ${method}: HTTP ${res.status} ${detail}`);
+    if (res.status >= 500 || [401, 402, 403, 404, 405, 429].includes(res.status)) {
+      this.o.log?.(`prembly ${method}: HTTP ${res.status} ${detail} (${path})${res.status === 404 || res.status === 405 ? ': check PREMBLY_' + method + '_PATH' : ''}`);
+      return { unavailable: true, why: `HTTP ${res.status} ${detail}` };
+    }
+    // a refused request (wrong body or address) is our setup, not their number: unless it plainly says "not found"
+    if (res.status >= 400 && !/not found|no record|does not exist|invalid (bvn|nin)|record not/i.test(detail)) {
+      this.o.log?.(`prembly ${method}: HTTP ${res.status} ${detail} (${path}): the request was refused, check the address and fields`);
       return { unavailable: true, why: `HTTP ${res.status} ${detail}` };
     }
     if (!json) return { unavailable: true, why: `HTTP ${res.status}: not JSON` };
-    const reference = String(json.verification?.reference ?? json.billing_info?.reference_id ?? json.reference_id ?? json.verification?.verification_id ?? '').trim() || null;
+    const reference = String(json.data?.verification_reference ?? json.verification?.reference ?? json.billing_info?.reference_id ?? json.reference_id ?? json.verification?.verification_id ?? '').trim() || null;
     if (json.status === true && (json.response_code == null || String(json.response_code) === '00')) {
       const d = json.data ?? json.nin_data ?? json.bvn_data ?? {};
       const pick = (...keys: string[]) => keys.map((k) => d[k]).find((v) => typeof v === 'string' && v.trim()) as string | undefined;
