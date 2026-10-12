@@ -109,6 +109,8 @@ describe('landing page ↔ server', () => {
     expect(v12).toContain('Who go trust who?'); // section 2 reworded in 1.2.0 only
     expect(v12).toContain('Calling…');
     expect(v12).toContain('This time, with Hoolam');
+    expect(v12).toContain('data-p="buyer-x"'); // pricing: the breakdown under each amount
+    expect(v12).not.toContain('all‑in');
     expect(v12).toMatch(/Step 2 of 5 · Buyer[\s\S]*Step 3 of 5 · Seller[\s\S]*Step 4 of 5 · Buyer[\s\S]*Step 5 of 5 · Seller/);
     expect(v12).toContain("set('story-seller', '+' + naira(s.seller));"); // the seller's money follows the live fees
     expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).toContain('someone always gets burned');
