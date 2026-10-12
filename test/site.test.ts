@@ -105,6 +105,10 @@ describe('landing page ↔ server', () => {
     expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).toContain('live now');
     expect(readFileSync('dist-site/v/1.1.0/index.html', 'utf8')).toContain('pf-btns'); // one picture
     expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('pf-paid'); // three moments
+    const v12 = readFileSync('dist-site/v/1.2.0/index.html', 'utf8');
+    expect(v12).toContain('Who go trust who?'); // section 2 reworded in 1.2.0 only
+    expect(v12).toContain('Calling…');
+    expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).toContain('someone always gets burned');
     for (const v of ['1.1.0', '1.2.0']) expect(readFileSync(`dist-site/v/${v}/index.html`, 'utf8'), v).toContain('data-p="wa-local">08012345678<'); // the phone shows Hoolam's number from the console, as people write it
     expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toMatch(/pf-role buyer">Buyer:<\/i>2 pairs of sneakers[\s\S]*?Mama Bella<\/strong><i class="pf-role seller">\(seller\)/);
     expect(readFileSync('dist-site/sitemap.xml', 'utf8')).not.toContain('/v/');
