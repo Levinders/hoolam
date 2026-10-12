@@ -112,6 +112,8 @@ describe('landing page ↔ server', () => {
     expect(v12).toContain('data-p="buyer-x"'); // pricing: the breakdown under each amount
     expect(v12).not.toContain('all‑in');
     expect(v12).toContain('Live reps, ready to help'); // why trust us
+    expect(v12).toContain('<h2>We get asked this a lot.</h2>');
+    expect(v12).toContain("set('faq', rateTxt() + ' of the price, starting from ' + naira(F.min)"); // the fee answer follows the console
     expect(v12).toContain('<span class="pro-tag">Example</span>'); // the made-up seller stays labelled as an example
     expect(v12).toContain('HOOLAM DIGITAL PLATFORM LTD</b>, RC 9919417');
     expect(v12).toMatch(/<\/header>\s*<div class="scrim" id="scrim" hidden><\/div>\s*<aside class="drawer" id="sheet"/); // phones: the menu is a sidebar
