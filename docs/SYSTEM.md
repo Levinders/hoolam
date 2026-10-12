@@ -64,9 +64,9 @@ Secrets and platform IDs live only in Render (service `hoolam` → Environment);
 | `MONNIFY_CONTRACT_CODE`, `MONNIFY_WALLET_ACCOUNT`, `MONNIFY_BASE_URL` | Which Monnify contract and wallet; sandbox or live |  |
 | `MONNIFY_REQUIRE_SIGNATURE` | Refuse unsigned payment webhooks | true in production |
 | `KYC_PROVIDER` | Which ID checker: `prembly`, `fake` (pretend) or `off` | Optional. If unset: `prembly` when `PREMBLY_X_API_KEY` is set, else `fake` with pretend money, else `off`. `fake` is refused with real money. |
-| `PREMBLY_X_API_KEY` | Prembly secret key, sent as `x-api-key` | From the Prembly dashboard (API keys). Secret. |
-| `PREMBLY_APP_ID` | Prembly app ID, sent as `app-id` | From the Prembly dashboard. |
-| `PREMBLY_BASE_URL`, `PREMBLY_BVN_PATH`, `PREMBLY_NIN_PATH` | Where the checks go | Default `https://api.prembly.com`, `/verification/bvn_validation`, `/verification/vnin`. Change only if Prembly's docs for your account say otherwise. |
+| `PREMBLY_X_API_KEY` | Prembly **secret key**, sent as `x-api-key` | Prembly dashboard → Integrations → Secret Key (`test_…` in Sandbox, live key in Production). The Public Key is not used. Secret. |
+| `PREMBLY_APP_ID` | Prembly app ID, sent as `app-id` | Optional: the dashboard doesn't show one; leave it out. |
+| `PREMBLY_BASE_URL`, `PREMBLY_BVN_PATH`, `PREMBLY_NIN_PATH` | Where the checks go | Optional. Default `https://api.prembly.com`, `/identitypass/verification/bvn` (from the dashboard), `/identitypass/verification/nin` (the same pattern; the dashboard shows no NIN example). |
 | `ALLOW_SELF_DEAL` | One phone can play buyer and seller | Testing only; refused with live Monnify keys |
 | `TRUST_COUNT_TEST_DEALS` | Test orders count on trust cards | Remove for real money |
 | `PUBLIC_BASE_URL`, `CONSOLE_URL`, `SITE_URL`, `PAY_URL` | The server's, console's, website's and payment links' addresses |  |
@@ -320,7 +320,7 @@ Once per person, with their BVN or NIN (their choice) and date of birth, checked
 - **What we store:** the result, the name on the ID (as Prembly gives it, in normal capitals), BVN or NIN, the last 4 digits, the date and Prembly's reference; each try with its last 4 digits and result. Never the number: the chat message or form answer that carried it is blanked in `webhook_events` as soon as it's read, it never goes into the chat session, and no message repeats it.
 - **Names must match:** once verified, payouts (and refunds of a verified buyer) go only to a bank account in the name on their ID. Matching is tolerant: any order, middle names optional, titles (Mr, Mrs, Chief…) ignored, one-letter slips allowed (Chidinma/Chidimma); it needs two names in common (one if either name is a single word). Another name: "⚠️ This account is in another name. It belongs to X, but your ID says Y." and they send another.
 - **Existing sellers:** when the buyer is happy, the seller gets "💰 **Ada** · Order **HL-X**: your money is ready. Before we pay you, we check your ID once…" with **Check my ID** · **Talk to a rep**. After the check every waiting payout goes out. If their payout account is in another name, they're asked for one in their own name, and the waiting payouts move to it and go out.
-- **Checkers:** `prembly` (POST `/verification/bvn_validation` with `number`, POST `/verification/vnin` with `number_nin`; any answer without a clear match is "not found", outages and our-side errors are "try again"); `fake` with pretend money (any 11 digits pass with the name TEST ACCOUNT HOLDER, which matches the pretend bank; 00000000000 not found, 11111111111 date of birth doesn't match, 99999999999 checker down; the chat shows a TEST MODE hint); `off` (no keys and real money: nobody can go above the limit without ID unless staff raise their own limit, and seller payouts aren't held).
+- **Checkers:** `prembly` (POST `/identitypass/verification/bvn` with `number`, POST `/identitypass/verification/nin` with `number` and `number_nin`; reads `first_name`/`last_name`/`dob`/`verification_reference` and the older field names; a clear "no record" is "not found"; outages, our-side errors, a wrong address (404) or a refused request are "try again" with no try used, and the Render log says which address to check); `fake` with pretend money (any 11 digits pass with the name TEST ACCOUNT HOLDER, which matches the pretend bank; 00000000000 not found, 11111111111 date of birth doesn't match, 99999999999 checker down; the chat shows a TEST MODE hint); `off` (no keys and real money: nobody can go above the limit without ID unless staff raise their own limit, and seller payouts aren't held).
 - **Console:** see the staff console below.
 
 ## Dispatch, handover, release and problems
@@ -519,7 +519,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 - The free Render plan sleeps after 15 minutes idle (about a minute to wake).
 - Templates need Meta's approval; until then, people outside their 24 hours only get messages through older approved versions, or not at all (they wait in Needs action).
 - Voice notes aren't understood yet.
-- ID checks run on the pretend checker until the Prembly keys are in Render. Prembly's BVN/NIN addresses come from their public docs; if the dashboard docs for your account show others, set `PREMBLY_BVN_PATH` / `PREMBLY_NIN_PATH`. The ID check form needs WhatsApp forms on (Meta business verification); until then the chat asks the same questions.
+- ID checks run on the pretend checker until the Prembly keys are in Render. The NIN address follows the BVN one from the dashboard; if a NIN check logs "check PREMBLY_NIN_PATH", set the right one there. Prembly's sandbox knows only its test numbers and returns a test name, which won't match the pretend bank's account names: keep `KYC_PROVIDER=fake` for testing whole orders. The ID check form needs WhatsApp forms on (Meta business verification); until then the chat asks the same questions.
 - A rider or driver only gets the delivery message (and can only enter the code) once Meta approves `hoolam_delivery_for_rider`, unless they wrote to Hoolam in the last 24 hours. Until then the seller enters the code.
 - The trust card link only shows to buyers when the seller has turned their public page on (Share my link); sellers who never shared it show the trust line and **Seller's record** only.
 
@@ -527,6 +527,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 12 Oct 2026 | Prembly: the dashboard's BVN address and the same pattern for NIN as defaults; NIN sends both number fields; a wrong address or refused request says "try again" without using a try; Prembly's reference is kept | 7e34fe3 |
 | 12 Oct 2026 | ID checks (KYC) with Prembly: BVN or NIN once, above the limit without ID (either side) and for every seller before payouts; two console limits; Verified seller; payout and refund names must match; console ID panel and Needs review; privacy and terms sections | e3c13f0 |
 | 12 Oct 2026 | 1.2.0 why trust us: "Deposits insured by NDIC" card replaces Live reps | ca8e855 |
 | 12 Oct 2026 | 1.2.0: the buyer in the stories is now Ivana (was Precious) | fa09e67 |
