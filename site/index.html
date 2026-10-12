@@ -563,26 +563,17 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 .fee-note { display: block; font-size: .74rem; margin-top: 1px; }
 
 /* pricing: the limits as three tiles, the breakdown under each amount */
-.ptiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-width: 470px; }
-.ptiles li { display: flex; flex-direction: column; gap: 8px; padding: 12px 13px; border-radius: 18px; background: color-mix(in srgb, var(--card) 72%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 18%, transparent); min-width: 0; }
-.ptiles .pt-ic { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: var(--gold-tint); color: #8A6417; }
-.ptiles .pt-ic .ic { width: 16px; height: 16px; }
-.ptiles small { display: block; font-size: .78rem; font-weight: 600; color: var(--soft); }
-.ptiles b { display: block; font: 700 1.15rem/1.15 var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-@media (max-width: 560px) {
-  .ptiles { grid-template-columns: 1fr; gap: 6px; max-width: none; }
-  .ptiles li { flex-direction: row; align-items: center; gap: 12px; padding: 10px 14px 10px 10px; }
-  .ptiles li > span:last-child { flex: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-  .ptiles small { font-size: .9rem; }
-  .split { grid-template-columns: 1fr; }
-}
+.plimits { margin: 0; font-size: 1.02rem; line-height: 1.6; color: var(--soft); max-width: 40ch; }
+.plimits b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 560px) { .split { grid-template-columns: 1fr; } }
 .fee-line[hidden] { display: none; }
-.side-p .side-x .tag { white-space: nowrap; }
+.side-p .side-x .tag { white-space: nowrap; display: block; width: fit-content; }
+.side-p .side-x .tag.max { color: #8A6417; background: var(--gold-tint); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 40%, transparent); }
 .pick2 button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .pick2 button .ic { width: 17px; height: 17px; opacity: .75; }
 .pick2 button[aria-pressed="true"] .ic { opacity: 1; color: var(--teal); }
 .side-p .side-x { display: block; font-size: .8rem; line-height: 1.35; color: var(--soft); font-variant-numeric: tabular-nums; min-height: 1.35em; }
-.side-p .side-x .tag { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 999px; background: var(--card); color: #8A6417; font-size: .72rem; font-weight: 600; font-style: normal; }
+.side-p .side-x .tag { display: inline-block; margin-top: 4px; padding: 2px 9px; border-radius: 999px; background: var(--card); color: var(--green); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 28%, transparent); font-size: .72rem; font-weight: 600; font-style: normal; }
 .who-pays.short { display: flex; align-items: center; gap: 8px; margin: 0; font-size: .85rem; color: var(--soft); }
 .who-pays.short .ic { width: 16px; height: 16px; color: var(--teal); flex: none; }
 
@@ -1004,12 +995,12 @@ details p { padding: 0 20px 18px; color: var(--soft); }
         <span class="label">Pricing</span>
         <h2>One small fee. <span>Only when you order.</span></h2>
         <div class="rate"><b data-p="rate">2.5%</b><span>per order</span></div>
-        <ul class="ptiles" aria-label="Fee limits"><li><span class="pt-ic"><svg class="ic" aria-hidden="true"><use href="#i-arrow-down-to-line"/></svg></span><span><small>Starting from</small><b data-p="fee-min">₦300</b></span></li><li><span class="pt-ic"><svg class="ic" aria-hidden="true"><use href="#i-arrow-up-to-line"/></svg></span><span><small>Max</small><b data-p="fee-max">₦5,000</b></span></li><li><span class="pt-ic"><svg class="ic" aria-hidden="true"><use href="#i-shopping-bag"/></svg></span><span><small>Orders up to</small><b data-p="max-deal">₦50,000</b></span></li></ul>
-        <ul class="perks">
+                <ul class="perks">
           <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Free to join</li>
           <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>No monthly fee</li>
           <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>No hidden charges</li>
         </ul>
+        <p class="plimits">Starting from <b data-p="fee-min">₦300</b>. Max <b data-p="fee-max">₦5,000</b>. Orders up to <b data-p="max-deal">₦50,000</b>.</p>
       </div>
       <div class="calc">
         <label class="calc-l" for="calc-price">Type the item price</label>
@@ -1335,7 +1326,7 @@ var HOOLAM_SITE = {
     var over = price > C.maxDeal;
     set('buyer', over ? '—' : naira(q.buyer));
     set('seller', over ? '—' : naira(q.seller));
-    var tag = q.note === 'minimum' ? ' <em class="tag">Our smallest fee</em>' : q.note === 'cap' ? ' <em class="tag">Our biggest fee</em>' : '';
+    var tag = q.note === 'minimum' ? ' <em class="tag min">Our smallest fee</em>' : q.note === 'cap' ? ' <em class="tag max">Our biggest fee</em>' : '';
     var hoolam = naira(q.fee) + ' Hoolam fee' + tag, txn = naira(q.txn) + ' transaction fee', p = naira(price);
     var ok = price && !over;
     set('buyer-x', !ok ? '' : p + ' + ' + (starter === 'buyer' ? hoolam : txn));
