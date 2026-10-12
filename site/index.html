@@ -572,6 +572,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
   .price-info .perks .ic { width: 14px; height: 14px; }
   .plimits { max-width: none; white-space: nowrap; font-size: .95rem; }
 }
+@media (min-width: 861px) { .plimits b { font-weight: inherit; color: inherit; } }
 @media (max-width: 560px) { .split { grid-template-columns: 1fr; } }
 .fee-line[hidden] { display: none; }
 .side-p .side-x .tag { white-space: nowrap; display: block; width: fit-content; }
@@ -1333,7 +1334,7 @@ var HOOLAM_SITE = {
     var over = price > C.maxDeal;
     set('buyer', over ? '—' : naira(q.buyer));
     set('seller', over ? '—' : naira(q.seller));
-    var tag = q.note === 'minimum' ? ' <em class="tag min">Our smallest fee</em>' : q.note === 'cap' ? ' <em class="tag max">Our biggest fee</em>' : '';
+    var tag = q.note === 'minimum' ? ' <em class="tag min">Our smallest fee</em>' : ' <em class="tag max">Our biggest fee</em>';
     var hoolam = naira(q.fee) + ' Hoolam fee' + tag, txn = naira(q.txn) + ' transaction fee', p = naira(price);
     var ok = price && !over;
     set('buyer-x', !ok ? '' : p + ' + ' + (starter === 'buyer' ? hoolam : txn));
