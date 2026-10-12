@@ -111,7 +111,7 @@ describe('landing page ↔ server', () => {
     expect(v12).toContain('This time, with Hoolam');
     expect(v12).toContain('data-p="buyer-x"'); // pricing: the breakdown under each amount
     expect(v12).not.toContain('all‑in');
-    expect(v12).toContain('Live reps, ready to help'); // why trust us
+    expect(v12).toContain('Deposits insured by NDIC'); // why trust us
     expect(v12).toContain('<h2>We get asked this a lot.</h2>');
     expect(v12).toContain("set('faq', rateTxt() + ' of the price, starting from ' + naira(F.min)"); // the fee answer follows the console
     expect(v12).toContain('<span class="pro-tag">Example</span>'); // the made-up seller stays labelled as an example
