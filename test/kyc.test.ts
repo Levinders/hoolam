@@ -367,3 +367,55 @@ describe('the console', () => {
     expect(h.last(buyer)).toMatch(/up to \*₦1,000,000\*/);
   });
 });
+
+describe('forms', () => {
+  const form = (p: string, token: string, f: Record<string, unknown>, id = `kf${++seq}`) =>
+    h.app.chat.handle({ id, phone: p, name: 'Ada Obi', type: 'form', text: '', buttonId: null, mediaId: null, form: { flow_token: token, ...f } });
+  const order = { item: 'iPhone 13', description: '128GB, clean', category: 'other', address: '12 Woji Road, Port Harcourt', arrive_by: '2026-12-01', photos: [{ id: 'm1', mime_type: 'image/jpeg' }] };
+
+  it('the buyer form with a big price: the ID check, then straight to Check your order', async () => {
+    const buyer = phone(), seller = phone();
+    await form(buyer, 'buy:v1', { ...order, price: '120k', other_phone: seller.replace('+234', '0') });
+    expect(h.last(buyer)).toMatch(/Quick ID check, once/);
+    await verify(buyer);
+    expect(h.last(buyer)).toMatch(/Check your order/);
+    await h.tap(buyer, 'buy:send');
+    expect(Number((await deal(codeIn(h.last(buyer)))).price_minor)).toBe(120_000_00);
+  });
+
+  it('the seller form with a big price: the ID check (once), then the payout account, then Check your order', async () => {
+    const seller = phone(), buyer = phone();
+    await h.say(seller, 'hi', 'Bayo');
+    await h.sell(seller);
+    await form(seller, 'sell:v2', { ...order, price: '150000', other_phone: buyer.replace('+234', '0') });
+    expect(h.last(seller)).toMatch(/Quick ID check, once/);
+    await verify(seller);
+    expect(h.last(seller)).toMatch(/account number/); // no second ID check for the payout account
+    await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
+    expect(h.last(seller)).toMatch(/Check your order/);
+  });
+
+  it('the ID check form: answers in one go, the date as WhatsApp sends it, the number never kept', async () => {
+    const buyer = phone();
+    await buyTo(buyer, '95000');
+    await h.db.query(`INSERT INTO webhook_events (source, event_key, payload) VALUES ('whatsapp', 'kyc-form-1', '{"form":{"number":"22298765432"}}')`);
+    await form(buyer, 'kyc:v1', { method: 'NIN', number: '22298765432', dob: String(Date.UTC(1995, 11, 25)) }, 'kyc-form-1');
+    expect(h.last(buyer)).toMatch(/delivery address/);
+    expect(await user(buyer)).toMatchObject({ kyc_status: 'VERIFIED', kyc_method: 'NIN', kyc_last4: '5432' });
+    const ev = (await h.db.query(`SELECT payload FROM webhook_events WHERE event_key='kyc-form-1'`)).rows[0].payload;
+    expect(JSON.stringify(ev)).not.toMatch(/22298765432/);
+  });
+
+  it('the ID check form follows WhatsApp\'s rules', async () => {
+    const { kycFlowJson, kycFlowName } = await import('../src/whatsapp/kyc-flow.js');
+    const j = kycFlowJson();
+    expect(j.version).toBe('7.3');
+    expect(j.screens).toHaveLength(1);
+    expect(j.screens[0]!.terminal).toBe(true);
+    const kids = (j.screens[0]!.layout.children[0] as any).children as any[];
+    expect(kids.map((k) => k.type)).toEqual(['TextSubheading', 'TextBody', 'RadioButtonsGroup', 'TextInput', 'DatePicker', 'TextCaption', 'Footer']);
+    expect(kids.at(-1).label.length).toBeLessThanOrEqual(35);
+    expect(kids.at(-1)['on-click-action']).toEqual({ name: 'complete', payload: { method: '${form.method}', number: '${form.number}', dob: '${form.dob}' } });
+    expect(kycFlowName()).toMatch(/^hoolam_kyc_[0-9a-f]{8}$/);
+  });
+});
