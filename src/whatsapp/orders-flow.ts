@@ -3,11 +3,13 @@ import sharp from 'sharp';
 import type { Db } from '../db.js';
 import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { categoryTitle } from '../deals/categories.js';
-import { dayText, DealError, type Deal, type DealService, type User } from '../deals/service.js';
+import { dayText, DealError, isVerified, type Deal, type DealService, type User } from '../deals/service.js';
+import type { KycNext } from './flow.js';
+import type { KycWhy } from './messages.js';
 import type { Bank, PaymentProvider } from '../payments/provider.js';
 import { bankChoices, matchBank } from './banks.js';
 import { normalizePhone } from './inbound.js';
-import { STATUS_WORDS } from './messages.js';
+import { msg, STATUS_WORDS } from './messages.js';
 import { localPhone } from '../phone.js';
 
 /**
@@ -374,6 +376,8 @@ export interface OrdersFlowOptions {
   backupForms?: () => { list: boolean; one: boolean };
   /** Sends the single-order form to the chat (the backup My orders form hands dispatch over to it). */
   openOrder?: (user: User, code: string, screen: 'dispatch' | 'code') => Promise<boolean>;
+  /** Starts the ID check in the chat, and comes back to `next` after. */
+  startKyc?: (user: User, why: KycWhy, next: KycNext) => Promise<void>;
   /** Downloads photos people sent (for the buyer's preview). */
   media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
   log?: (line: string) => void;
@@ -440,7 +444,7 @@ export class OrdersFlow {
   private wrap(r: Res) { return { version: '3.0', screen: r.screen, data: r.data }; }
 
   private async user(phone: string): Promise<User | null> {
-    const r = await this.o.db.query('SELECT id, phone, display_name, blocked, deal_cap_minor, seller_since, menu_mode FROM users WHERE phone=$1', [phone]);
+    const r = await this.o.db.query('SELECT id, phone, display_name, blocked, deal_cap_minor, seller_since, menu_mode, kyc_status, kyc_verified_at, kyc_name FROM users WHERE phone=$1', [phone]);
     return r.rows[0] ?? null;
   }
 
@@ -737,12 +741,16 @@ export class OrdersFlow {
         const reason = String(p.reason ?? '').replace(/\s+/g, ' ').trim();
         const again = (warn: string) => this.orderScreen(user, deal, { primary: 'counter', label: 'Send my price', note: `The buyer offered ${this.m(deal.price_minor)}.`, showPrice: true, warn });
         if (!minor) return again('⚠️ Type the price in naira, like 18000 or 18k.');
-        if (minor > this.o.deals.maxDealMinor) return again(`⚠️ Orders can be up to ${this.m(this.o.deals.maxDealMinor)} for now.`);
+        const lim = this.o.deals.limitFor(user, minor);
+        if (lim === 'too-big') return again(`⚠️ Orders can be up to ${this.m(this.o.deals.reachFor(user))} for now.`);
         if (reason.length < 3) return again('⚠️ Tell the buyer why, in a few words.');
         await this.o.deals.setMenuMode(user, 'seller');
+        if (lim === 'kyc') return this.kycFirst(user, 'accept', { kind: 'button', id: `scounter:${code}` });
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
-          await this.o.setChatState(user.phone, 'SELLER_BANK', { code, counterMinor: minor, counterReason: reason.slice(0, 150) });
+          const data = { code, counterMinor: minor, counterReason: reason.slice(0, 150) };
+          if (this.sellerNeedsKyc(user)) return this.kycFirst(user, 'seller', { kind: 'ask', state: 'SELLER_BANK', data, message: msg.askSellerBank() });
+          await this.o.setChatState(user.phone, 'SELLER_BANK', data);
           return this.done('🏦 One last step', 'Send your account number in the chat (for example 0123456789), then pick your bank.', 'Then we send the buyer your new price.');
         }
         await this.o.deals.counterAsSeller(code, user, acct.id, minor, reason);
@@ -750,7 +758,9 @@ export class OrdersFlow {
       }
       case 'accept': {
         await this.o.deals.setMenuMode(user, 'seller');
+        if (this.o.deals.limitFor(user, deal.price_minor) === 'kyc') return this.kycFirst(user, 'accept', { kind: 'button', id: `saccept:${code}` });
         const acct = await this.o.deals.defaultBankAccount(user.id);
+        if (!acct && this.sellerNeedsKyc(user)) return this.kycFirst(user, 'seller', { kind: 'button', id: `saccept:${code}` });
         if (!acct) {
           await this.o.setChatState(user.phone, 'SELLER_BANK', { code });
           return this.done('🏦 One last step', 'Send your account number in the chat (for example 0123456789), then pick your bank.', 'Then the order is accepted.');
@@ -797,6 +807,7 @@ export class OrdersFlow {
       // ----- buyer -----
       case 'baccept': {
         await this.o.deals.setMenuMode(user, 'buyer');
+        if (this.o.deals.limitFor(user, deal.price_minor) === 'kyc') return this.kycFirst(user, 'pay', { kind: 'button', id: `baccept:${code}` });
         const r = await this.o.deals.acceptAsBuyer(code, user, String(p.address ?? ''));
         if (r === 'need-address') return this.orderScreen(user, deal, { primary: 'baccept', label: 'Accept order', note: 'Where should it be delivered?', warn: '⚠️ Type your delivery address (street, area and city), then accept.' });
         if (r === 'closed') return this.done('😕 Not available', 'This order isn\'t waiting for you any more. Check the chat.');
@@ -806,6 +817,7 @@ export class OrdersFlow {
         await this.o.deals.declineAsBuyer(code, user);
         return this.done('Order declined', 'The seller has been told. No money moved.');
       case 'pay':
+        if (this.o.deals.limitFor(user, deal.price_minor) === 'kyc') return this.kycFirst(user, 'pay', { kind: 'button', id: `pay:${code}` });
         await this.o.deals.requestPayment(code, user);
         return this.done('💳 Payment details sent', 'Your money stays with Hoolam until you\'re happy.', 'The account to pay into is in the chat.');
       case 'cancel':
@@ -974,6 +986,15 @@ export class OrdersFlow {
   private async codeScreen(d: Deal, error: string | null): Promise<Res> {
     if (d.status !== 'SHIPPED' || !d.handover_code || d.handed_over_at) return this.done('Nothing to do', `Order ${d.code} isn't waiting for a handover code.`);
     return { screen: 'CODE', data: { code: d.code, heading: `🔑 ${await this.buyerFirst(d)} · ${d.code} · ${d.item}`.slice(0, 80), error: error ?? '', has_error: !!error } };
+  }
+
+  private sellerNeedsKyc(user: User): boolean { return this.o.deals.kycOn && !isVerified(user); }
+
+  /** Above their limit (or a seller's first payout account): the ID check happens in the chat, then the step carries on. */
+  private async kycFirst(user: User, why: KycWhy, next: KycNext): Promise<Res> {
+    if (!this.o.startKyc) return this.done('🪪 ID check needed', 'Please do this step in the chat.');
+    await this.o.startKyc(user, why, next);
+    return this.done('🪪 Quick ID check first', 'We\'ve sent it to the chat. It takes a minute, and you only do it once.', why === 'seller' ? 'Then add your payout account.' : 'Then this order carries on.');
   }
 
   /** The last screen. `important` is shown in bold under the message. */

@@ -53,6 +53,7 @@ export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: 
   const config = loadConfig({
     DATABASE_URL: 'unused', ADMIN_TOKEN: 'test-admin-token-123456', PAYMENT_PROVIDER: 'fake', WHATSAPP_DRY_RUN: 'true',
     WHATSAPP_PUBLIC_NUMBER: '2349000000000',
+    KYC_PROVIDER: 'off', // ID checks are tested on their own (test/kyc.test.ts turns on the pretend checker)
     ...opts.env,
   } as NodeJS.ProcessEnv);
   const provider = new FakeProvider();

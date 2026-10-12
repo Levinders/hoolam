@@ -1,3 +1,4 @@
+import { kycFlowJson, kycFlowName } from './kyc-flow.js';
 import { createHash } from 'node:crypto';
 import { buyEditFlowJson, buyEditFlowName, buyFlowJson, buyFlowName, sellEditFlowJson, sellEditFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
 import { ordersFlowJson } from './orders-flow.js';
@@ -327,6 +328,11 @@ export async function ensureBuyEditFlow(o: MetaSetupOptions, json = buyEditFlowJ
 /** Makes sure the seller's form exists on Meta. */
 export async function ensureSellFlow(o: MetaSetupOptions, json = sellFlowJson()): Promise<string | null> {
   return ensureFlow(o, json, sellFlowName(json), 'seller form');
+}
+
+/** The ID check form (BVN or NIN, number, date of birth). */
+export async function ensureKycFlow(o: MetaSetupOptions, json = kycFlowJson()): Promise<string | null> {
+  return ensureFlow(o, json, kycFlowName(json), 'ID check form');
 }
 
 /** The seller's form filled in with their answers, for "Edit order". */

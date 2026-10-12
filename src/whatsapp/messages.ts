@@ -114,6 +114,16 @@ export function expiryText(at: Date, now = new Date()): string {
 }
 const withMenu = (text: string): Outbound => ({ kind: 'buttons', text, buttons: [{ id: 'menu:open', title: 'Main menu' }] });
 
+/** What someone was doing when the ID check came up. */
+export type KycWhy = 'order' | 'accept' | 'pay' | 'seller' | 'payout';
+const kycWhyText = (why: KycWhy, l: { noId: Money; verified: Money }): string => ({
+  order: `🪪 *Quick ID check, once*\n\nOrders above *${m(l.noId)}* need your ID checked. You do it once, then you can do orders up to *${m(l.verified)}*.`,
+  accept: `🪪 *Quick ID check, once*\n\nThis order is above *${m(l.noId)}*, so we check your ID before you accept. You do it once. The order waits for you.`,
+  pay: `🪪 *Quick ID check, once*\n\nThis order is above *${m(l.noId)}*, so we check your ID before you pay. You do it once. The order waits for you.`,
+  seller: '🪪 *One step before your payout account*\n\nWe check every seller\'s ID once. Then your payout account must be in the same name. Buyers see *Verified seller* on your trust card.',
+  payout: '🪪 *One step before we pay you*\n\nWe check every seller\'s ID once. Then your money goes to an account in your name.',
+}[why]);
+
 export const msg = {
   moneyText: (x: Money): string => m(x),
   /** First time we meet someone: the story in four lines, and one question: buying or selling? */
@@ -219,6 +229,7 @@ export const msg = {
   /** One line, shown right above "Pay now". */
   trustLine: (t: SellerStats): string => {
     const parts = [`🛡️ *${t.name}*`];
+    if (t.verified) parts.push('☑️ *Verified seller*');
     if (t.isNew) parts.push('🌱 New on Hoolam');
     if (t.completed) parts.push(`✅ ${t.completed} order${t.completed === 1 ? '' : 's'}`);
     if (t.rated >= 5) parts.push(`👍 ${Math.round((100 * t.happy) / t.rated)}%`);
@@ -228,7 +239,9 @@ export const msg = {
 
   /** The full card, as text. */
   trustCardText: (t: SellerStats): string => {
-    const lines = [`🛡️ *${t.name}*${t.city ? ' · ' + t.city : ''}`, `On Hoolam since ${t.since.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`, ''];
+    const lines = [`🛡️ *${t.name}*${t.city ? ' · ' + t.city : ''}`, `On Hoolam since ${t.since.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`];
+    if (t.verified) lines.push('☑️ *Verified seller*: ID and bank account name checked by Hoolam');
+    lines.push('');
     if (t.isNew) lines.push(`🌱 New on Hoolam: ${t.completed ? `${t.completed} order${t.completed === 1 ? '' : 's'} so far` : 'no completed orders yet'}`);
     else lines.push(`✅ ${t.completed} orders completed`);
     if (t.buyers > 1) lines.push(`👥 ${t.buyers} different buyers`);
@@ -928,6 +941,75 @@ export const msg = {
   }),
   buyerRefunded: (code: string, amount: Money, bankName: string, sellerName?: string | null): Outbound => withMenu(`💸 ${ref(code, sellerName)}: your refund of *${m(amount)}* has been sent to your ${bankName} account.`),
   sellerRefunded: (code: string, buyerName?: string | null): Outbound => ({ kind: 'text', text: `💸 ${ref(code, buyerName)} has been refunded to the buyer.` }),
+
+  // ===== ID CHECK (KYC): once per person =====
+  /** Why we're asking, then BVN or NIN. `why`: what they were doing when the check came up. */
+  kycIntro: (why: KycWhy, limits: { noId: Money; verified: Money }, test = false): Outbound => ({
+    kind: 'buttons',
+    text: `${kycWhyText(why, limits)}\n\nChoose *BVN* or *NIN*. You'll need the number and your date of birth.\n\n🔒 We store only the result, never your BVN or NIN.${test ? '\n\n_TEST MODE: any 11 digits pass. 00000000000 is not found._' : ''}`,
+    buttons: [{ id: 'kyc:bvn', title: 'Use BVN' }, { id: 'kyc:nin', title: 'Use NIN' }, { id: 'kyc:later', title: 'Not now' }],
+  }),
+  /** The same, as the WhatsApp form (BVN or NIN, the number and date of birth on one screen). */
+  kycForm: (flowId: string, mode: 'draft' | 'published', why: KycWhy, limits: { noId: Money; verified: Money }, test = false): Outbound => ({
+    kind: 'form',
+    header: '🪪 Quick ID check',
+    text: `${kycWhyText(why, limits)}\n\n🔒 We store only the result, never your BVN or NIN.${test ? '\n\n_TEST MODE: any 11 digits pass. 00000000000 is not found._' : ''}`,
+    footer: 'Prefer typing? Reply BVN or NIN.',
+    cta: 'Check my ID',
+    flowId, flowToken: 'kyc:v1', screen: 'ID', mode,
+  }),
+  kycAskDob: (method: 'BVN' | 'NIN'): Outbound => ({ kind: 'text', text: `📅 What's your *date of birth*, as it is on your ${method}?\n\nFor example: _25/12/1995_` }),
+  kycBadDob: (): Outbound => ({ kind: 'text', text: 'Please type your date of birth like this: _25/12/1995_ (day, month, year).' }),
+  kycAskNumber: (method: 'BVN' | 'NIN'): Outbound => ({
+    kind: 'text',
+    text: `🔢 Now type your *11-digit ${method}*.\n\n${method === 'BVN' ? 'Don\'t know it? Dial *565*0# from the number linked to your bank.' : 'Don\'t know it? Dial *346# from the number you registered your NIN with.'}\n\n🔒 We store only the result, never your BVN or NIN.`,
+  }),
+  kycBadNumber: (method: 'BVN' | 'NIN'): Outbound => ({ kind: 'text', text: `A ${method} has *11 digits*. Please check it and type it again.` }),
+  kycDone: (name: string, verifiedMax: Money, seller: boolean): Outbound => ({
+    kind: 'text',
+    text: `✅ *You're verified, ${name}.*\n\nYou can now do orders up to *${m(verifiedMax)}*.${seller ? ' Your trust card now shows *Verified seller*.' : ''}`,
+  }),
+  kycFailed: (reason: 'BAD_NUMBER' | 'NOT_FOUND' | 'DOB_MISMATCH' | 'UNAVAILABLE' | 'NO_TRIES', method: 'BVN' | 'NIN', triesLeft: number): Outbound => {
+    const why = {
+      BAD_NUMBER: `😕 A ${method} has *11 digits*. Please check it.`,
+      NOT_FOUND: `😕 *We couldn't find that ${method}.* Check the 11 digits, or try your ${method === 'BVN' ? 'NIN' : 'BVN'} instead.`,
+      DOB_MISMATCH: `😕 *The date of birth doesn't match* what's on your ${method}. Check it and try again.`,
+      UNAVAILABLE: '⏳ *We can\'t check IDs right now.* Please try again in a few minutes. Nothing is lost.',
+      NO_TRIES: '😕 *You\'ve used your 3 tries for today.* Try again tomorrow, or talk to a rep and we\'ll help you.',
+    }[reason];
+    const left = reason === 'NOT_FOUND' || reason === 'DOB_MISMATCH' ? `\n\n${triesLeft} ${triesLeft === 1 ? 'try' : 'tries'} left today.` : '';
+    return {
+      kind: 'buttons', text: why + left,
+      buttons: reason === 'NO_TRIES' || triesLeft <= 0 ? [{ id: 'kyc:rep', title: 'Talk to a rep' }, { id: 'menu:open', title: 'Main menu' }]
+        : [{ id: 'kyc:retry', title: 'Try again' }, { id: 'kyc:rep', title: 'Talk to a rep' }],
+    };
+  },
+  /** ID checks aren't switched on: the limit without ID is the most for now. */
+  kycOff: (noId: Money): Outbound => ({
+    kind: 'buttons',
+    text: `For now, orders can be up to *${m(noId)}*. Please use a smaller price, or talk to a rep about a bigger order.`,
+    buttons: [{ id: 'menu:human', title: 'Talk to a rep' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  kycLater: (noId: Money, draft: boolean): Outbound => draft
+    ? { kind: 'buttons', text: `👍 No problem. Orders up to *${m(noId)}* don't need an ID check.\n\nType a smaller price to carry on, or check your ID any time.`, buttons: [{ id: 'kyc:retry', title: 'Check my ID' }, { id: 'menu:open', title: 'Main menu' }] }
+    : withMenu(`👍 No problem. You can check your ID any time: just tap the order again.\n\nOrders up to *${m(noId)}* don't need it.`),
+  /** A seller's payout is ready, but we check their ID first (once). */
+  sellerPayoutNeedsKyc: (code: string, amount: Money, buyerName?: string | null): Outbound => ({
+    kind: 'buttons',
+    text: `💰 ${ref(code, buyerName)}: *your money is ready.*\n\nBefore we pay you, we check your ID once. It takes a minute. Then *${m(amount)}* goes straight to your account.\n\n🔒 We store only the result, never your BVN or NIN.`,
+    buttons: [{ id: 'kyc:payout', title: 'Check my ID' }, { id: 'menu:human', title: 'Talk to a rep' }],
+  }),
+  /** Verified, but the payout account is in another name. */
+  payoutAccountMismatch: (code: string, amount: Money, accountName: string, idName: string, buyerName?: string | null): Outbound => ({
+    kind: 'text',
+    text: `💰 ${ref(code, buyerName)}: *${m(amount)}* is ready for you.\n\nYour payout account is in the name *${accountName}*, but your ID says *${idName}*. We pay only into an account in your own name.\n\nSend the *account number* of an account in your name, and we'll pay you right away. For example: _0123456789_`,
+  }),
+  /** A payout or refund account that isn't in the person's ID name. */
+  accountNotTheirs: (accountName: string, idName: string, refund: boolean): Outbound => ({
+    kind: 'buttons',
+    text: `⚠️ *This account is in another name.*\n\nIt belongs to *${accountName}*, but your ID says *${idName}*. ${refund ? 'Refunds' : 'Payouts'} go only to an account in your own name.\n\nSend another account number, like _0123456789_.`,
+    buttons: [{ id: 'menu:human', title: 'Talk to a rep' }],
+  }),
 
   // ----- misc -----
   cancelled: (code: string, otherName?: string | null): Outbound => withMenu(`${ref(code, otherName)} is cancelled. No money moved.`),

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { parseSocial, SOCIAL_KINDS, socialLink, type SocialKind, type SocialLink } from './socials.js';
 import type { Db } from './db.js';
+import { namesMatch } from './kyc.js';
 
 /**
  * THE TRUST CARD. Every number is counted from real deals paid through Hoolam, so it can't be faked
@@ -27,6 +28,7 @@ export interface SellerStats {
   rated: number;             // 👍 + 👎
   bankName: string | null;   // name on their payout account, as the bank gave it
   bankMatches: boolean;      // that name shares a name with their WhatsApp or business name
+  verified: boolean;         // ID checked (BVN/NIN) and their payout account is in that name: "Verified seller"
   isNew: boolean;
   slug: string | null;
   isPublic: boolean;
@@ -43,7 +45,7 @@ export class Trust {
   constructor(private readonly db: Db, private readonly includeTest = false) {}
 
   async seller(userId: string): Promise<SellerStats | null> {
-    const u = (await this.db.query(`SELECT u.id, u.display_name, u.business_name, u.city, u.created_at, u.profile_slug, u.profile_public,
+    const u = (await this.db.query(`SELECT u.id, u.display_name, u.business_name, u.city, u.created_at, u.profile_slug, u.profile_public, u.kyc_status, u.kyc_verified_at, u.kyc_name,
         u.social_instagram, u.social_tiktok, u.social_facebook, u.social_website, p.sha256 AS photo_sha
       FROM users u LEFT JOIN user_photos p ON p.user_id=u.id WHERE u.id=$1`, [userId])).rows[0];
     if (!u) return null;
@@ -84,6 +86,7 @@ export class Trust {
       rated: ratings.rows[0].rated,
       bankName,
       bankMatches: bankName ? namesOverlap(bankName, [u.display_name, u.business_name]) : false,
+      verified: u.kyc_status === 'VERIFIED' && !!u.kyc_verified_at && !!bankName && namesMatch(u.kyc_name, bankName),
       isNew: row.completed < 3,
       slug: u.profile_slug,
       isPublic: u.profile_public,

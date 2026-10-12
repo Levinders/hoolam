@@ -257,13 +257,14 @@ function FeePreview({ s }: { s: Draft }) {
 }
 
 export function LimitsPage() {
-  return <ValuesPage title="Limits" lede="The most a single order can be, before identity checks, and how many wrong handover codes a seller can enter." keys={['max_deal', 'handover_code_tries']}
+  return <ValuesPage title="Limits" lede="The most a single order can be without an ID check and once verified, and how many wrong handover codes a seller can enter." keys={['max_deal', 'max_deal_verified', 'handover_code_tries']}
     aside={() => (
       <section className="panel"><div className="panel-body stack" style={{ gap: 10 }}>
         <div className="aside-ic"><Gauge /></div>
         <h3>One person needs more?</h3>
         <p className="small muted">Raise the limit for a single buyer or seller on their page in <Link to="/people">Buyers &amp; sellers</Link>. Everyone else keeps this one.</p>
-        <p className="small muted">The website shows this limit next to the fee calculator.</p>
+        <p className="small muted">Above the limit without ID, the person checks their BVN or NIN once in the chat, then carries on. People waiting for a rep are in <Link to="/people?kind=review">Needs review</Link>.</p>
+        <p className="small muted">The website shows the limit without ID next to the fee calculator.</p>
       </div></section>
     )} />;
 }

@@ -4,6 +4,7 @@
   <h2>In short</h2>
   <ul>
     <li>We collect only what a safe order needs: your WhatsApp number and name, your orders, and the bank account you get paid or refunded into.</li>
+    <li>For bigger orders, and for every seller before their payout, we check your ID once with your BVN or NIN. We store only the result, never your BVN or NIN.</li>
     <li>We never sell your details, and we don’t use them for advertising.</li>
     <li>The other person in an order sees what they need to trust you. Your public page is shown only if you turn it on.</li>
     <li>We keep order and payment records for 7 years because Nigerian law and our payment partner require it. Everything else you can ask us to delete.</li>
@@ -24,6 +25,7 @@
       <tr><td>Your WhatsApp details</td><td data-h="Where it comes from">WhatsApp, when you message us</td><td data-h="Examples">Your phone number and WhatsApp profile name</td></tr>
       <tr><td>Your profile</td><td data-h="Where it comes from">You</td><td data-h="Examples">Business name, city</td></tr>
       <tr><td>Your orders</td><td data-h="Where it comes from">You and the other person in the order</td><td data-h="Examples">Item description, price, photos of the item, delivery date, proof of sending, every step of the order and when it happened</td></tr>
+      <tr><td>ID check result (only if you check your ID)</td><td data-h="Where it comes from">You, checked with our identity partner</td><td data-h="Examples">Whether it passed, the name on your ID, whether you used BVN or NIN, its last 4 digits, the date and the check’s reference number</td></tr>
       <tr><td>Bank details</td><td data-h="Where it comes from">You, checked with your bank</td><td data-h="Examples">Bank name, account number and account name, so we can pay or refund you</td></tr>
       <tr><td>Payments</td><td data-h="Where it comes from">Our payment partner</td><td data-h="Examples">Amounts, payment references, times, whether a transfer succeeded</td></tr>
       <tr><td>Messages with us</td><td data-h="Where it comes from">You</td><td data-h="Examples">Your messages and choices in the chat, problem reports, ratings and comments, messages to our team</td></tr>
@@ -32,7 +34,19 @@
     </tbody>
   </table></div>
   <p>If someone types your number to start an order with you, we receive your number from them and send you a single message about that order. If it wasn’t meant for you, tap “Not me” and we won’t message you about orders from others again.</p>
-  <p>We don’t collect your BVN, NIN or card details. If we ever need to check your identity, for example before larger orders, we will tell you first what we need and why.</p>
+  <p>We never store your BVN, NIN or card details.</p>
+</section>
+
+<section>
+  <h2 id="id-check">Checking your ID (BVN or NIN)</h2>
+  <p>We check your ID once, in the WhatsApp chat, when:</p>
+  <ul>
+    <li>you start, accept or pay for a single order above {{MAX_DEAL}} (after the check, a single order can be up to {{MAX_DEAL_VERIFIED}}); or</li>
+    <li>you sell on Hoolam: every seller checks their ID before adding a payout account, or before their next payout if they already have one.</li>
+  </ul>
+  <p>You choose your BVN or your NIN, and give the number and your date of birth. We send them to our identity partner, which checks them against the official records and tells us whether they match, with the name on the ID. <b>We store only the result, never your BVN or NIN</b>: whether it passed, the name on your ID, which one you used, its last 4 digits, the date and the check’s reference. The chat message that carried the number is blanked once it’s read.</p>
+  <p>Once you’ve checked your ID, we pay sellers, and refund buyers, only into a bank account in the same name. Sellers who have checked their ID show “Verified seller” on their trust card and public page, meaning their ID and bank account name were checked by Hoolam. It doesn’t show the name on the ID or any number.</p>
+  <p>You can try 3 times a day. If it doesn’t work, a rep can help you, and our team may check your ID another way and record that they did.</p>
 </section>
 
 <section>
@@ -44,6 +58,7 @@
       <tr><td>To decide problems between a buyer and a seller</td><td data-h="Legal basis">Performing our contract with you</td></tr>
       <tr><td>To keep records of orders and payments, and to answer lawful requests from authorities</td><td data-h="Legal basis">Complying with the law, including the Money Laundering (Prevention and Prohibition) Act 2022 and tax law</td></tr>
       <tr><td>To show your trust record to people about to order with you, and to spot and stop fraud and misuse</td><td data-h="Legal basis">Our legitimate interest, and yours, in safe trading</td></tr>
+      <tr><td>To check your ID (BVN or NIN) for orders above {{MAX_DEAL}} and before seller payouts, and to make sure money goes only to an account in your own name</td><td data-h="Legal basis">Complying with the law (knowing who we pay, under anti-money-laundering rules), and our legitimate interest, and yours, in safe trading</td></tr>
       <tr><td>To show your public seller page, photo and links</td><td data-h="Legal basis">Your consent: you turn it on, and you can turn it off at any time</td></tr>
       <tr><td>To fix problems and improve Hoolam</td><td data-h="Legal basis">Our legitimate interest in a working service</td></tr>
     </tbody>
@@ -66,6 +81,7 @@
   <ul>
     <li><strong>Meta Platforms</strong>, for WhatsApp messaging (the WhatsApp Business Platform);</li>
     <li><strong>{{BANK_PARTNER}}</strong>, through {{PAY_SERVICE}}, for receiving payments, holding money, checking account names and sending payouts and refunds;</li>
+    <li><strong>Prembly</strong>, our identity partner, for checking a BVN or NIN when you check your ID;</li>
     <li><strong>Render</strong>, which hosts our servers and website; and</li>
     <li><strong>Supabase</strong>, which hosts our database.</li>
   </ul>
@@ -85,6 +101,7 @@
     <thead><tr><th>What</th><th>How long</th></tr></thead>
     <tbody>
       <tr><td>Order and payment records, including the bank accounts used</td><td data-h="How long">7 years after the order ends, as Nigerian law and our payment partner require</td></tr>
+      <tr><td>Your ID check result (never the BVN or NIN itself)</td><td data-h="How long">7 years after your last order, as anti-money-laundering law requires</td></tr>
       <tr><td>Problem reports and how they were decided</td><td data-h="How long">7 years after the order ends</td></tr>
       <tr><td>Your profile, photo, links and public page</td><td data-h="How long">Until you remove them or ask us to delete your data</td></tr>
       <tr><td>Your place in a chat conversation</td><td data-h="How long">Only until the conversation moves on</td></tr>

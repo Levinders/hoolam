@@ -1,4 +1,4 @@
-import { ArrowUpRight, CirclePause, ChevronRight, Gauge, Globe, ImageOff, Link2Off, Play, Search, Users } from 'lucide-react';
+import { ArrowUpRight, BadgeCheck, CirclePause, ChevronRight, Eraser, Gauge, Globe, IdCard, ImageOff, Link2Off, Play, Search, ShieldX, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, post } from '../api';
@@ -24,7 +24,7 @@ export function People() {
       <section className="panel">
         <div className="toolbar">
           <div className="input-icon"><Search aria-hidden="true" /><input className="input" placeholder="Name, shop name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search people" /></div>
-          <Seg value={kind} onChange={(v) => set('kind', v === 'all' ? null : v)} options={[{ value: 'all', label: 'Everyone' }, { value: 'sellers', label: 'Sellers' }, { value: 'buyers', label: 'Buyers' }, { value: 'paused', label: 'Paused' }]} />
+          <Seg value={kind} onChange={(v) => set('kind', v === 'all' ? null : v)} options={[{ value: 'all', label: 'Everyone' }, { value: 'sellers', label: 'Sellers' }, { value: 'buyers', label: 'Buyers' }, { value: 'paused', label: 'Paused' }, { value: 'review', label: 'Needs review' }, { value: 'verified', label: 'ID verified' }]} />
         </div>
         {error ? <div className="panel-body"><ErrorBanner error={error} onRetry={reload} /></div>
           : loading && !data ? <SkeletonRows rows={8} />
@@ -38,7 +38,7 @@ export function People() {
                     {data.rows.map((u: any) => (
                       <tr key={u.id} className="link" tabIndex={0} onClick={() => nav(`/people/${u.id}`)} onKeyDown={(e) => { if (e.key === 'Enter') nav(`/people/${u.id}`); }}>
                         <td><div className="row"><Avatar name={u.business_name || u.display_name} gold={u.sales > 0} /><div><div className="cell-main">{u.business_name || u.display_name || 'No name'}</div>
-                          <div className="cell-sub">{u.business_name && u.display_name ? u.display_name : u.city ?? ''}{u.blocked && <span className="pill red plain" style={{ height: 18, marginLeft: 6 }}>Paused</span>}{u.profile_public && <span className="pill teal plain" style={{ height: 18, marginLeft: 6 }}>Public page</span>}</div></div></div></td>
+                          <div className="cell-sub">{u.business_name && u.display_name ? u.display_name : u.city ?? ''}{u.blocked && <span className="pill red plain" style={{ height: 18, marginLeft: 6 }}>Paused</span>}{u.profile_public && <span className="pill teal plain" style={{ height: 18, marginLeft: 6 }}>Public page</span>}{u.kyc_status === 'VERIFIED' && <span className="pill green plain" style={{ height: 18, marginLeft: 6 }}>ID verified</span>}{u.kyc_status === 'REVIEW' && <span className="pill gold plain" style={{ height: 18, marginLeft: 6 }} title={u.kyc_review_reason ?? ''}>Needs review</span>}</div></div></div></td>
                         <td className="num">{phone(u.phone)}</td>
                         <td className="r num">{u.sales || <span className="faint">0</span>}</td>
                         <td className="r num">{u.purchases || <span className="faint">0</span>}</td>
@@ -62,13 +62,16 @@ export function Person() {
   const { can } = useAuth();
   const toast = useToast();
   const { data, error, loading, reload } = useData<any>(`/people/${id}`);
-  const [open, setOpen] = useState<null | 'pause' | 'cap' | 'photo' | { social: string; label: string }>(null);
+  const [open, setOpen] = useState<null | 'pause' | 'cap' | 'photo' | 'kyc-approve' | 'kyc-remove' | 'kyc-clear' | { social: string; label: string }>(null);
   const [cap, setCap] = useState<string>('');
+  const [idName, setIdName] = useState<string>('');
   if (error) return <div className="page"><ErrorBanner error={error} onRetry={reload} /></div>;
   if (loading || !data) return <div className="page"><Skeleton h={30} w={300} /><div className="grid side" style={{ marginTop: 20 }}><Skeleton h={300} /><Skeleton h={300} /></div></div>;
   const u = data.user, s = data.seller, b = data.buyer;
   const name = u.business_name || u.display_name || u.phone;
   const capNow = u.deal_cap_minor ? Number(u.deal_cap_minor) : null;
+  const k = data.kyc;
+  const verified = k?.status === 'VERIFIED';
   const stat = (label: string, value: string) => <div><div className="small muted">{label}</div><div className="money" style={{ fontSize: 20, fontWeight: 600 }}>{value}</div></div>;
 
   return (
@@ -153,9 +156,47 @@ export function Person() {
               </div>
             </section>
           )}
+          {k && (
+            <section className="panel">
+              <div className="panel-head"><h2>ID check</h2>
+                {verified ? <span className="pill green plain" style={{ marginLeft: 'auto' }}>Verified</span>
+                  : k.status === 'REVIEW' ? <span className="pill gold plain" style={{ marginLeft: 'auto' }}>Needs review</span>
+                  : <span className="pill grey plain" style={{ marginLeft: 'auto' }}>Not verified</span>}</div>
+              <div className="panel-body stack" style={{ gap: 12 }}>
+                {k.status === 'REVIEW' && <div className="banner gold"><IdCard /><div><b>Why:</b> {k.reviewReason ?? '—'}. Check their ID with them (a rep chat or call), then approve it or clear this.</div></div>}
+                {verified ? (
+                  <dl className="kv">
+                    <dt>Name on ID</dt><dd><b>{k.name}</b></dd>
+                    <dt>Checked with</dt><dd>{k.method === 'MANUAL' ? 'Approved by the team' : `${k.method} ••••${k.last4 ?? ''}`}</dd>
+                    <dt>Verified on</dt><dd>{dateTime(k.at)}</dd>
+                    <dt>Reference</dt><dd className="num small">{k.reference ?? '—'}</dd>
+                  </dl>
+                ) : <p className="small muted">{k.provider === 'off' ? 'ID checks are switched off (no Prembly keys yet), so they can do orders up to the limit without ID.' : 'Not checked yet. They check their BVN or NIN in the chat when an order goes above the limit without ID, and sellers before their payout account.'}</p>}
+                {k.heldPayouts?.length > 0 && <div className="banner gold"><Gauge /><div><b>Payouts waiting for this:</b> {k.heldPayouts.map((p: any, i: number) => <span key={p.id}>{i ? ', ' : ''}<Link to={`/deals/${p.code}`}>{p.code}</Link> ({money(Number(p.amount_minor))})</span>)}. They go out once the ID is checked and the payout account is in the same name.</div></div>}
+                {k.checks?.length > 0 && (
+                  <div>
+                    <div className="small muted" style={{ marginBottom: 6 }}>Recent tries{!verified ? ` · ${k.triesLeft} left today` : ''}</div>
+                    <ol className="timeline">{k.checks.map((c: any, i: number) => (
+                      <li key={i}><span className="ic staff"><IdCard /></span><div className="what">{c.method} ••••{c.last4} · {({ VERIFIED: 'Passed', NOT_FOUND: 'Not found', DOB_MISMATCH: 'Date of birth didn\'t match', UNAVAILABLE: 'Checker unavailable' } as Record<string, string>)[c.result] ?? c.result}</div><div className="meta">{dateTime(c.created_at)}{c.reference ? ` · ${c.reference}` : ''}</div></li>
+                    ))}</ol>
+                  </div>
+                )}
+                {can('user.kyc') && (
+                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    {!verified && <Button size="sm" icon={BadgeCheck} onClick={() => { setIdName(k.name ?? data.banks?.find((a: any) => a.is_default)?.account_name ?? ''); setOpen('kyc-approve'); }}>Approve ID</Button>}
+                    {verified && <Button size="sm" variant="danger" icon={ShieldX} onClick={() => setOpen('kyc-remove')}>Remove verification</Button>}
+                    {k.status === 'REVIEW' && <Button size="sm" variant="ghost" icon={Eraser} onClick={() => setOpen('kyc-clear')}>Clear review</Button>}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
           <section className="panel">
             <div className="panel-head"><h2>Limits</h2></div>
-            <div className="panel-body"><dl className="kv"><dt>Largest order</dt><dd className="money">{money(capNow ?? data.normalCapMinor)} {capNow ? <span className="pill gold plain">Custom</span> : <span className="muted small">normal limit</span>}</dd></dl></div>
+            <div className="panel-body"><dl className="kv">
+              <dt>Largest order</dt><dd className="money">{money(capNow ?? (verified ? data.verifiedCapMinor : data.normalCapMinor))} {capNow ? <span className="pill gold plain">Custom</span> : <span className="muted small">{verified ? 'verified limit' : 'limit without ID'}</span>}</dd>
+              {!capNow && !verified && <><dt>Once verified</dt><dd className="money">{money(data.verifiedCapMinor)}</dd></>}
+            </dl></div>
           </section>
           <section className="panel">
             <div className="panel-head"><h2>Payout accounts</h2></div>
@@ -193,8 +234,24 @@ export function Person() {
         reasonPlaceholder="e.g. Links to someone else's shop"
         onClose={() => setOpen(null)}
         onConfirm={async (reason) => { await api(`/people/${id}/social`, { method: 'PUT', body: { kind: open.social, value: null, reason } }); toast({ kind: 'ok', title: 'Link removed' }); reload(); }} />}
+      {open === 'kyc-approve' && <ConfirmAction icon={BadgeCheck} tone="teal" title={`Approve ${name}'s ID?`} confirmLabel="Approve ID"
+        description="Only after you've checked their BVN or NIN another way. Their payouts must still go to an account in this name, and their trust card shows Verified seller."
+        reasonPlaceholder="e.g. Checked their NIN slip on a video call"
+        extra={<div className="field"><label htmlFor="idname">Full name on their ID</label><input id="idname" className="input" placeholder="e.g. Chidera Anita Johnson" value={idName} onChange={(e) => setIdName(e.target.value)} /></div>}
+        onClose={() => setOpen(null)}
+        onConfirm={async (reason) => { await post(`/people/${id}/kyc`, { action: 'approve', name: idName, reason }); toast({ kind: 'ok', title: 'ID approved' }); reload(); }} />}
+      {open === 'kyc-remove' && <ConfirmAction icon={ShieldX} tone="danger" title="Remove their verification?" confirmLabel="Remove verification"
+        description="They lose Verified seller and go back to the limit without ID. Seller payouts wait until they check their ID again."
+        reasonPlaceholder="e.g. The ID belongs to someone else"
+        onClose={() => setOpen(null)}
+        onConfirm={async (reason) => { await post(`/people/${id}/kyc`, { action: 'remove', reason }); toast({ kind: 'ok', title: 'Verification removed' }); reload(); }} />}
+      {open === 'kyc-clear' && <ConfirmAction icon={Eraser} tone="gold" title="Clear Needs review?" confirmLabel="Clear review"
+        description="They stay not verified, and can try the ID check again in the chat."
+        reasonPlaceholder="e.g. Spoke to them, they'll try their NIN tomorrow"
+        onClose={() => setOpen(null)}
+        onConfirm={async (reason) => { await post(`/people/${id}/kyc`, { action: 'clear', reason }); toast({ kind: 'ok', title: 'Review cleared' }); reload(); }} />}
       {open === 'cap' && <ConfirmAction icon={Gauge} tone="gold" title="Set their order limit" confirmLabel="Save limit"
-        description={<>The most one order can be for {name}. Leave it empty to use the normal limit ({money(data.normalCapMinor)}).</>}
+        description={<>The most one order can be for {name}, with or without an ID check. Leave it empty to use the normal limits ({money(data.normalCapMinor)} without ID, {money(data.verifiedCapMinor)} once verified).</>}
         extra={<div className="field"><label htmlFor="cap">Largest order (₦)</label><input id="cap" className="input" inputMode="numeric" placeholder="e.g. 200000" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^\d]/g, ''))} /></div>}
         onClose={() => setOpen(null)}
         onConfirm={async (reason) => { await post(`/people/${id}/cap`, { cap: cap ? Number(cap) : null, reason }); toast({ kind: 'ok', title: 'Order limit saved' }); reload(); }} />}

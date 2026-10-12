@@ -5,6 +5,7 @@
   <ul>
     <li>Hoolam holds a buyer’s money until they receive what they paid for, then pays the seller. It all happens in WhatsApp.</li>
     <li>You must be 18 or older, in Nigeria, and use your own phone number and your own bank account.</li>
+    <li>Orders above {{MAX_DEAL}}, and every seller’s payouts, need a one-time ID check with your BVN or NIN.</li>
     <li>Only sell things that are legal and really yours to sell. Tell the truth in every order.</li>
     <li>The rules for the money itself are in our <a href="/legal/holding-agreement/">Holding agreement</a>, which is part of these terms.</li>
     <li>We can stop helping anyone who cheats, lies or breaks these rules.</li>
@@ -42,7 +43,7 @@
     <li>be at least 18 years old and able to enter into a binding agreement;</li>
     <li>be buying or selling in Nigeria, in naira;</li>
     <li>use a WhatsApp number that is yours;</li>
-    <li>receive money only into a Nigerian bank account in your own name (or, for a registered business, in the business’s name); and</li>
+    <li>receive money only into a Nigerian bank account in your own name (once you’ve checked your ID, in the name on your ID); and</li>
     <li>not have been blocked from Hoolam before.</li>
   </ul>
 </section>
@@ -56,8 +57,19 @@
 
 <section>
   <h2 id="deals">Orders and money</h2>
-  <p>How orders are started, paid, held, released and refunded, and how our fee works, is set out in our <a href="/legal/holding-agreement/">Holding agreement</a>. In summary: our fee is {{FEE_RATE}} of the price, never less than {{FEE_MIN}} and never more than {{FEE_MAX}}, and whoever starts the order pays it. The other side pays a flat transaction fee by order size. For now a single order can be up to {{MAX_DEAL}}.</p>
-  <p>We may ask you for proof of identity at any time, including before larger orders, and we may decline or pause an order until you provide it.</p>
+  <p>How orders are started, paid, held, released and refunded, and how our fee works, is set out in our <a href="/legal/holding-agreement/">Holding agreement</a>. In summary: our fee is {{FEE_RATE}} of the price, never less than {{FEE_MIN}} and never more than {{FEE_MAX}}, and whoever starts the order pays it. The other side pays a flat transaction fee by order size. A single order can be up to {{MAX_DEAL}} without an ID check, and up to {{MAX_DEAL_VERIFIED}} once you’ve checked your ID.</p>
+</section>
+
+<section>
+  <h2 id="id-check">Checking your ID</h2>
+  <ul>
+    <li><strong>Bigger orders.</strong> To start, accept or pay for a single order above {{MAX_DEAL}}, you first check your ID once in the chat, with your BVN or your NIN (your choice) and your date of birth. The order waits for you.</li>
+    <li><strong>Sellers.</strong> Every seller checks their ID once before adding a payout account. If you already sell on Hoolam, you check it before your next payout, and that payout waits until you do.</li>
+    <li><strong>Your own name.</strong> Once you’ve checked your ID, we pay you, or refund you, only into a bank account in the same name as your ID. Small differences, like the order of your names or a middle name, are fine.</li>
+    <li><strong>Tries.</strong> You can try 3 times a day. If it still doesn’t work, a rep can help, and we may check your ID another way.</li>
+    <li><strong>Verified seller.</strong> A seller who has checked their ID, with a payout account in the same name, shows “Verified seller” on their trust card. It means Hoolam checked their ID and bank account name. It isn’t a guarantee about any order.</li>
+  </ul>
+  <p>We store only the result of the check, never your BVN or NIN. Our <a href="/legal/privacy/#id-check">Privacy policy</a> explains what we keep. We may also ask you for proof of identity at other times, for example if something looks wrong, and we may pause an order or a payout until you provide it.</p>
 </section>
 
 <section>

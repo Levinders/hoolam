@@ -4,12 +4,13 @@ import { formatMoney, parseAmount, toMinor, type Currency } from '../money.js';
 import { PRICING, quote, type FeeBand } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
 import type { PaymentProvider } from '../payments/provider.js';
-import { DealError, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
+import { DealError, isVerified, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
+import { namesMatch, readDob, type KycMethod, type KycService } from '../kyc.js';
 import { CATEGORIES, categoryTitle, isCategory } from '../deals/categories.js';
 import type { Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
 import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
-import { localPhone, msg, STATUS_WORDS } from './messages.js';
+import { localPhone, msg, STATUS_WORDS, type KycWhy } from './messages.js';
 import { lagosDate, parseDay } from '../phone.js';
 import { readBuyForm, type Side } from './buy-flow.js';
 import { normalizePhone } from './inbound.js';
@@ -31,7 +32,19 @@ type State =
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SELLER_COUNTER_REASON' | 'SHIP_PROOF'
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
-  | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE' | 'BUYER_ADDRESS';
+  | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE' | 'BUYER_ADDRESS'
+  | 'KYC_METHOD' | 'KYC_DOB' | 'KYC_NUMBER';
+
+/**
+ * Where to pick up after an ID check: tap the same button again, carry on with the new order, ask the next
+ * question (the payout account), or send the payouts that were waiting.
+ */
+export type KycNext =
+  | { kind: 'button'; id: string }
+  | { kind: 'draft'; draft: Record<string, any> }
+  | { kind: 'ask'; state: string; data: Record<string, any>; message: Outbound }
+  | { kind: 'payout' }
+  | { kind: 'none' };
 interface Session { state: State; data: Record<string, any>; isNew: boolean }
 
 export interface FlowOptions {
@@ -59,6 +72,10 @@ export interface FlowOptions {
   publicBaseUrl?: string;
   /** Hoolam's WhatsApp number (console), so nobody can use it as the other person's number. */
   hoolamNumber?: () => string;
+  /** ID checks (BVN/NIN). */
+  kyc?: KycService;
+  /** The ID check form, once it exists on Meta. Null = ask in the chat instead. */
+  kycForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** Fetches photos people send (for a seller's page photo). */
   media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
   log?: (line: string) => void;
@@ -129,9 +146,10 @@ export class Conversation {
       await this.route(m, s, user);
     } catch (e) {
       if (e instanceof DealError) {
-        const map: Record<DealError['reason'], Outbound> = {
+        if (e.reason === 'NEEDS_KYC') return void (await this.kycFromError(m, s, user));
+        const map: Record<Exclude<DealError['reason'], 'NEEDS_KYC'>, Outbound> = {
           NOT_FOUND: msg.dealNotFound(), NOT_ALLOWED: msg.notAllowed(), OWN_DEAL: msg.ownDeal(),
-          TAKEN: msg.dealTaken(), CLOSED: msg.notAllowed(), TOO_BIG: msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }),
+          TAKEN: msg.dealTaken(), CLOSED: msg.notAllowed(), TOO_BIG: msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency }),
         };
         await this.send(m.phone, map[e.reason]);
         return;
@@ -164,8 +182,11 @@ export class Conversation {
           await this.save(m.phone, 'HUMAN_MESSAGE', { code });
           return this.send(m.phone, msg.askSellerProblem(code!, await this.buyerNameFor(code!)));
         case 'account':
+          if (this.sellerNeedsKyc(user)) return this.startKyc(m.phone, user, 'seller', { kind: 'ask', state: 'ACCOUNT_BANK', data: {}, message: msg.askNewAccount() });
           await this.save(m.phone, 'ACCOUNT_BANK');
           return this.send(m.phone, msg.askNewAccount());
+        // ----- ID check -----
+        case 'kyc': return this.kycButton(m.phone, s, user, code ?? '');
         case 'pay': await this.o.deals.setMenuMode(user, 'buyer'); return this.o.deals.requestPayment(code!, user);
         case 'newacct': return this.o.deals.requestPayment(code!, user, true);
         case 'cancel': return this.o.deals.cancelByBuyer(code!, user);
@@ -281,6 +302,7 @@ export class Conversation {
     if (m.type === 'form') {
       const token = String(m.form?.flow_token ?? '');
       if (token.startsWith('o1.')) return; // "My orders" closed: everything it did was already sent in the chat
+      if (token.startsWith('kyc')) return this.kycFormSubmitted(m, s, user);
       const side: Side = token.startsWith('sell') ? 'sell' : 'buy';
       // an edited order keeps its photos unless new ones were added
       const kept = /^(buyedit|selledit)/.test(token) && Array.isArray(s.data.photos) ? s.data.photos : [];
@@ -344,11 +366,34 @@ export class Conversation {
         await this.save(m.phone, 'IDLE');
         return this.acceptWithAddress(m.phone, user, s.data.code, text.slice(0, 300));
       }
+      case 'KYC_METHOD': {
+        const method: KycMethod | null = /\bbvn\b/i.test(text) ? 'BVN' : /\bv?nin\b/i.test(text) ? 'NIN' : null;
+        if (/^\d[\d\s]{9,}$/.test(text)) await this.forgetMessage(m.id); // a number typed too early: never kept
+        if (!method) return this.startKyc(m.phone, user, s.data.why ?? 'order', s.data.kycNext ?? { kind: 'none' });
+        await this.save(m.phone, 'KYC_DOB', { ...s.data, method });
+        return this.send(m.phone, msg.kycAskDob(method));
+      }
+      case 'KYC_DOB': {
+        if (/^\d[\d\s]{9,}$/.test(text)) await this.forgetMessage(m.id);
+        const dob = readDob(text);
+        if (!dob) return this.send(m.phone, msg.kycBadDob());
+        await this.save(m.phone, 'KYC_NUMBER', { ...s.data, dob });
+        return this.send(m.phone, msg.kycAskNumber(s.data.method ?? 'BVN'));
+      }
+      case 'KYC_NUMBER': {
+        await this.forgetMessage(m.id); // we never keep the BVN or NIN, not even the message that carried it
+        const digits = text.replace(/\D/g, '');
+        const method: KycMethod = s.data.method === 'NIN' ? 'NIN' : 'BVN';
+        if (digits.length !== 11) return this.send(m.phone, msg.kycBadNumber(method));
+        return this.runKyc(m.phone, user, method, digits, s.data.dob, s.data);
+      }
       case 'SELLER_COUNTER_PRICE': {
         const major = parseAmount(text);
         if (!major) return this.send(m.phone, msg.badPrice());
         const counterMinor = toMinor(major, this.o.currency);
-        if (counterMinor > this.maxDeal(user)) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
+        const lim = this.o.deals.limitFor(user, counterMinor);
+        if (lim === 'too-big') return this.send(m.phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency }));
+        if (lim === 'kyc') return this.startKyc(m.phone, user, 'accept', { kind: 'ask', state: 'SELLER_COUNTER_REASON', data: { code: s.data.code, counterMinor }, message: msg.askCounterReason({ minor: counterMinor, currency: this.o.currency }) });
         await this.save(m.phone, 'SELLER_COUNTER_REASON', { code: s.data.code, counterMinor });
         return this.send(m.phone, msg.askCounterReason({ minor: counterMinor, currency: this.o.currency }));
       }
@@ -360,7 +405,9 @@ export class Conversation {
           await this.save(m.phone, 'IDLE');
           return this.o.deals.counterAsSeller(s.data.code, user, acct.id, s.data.counterMinor, reason);
         }
-        await this.save(m.phone, 'SELLER_BANK', { code: s.data.code, counterMinor: s.data.counterMinor, counterReason: reason });
+        const data = { code: s.data.code, counterMinor: s.data.counterMinor, counterReason: reason };
+        if (this.sellerNeedsKyc(user)) return this.startKyc(m.phone, user, 'seller', { kind: 'ask', state: 'SELLER_BANK', data, message: msg.askSellerBank() });
+        await this.save(m.phone, 'SELLER_BANK', data);
         return this.send(m.phone, msg.askSellerBank());
       }
       case 'SHIP_PROOF': {
@@ -374,7 +421,7 @@ export class Conversation {
       case 'REFUND_BANK':
       case 'ACCOUNT_BANK':
       case 'SELLER_BANK':
-        return this.bankTyped(m.phone, s, text);
+        return this.bankTyped(m.phone, s, text, undefined, user);
       case 'BUY_CODE':
         return this.send(m.phone, msg.badDealCode());
       case 'BUY_FORM': // they typed instead of opening the form: that's fine, carry on in the chat
@@ -395,8 +442,9 @@ export class Conversation {
         if (!major && s.data.side === 'sell') return this.send(m.phone, msg.askPrice());
         if (!major) return this.send(m.phone, msg.badPrice());
         const priceMinor = toMinor(major, this.o.currency);
-        if (priceMinor > this.maxDeal(user)) return this.send(m.phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
-        return this.continueBuying(m.phone, { ...s.data, priceMinor });
+        if (this.o.deals.limitFor(user, priceMinor) === 'too-big') return this.send(m.phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency }));
+        const { kycPrice: _k, ...rest } = s.data;
+        return this.continueBuying(m.phone, { ...rest, priceMinor }); // above the no-ID limit: the ID check comes next
       }
       case 'BUY_ADDRESS': {
         const sell = s.data.side === 'sell';
@@ -539,6 +587,7 @@ export class Conversation {
       case 'account': {
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (!acct) {
+          if (this.sellerNeedsKyc(user)) return this.startKyc(phone, user, 'seller', { kind: 'ask', state: 'ACCOUNT_BANK', data: {}, message: msg.askBank() });
           await this.save(phone, 'ACCOUNT_BANK');
           return this.send(phone, msg.askBank());
         }
@@ -575,6 +624,133 @@ export class Conversation {
     if (item === 'how') return this.send(phone, msg.help());
     if (item === 'fees') return this.send(phone, this.feesMessage());
     return this.send(phone, msg.menu(user.display_name, modeOf(user)));
+  }
+
+  // ===== ID CHECK (KYC): once per person =====
+  /** A seller (or someone becoming one) who must check their ID before their payout account. */
+  private sellerNeedsKyc(user: User): boolean { return this.o.deals.kycOn && !isVerified(user); }
+
+  private async userByPhone(phone: string): Promise<User | null> {
+    return (await this.o.db.query('SELECT * FROM users WHERE phone=$1', [phone])).rows[0] ?? null;
+  }
+
+  private limits() {
+    const c = this.o.currency;
+    return { noId: { minor: this.o.deals.maxDealMinor, currency: c }, verified: { minor: this.o.deals.maxDealVerifiedMinor, currency: c } };
+  }
+
+  /** The chat message that carried a BVN or NIN: blanked in the saved webhook, so the number isn't kept. */
+  private async forgetMessage(id: string): Promise<void> {
+    await this.o.db.query(
+      `UPDATE webhook_events SET payload = payload || '{"text":"[ID number removed]","form":null}'::jsonb WHERE source='whatsapp' AND event_key=$1`, [id]).catch(() => {});
+  }
+
+  /** For the live orders form: start the ID check in the chat. */
+  async startKycFor(user: User, why: KycWhy, next: KycNext): Promise<void> {
+    await this.startKyc(user.phone, user, why, next);
+  }
+
+  /** Why we need it, then BVN or NIN (the form, or buttons in the chat). */
+  private async startKyc(phone: string, user: User, why: KycWhy, next: KycNext): Promise<unknown> {
+    const k = this.o.kyc;
+    if (isVerified(user)) return this.afterKyc(phone, user, next);
+    if (!k?.available) { await this.save(phone, 'IDLE'); return this.send(phone, msg.kycOff(this.limits().noId)); }
+    await this.save(phone, 'KYC_METHOD', { kycNext: next, why });
+    if ((await k.triesLeft(user.id)) <= 0) return this.send(phone, msg.kycFailed('NO_TRIES', 'BVN', 0));
+    const form = this.o.kycForm?.() ?? null;
+    if (form) {
+      const status = await this.send(phone, msg.kycForm(form.flowId, form.mode, why, this.limits(), k.testMode));
+      if (status !== 'FAILED') return;
+      this.o.onFormRefused?.();
+    }
+    return this.send(phone, msg.kycIntro(why, this.limits(), k.testMode));
+  }
+
+  /** Use BVN / Use NIN / Not now / Try again / Talk to a rep / Check my ID (payout). */
+  private async kycButton(phone: string, s: Session, user: User, what: string): Promise<unknown> {
+    const inKyc = s.state.startsWith('KYC_');
+    const next: KycNext = (inKyc && s.data.kycNext) || { kind: 'none' };
+    const why: KycWhy = (inKyc && s.data.why) || 'order';
+    if (what === 'payout') return this.startKyc(phone, user, 'payout', { kind: 'payout' });
+    if (what === 'bvn' || what === 'nin') {
+      if (isVerified(user)) return this.afterKyc(phone, user, next);
+      await this.save(phone, 'KYC_DOB', { kycNext: next, why, method: what.toUpperCase() });
+      return this.send(phone, msg.kycAskDob(what === 'bvn' ? 'BVN' : 'NIN'));
+    }
+    if (what === 'retry') {
+      // "Check my ID" after "Not now" on a new order: the price they typed comes back
+      if (s.state === 'BUY_PRICE' && s.data.kycPrice) { const { kycPrice, ...d } = s.data; return this.startKyc(phone, user, 'order', { kind: 'draft', draft: { ...d, priceMinor: kycPrice } }); }
+      return this.startKyc(phone, user, why, next);
+    }
+    if (what === 'later') {
+      if (inKyc && next.kind === 'draft') {
+        const { priceMinor, ...d } = next.draft;
+        await this.save(phone, 'BUY_PRICE', { ...d, kycPrice: priceMinor });
+        return this.send(phone, msg.kycLater(this.limits().noId, true));
+      }
+      await this.save(phone, 'IDLE');
+      return this.send(phone, msg.kycLater(this.limits().noId, false));
+    }
+    if (what === 'rep') {
+      if (!isVerified(user)) await this.o.kyc?.markReview(user.id, 'Asked a rep for help with the ID check');
+      return this.openMenuItem(phone, user, 'human');
+    }
+    return this.startKyc(phone, user, why, next);
+  }
+
+  /** The ID check form: BVN or NIN, the number and the date of birth. */
+  private async kycFormSubmitted(m: Inbound, s: Session, user: User): Promise<unknown> {
+    const f = m.form ?? {};
+    await this.forgetMessage(m.id);
+    const method: KycMethod = String(f.method ?? '').toUpperCase() === 'NIN' ? 'NIN' : 'BVN';
+    const digits = String(f.number ?? '').replace(/\D/g, '');
+    const rawDob = String(f.dob ?? '');
+    const dob = /^\d{12,13}$/.test(rawDob) ? new Date(Number(rawDob)).toISOString().slice(0, 10) : readDob(rawDob);
+    const data = s.state.startsWith('KYC_') ? s.data : { kycNext: { kind: 'none' }, why: 'order' };
+    if (!dob) { await this.save(m.phone, 'KYC_DOB', { ...data, method }); return this.send(m.phone, msg.kycBadDob()); }
+    if (digits.length !== 11) { await this.save(m.phone, 'KYC_NUMBER', { ...data, method, dob }); return this.send(m.phone, msg.kycBadNumber(method)); }
+    return this.runKyc(m.phone, user, method, digits, dob, data);
+  }
+
+  private async runKyc(phone: string, user: User, method: KycMethod, number: string, dob: string, data: Record<string, any>): Promise<unknown> {
+    if (!this.o.kyc) return this.send(phone, msg.kycOff(this.limits().noId));
+    const r = await this.o.kyc.verify(user.id, method, number, dob);
+    if (!r.ok) {
+      await this.save(phone, 'KYC_METHOD', { kycNext: data.kycNext ?? { kind: 'none' }, why: data.why ?? 'order' }); // "Try again" starts over
+      return this.send(phone, msg.kycFailed(r.reason, method, r.triesLeft));
+    }
+    const fresh = (await this.userByPhone(phone)) ?? user;
+    const acct = await this.o.deals.defaultBankAccount(fresh.id);
+    const seller = !!fresh.seller_since && (!acct || namesMatch(r.name, acct.account_name));
+    await this.send(phone, msg.kycDone(r.name, this.limits().verified, seller));
+    return this.afterKyc(phone, fresh, data.kycNext ?? { kind: 'none' });
+  }
+
+  /** Back to what they were doing. Payouts that were waiting for the check go out. */
+  private async afterKyc(phone: string, user: User, next: KycNext): Promise<unknown> {
+    if (next.kind === 'payout' || next.kind === 'none') {
+      const r = await this.o.deals.releaseHeldPayouts(user.id);
+      if (r === 'mismatch') return; // we've asked for an account in their own name
+      if (r === 'released') { await this.save(phone, 'IDLE'); return; } // "You've been paid" follows
+      await this.save(phone, 'IDLE');
+      return this.send(phone, msg.menu(user.display_name, modeOf(user)));
+    }
+    if (next.kind === 'draft') return this.continueBuying(phone, next.draft as BuyDraft);
+    if (next.kind === 'ask') { await this.save(phone, next.state as State, next.data); return this.send(phone, next.message); }
+    await this.save(phone, 'IDLE');
+    return this.handle({ id: `kyc-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: next.id, mediaId: null });
+  }
+
+  /** An order step needed the ID check (above their limit): start it, and come back to the same step after. */
+  private async kycFromError(m: Inbound, s: Session, user: User): Promise<unknown> {
+    let next: KycNext = { kind: 'none' };
+    if (m.buttonId?.startsWith('bank:') && s.data.code) next = { kind: 'button', id: `saccept:${s.data.code}` };
+    else if (m.buttonId) next = { kind: 'button', id: m.buttonId };
+    else if (s.state === 'BUYER_ADDRESS' && s.data.code) next = { kind: 'button', id: `baccept:${s.data.code}` };
+    else if (s.state === 'SELLER_COUNTER_REASON' && s.data.code) next = { kind: 'button', id: `scounter:${s.data.code}` };
+    const action = (next.kind === 'button' ? next.id : '').split(':')[0] ?? '';
+    const why: KycWhy = ['saccept', 'scounter', 'bank'].includes(action) || s.state.startsWith('SELLER_') ? 'accept' : ['baccept', 'baddr', 'pay', 'cyes', 'bview'].includes(action) || s.state === 'BUYER_ADDRESS' ? 'pay' : 'order';
+    return this.startKyc(m.phone, user, why, next);
   }
 
   // ===== BECOMING A SELLER (once) =====
@@ -716,6 +892,7 @@ export class Conversation {
     if (!d) throw new DealError('NOT_FOUND');
     if (d.status !== 'AWAITING_BUYER' || d.legacy_ship) { await this.save(phone, 'IDLE'); return this.o.deals.joinAsBuyer(code, user); }
     if (d.seller_id === user.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+    this.o.deals.assertLimit(user, d.price_minor); // above their limit: the ID check first, then the address
     await this.save(phone, 'BUYER_ADDRESS', { code: d.code });
     return this.send(phone, msg.askBuyerAddress(d.code, d.delivery_address));
   }
@@ -878,7 +1055,8 @@ export class Conversation {
     if (isCategory(f.category)) d.category = f.category;
     const major = f.price ? parseAmount(f.price) : null;
     const priceMinor = major ? toMinor(major, this.o.currency) : 0;
-    if (priceMinor && priceMinor <= this.maxDeal(user)) d.priceMinor = priceMinor;
+    const tooBig = !!priceMinor && this.o.deals.limitFor(user, priceMinor) === 'too-big';
+    if (priceMinor && !tooBig) d.priceMinor = priceMinor; // above the no-ID limit: the ID check comes after the form
     if (f.address) d.address = f.address.slice(0, 300);
     else if (side === 'sell') d.address = null; // left empty on purpose: the buyer adds it
     if (f.otherPhone) {
@@ -888,30 +1066,40 @@ export class Conversation {
       if (!p || wrong) { await this.save(phone, 'BUY_SELLER', d as Record<string, any>); return this.send(phone, wrong ?? (side === 'sell' ? msg.badBuyerPhone() : msg.badSellerPhone())); }
       d.otherPhone = p;
     }
-    if (priceMinor > this.maxDeal(user)) {
+    if (tooBig) {
       await this.save(phone, 'BUY_PRICE', d as Record<string, any>);
-      return this.send(phone, msg.priceTooHigh({ minor: this.maxDeal(user), currency: this.o.currency }));
+      return this.send(phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency }));
     }
     return this.continueBuying(phone, d);
   }
 
   /** Asks for the first thing still missing, in order; when nothing is, shows the order to check. */
   private async continueBuying(phone: string, d: BuyDraft): Promise<unknown> {
+    if ('kycPrice' in d) { const { kycPrice: _k, ...rest } = d as BuyDraft & { kycPrice?: number }; d = rest; }
     const ask = async (state: State, m: Outbound) => { await this.save(phone, state, d as Record<string, any>); return this.send(phone, m); };
     const sell = d.side === 'sell';
     if (!d.item) return ask('BUY_ITEM', sell ? msg.askItem() : msg.askBuyItem());
     if (!d.description) return ask('BUY_DESC', msg.askBuyDescription());
     if (!d.category) return ask('BUY_CATEGORY', msg.askCategory());
     if (!d.priceMinor) return ask('BUY_PRICE', sell ? msg.askPrice() : msg.askBuyPrice());
+    const me = await this.userByPhone(phone);
+    if (me) {
+      const lim = this.o.deals.limitFor(me, d.priceMinor);
+      if (lim === 'kyc') return this.startKyc(phone, me, 'order', { kind: 'draft', draft: d as Record<string, any> });
+      if (lim === 'too-big') { const { priceMinor: _p, ...rest } = d; d = rest; return ask('BUY_PRICE', msg.priceTooHigh({ minor: this.o.deals.reachFor(me), currency: this.o.currency })); }
+    }
     if (sell ? d.address === undefined : !d.address) return ask('BUY_ADDRESS', sell ? msg.askSellAddress() : msg.askDeliveryAddress());
     if (!d.arriveBy) return ask('BUY_DATE', sell ? msg.askReadyBy() : msg.askArriveBy());
     if (!d.photosDone) return ask('BUY_PHOTOS', sell ? msg.askSellPhotos() : msg.askBuyPhotos());
     if (!d.otherPhone) return ask('BUY_SELLER', sell ? msg.askBuyerPhone() : msg.askSellerPhone());
     if (sell && !d.accountId) {
       // the seller's payout account: asked once, the first time
-      const user = (await this.o.db.query('SELECT id FROM users WHERE phone=$1', [phone])).rows[0] as { id: string } | undefined;
-      const acct = user ? await this.o.deals.defaultBankAccount(user.id) : null;
-      if (!acct) return ask('SELL_BANK', msg.askBank());
+      const acct = me ? await this.o.deals.defaultBankAccount(me.id) : null;
+      if (!acct) {
+        // every seller checks their ID once, before their payout account (then the account must be in that name)
+        if (me && this.sellerNeedsKyc(me)) return this.startKyc(phone, me, 'seller', { kind: 'ask', state: 'SELL_BANK', data: d as Record<string, any>, message: msg.askBank() });
+        return ask('SELL_BANK', msg.askBank());
+      }
       d.accountId = acct.id;
     }
     return this.showBuySummary(phone, d);
@@ -1042,6 +1230,8 @@ export class Conversation {
       await this.save(phone, 'IDLE');
       return this.o.deals.acceptAsSeller(code, user, acct.id);
     }
+    this.o.deals.assertLimit(user, deal.price_minor); // above their limit: the ID check first (the order waits)
+    if (this.sellerNeedsKyc(user)) return this.startKyc(phone, user, 'seller', { kind: 'button', id: `saccept:${code}` });
     await this.save(phone, 'SELLER_BANK', { code });
     return this.send(phone, msg.askSellerBank());
   }
@@ -1071,10 +1261,10 @@ export class Conversation {
     const bank = (await this.o.provider.listBanks()).find((b) => b.code === code);
     if (!bank) return this.send(phone, msg.askBankName());
     const text = `${s.data.bankNumber} ${bank.name}`;
-    return s.state === 'DISPATCH' ? this.dispatchTyped(phone, user, s, text, bank) : this.bankTyped(phone, s, text, bank);
+    return s.state === 'DISPATCH' ? this.dispatchTyped(phone, user, s, text, bank) : this.bankTyped(phone, s, text, bank, user);
   }
 
-  private async bankTyped(phone: string, s: Session, typed: string, picked?: Bank) {
+  private async bankTyped(phone: string, s: Session, typed: string, picked?: Bank, user?: User) {
     const text = picked ? typed : await this.withBank(phone, s, s.state as State, typed);
     if (text === null) return;
     const parsed = parseBankInput(text);
@@ -1083,6 +1273,19 @@ export class Conversation {
     if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
     const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
     if (!name) return this.send(phone, msg.accountNotFound());
+    // payouts (and a verified buyer's refunds) go only to an account in the name on their ID
+    const refund = s.state === 'REFUND_BANK';
+    if (user) {
+      if (!refund && this.sellerNeedsKyc(user)) {
+        const { bankNumber: _n, ...data } = s.data;
+        return this.startKyc(phone, user, 'seller', { kind: 'ask', state: s.state, data, message: s.state === 'SELLER_BANK' ? msg.askSellerBank() : s.state === 'ACCOUNT_BANK' ? msg.askNewAccount() : msg.askBank() });
+      }
+      if (isVerified(user) && !namesMatch(user.kyc_name, name)) {
+        const { bankNumber: _n, ...data } = s.data;
+        await this.save(phone, s.state as State, data);
+        return this.send(phone, msg.accountNotTheirs(name, user.kyc_name ?? '', refund));
+      }
+    }
     const next: State = s.state === 'SELL_BANK' ? 'SELL_BANK_CONFIRM' : s.state === 'ACCOUNT_BANK' ? 'ACCOUNT_BANK_CONFIRM'
       : s.state === 'SELLER_BANK' ? 'SELLER_BANK_CONFIRM' : 'REFUND_BANK_CONFIRM';
     await this.save(phone, next, { ...s.data, pendingAccount: { bank_code: bank.code, bank_name: bank.name, account_number: parsed.accountNumber, account_name: name } });
@@ -1108,7 +1311,9 @@ export class Conversation {
     if (selling) { const { bankNumber: _n, ...draft } = rest; return this.continueBuying(phone, { ...(draft as BuyDraft), side: 'sell', accountId: acct.id }); }
     if (changing) {
       await this.save(phone, 'IDLE');
-      return this.send(phone, msg.accountSaved(acct.bank_name, acct.account_number.slice(-4)));
+      await this.send(phone, msg.accountSaved(acct.bank_name, acct.account_number.slice(-4)));
+      await this.o.deals.releaseHeldPayouts(user.id); // payouts waiting for an account in their own name go now
+      return;
     }
     await this.save(phone, 'IDLE');
     if (rest.refundNow) { await this.o.deals.refundPaidOrder(rest.code, rest.refundNow, user, true); return; }

@@ -9,6 +9,7 @@ import { localPhone } from '../phone.js';
 import type { Media } from '../whatsapp/media.js';
 import type { Trust } from '../trust.js';
 import type { Settings } from '../settings.js';
+import { namesMatch, type KycService } from '../kyc.js';
 import type { PricingRules } from '../pricing.js';
 import { BUYER_ALERT, DEAL_TEMPLATES, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
 import { categoryTitle } from './categories.js';
@@ -74,6 +75,15 @@ export interface User {
   seller_since?: Date | null;
   /** Which menu they see. */
   menu_mode?: MenuMode;
+  /** ID check (KYC): VERIFIED once they've checked their BVN or NIN. */
+  kyc_status?: string | null;
+  kyc_verified_at?: Date | null;
+  kyc_name?: string | null;
+}
+const USER_COLS = 'id, phone, display_name, blocked, deal_cap_minor, seller_since, menu_mode, kyc_status, kyc_verified_at, kyc_name';
+/** Has this person checked their ID? */
+export function isVerified(u: Pick<User, 'kyc_status' | 'kyc_verified_at'> | null | undefined): boolean {
+  return !!u && u.kyc_status === 'VERIFIED' && !!u.kyc_verified_at;
 }
 export interface BankAccount { id: string; user_id: string; bank_code: string; bank_name: string; account_number: string; account_name: string }
 
@@ -81,7 +91,7 @@ export interface BankAccount { id: string; user_id: string; bank_code: string; b
 type Outbox = { phone: string; message: Outbound; fallback?: Template }[];
 
 export class DealError extends Error {
-  constructor(public readonly reason: 'NOT_FOUND' | 'NOT_ALLOWED' | 'OWN_DEAL' | 'TAKEN' | 'CLOSED' | 'TOO_BIG', message?: string) {
+  constructor(public readonly reason: 'NOT_FOUND' | 'NOT_ALLOWED' | 'OWN_DEAL' | 'TAKEN' | 'CLOSED' | 'TOO_BIG' | 'NEEDS_KYC', message?: string) {
     super(message ?? reason);
   }
 }
@@ -107,6 +117,7 @@ export interface DealServiceOptions {
   media?: Media;              // photos in and out of WhatsApp
   trust?: Trust;              // seller and buyer records shown on deals
   settings?: Settings;        // fees, limits and timings the console can change
+  kyc?: KycService;           // ID checks (BVN/NIN): above the no-ID limit, and every seller before their payout
   acceptHours?: number;       // how long a seller has to accept a buyer's deal (default 48)
   orderPageBase?: string;     // where the private order pages live, e.g. https://hoolam.onrender.com
   log?: (line: string) => void;
@@ -135,8 +146,36 @@ export class DealService {
   /** Fee rules for new deals (the console can change them). */
   pricingRules(): PricingRules | undefined { return this.o.settings?.pricing(); }
 
-  /** The most this person can put in one deal: their own cap if staff set one, else the normal cap. */
-  capFor(user: Pick<User, 'deal_cap_minor'>): number { return user.deal_cap_minor ?? this.maxDealMinor; }
+  /** The most one order can be once the person has checked their ID. */
+  get maxDealVerifiedMinor(): number { return this.o.settings?.maxDealVerifiedMinor() ?? Math.max(this.maxDealMinor, 2_000_000_00); }
+
+  /** Can people check their ID right now (Prembly, or pretend checks in test mode)? */
+  get kycOn(): boolean { return !!this.o.kyc?.available; }
+
+  /** The most this person can put in one order: their own limit if staff set one, else the normal one (higher once verified). */
+  capFor(user: Pick<User, 'deal_cap_minor' | 'kyc_status' | 'kyc_verified_at'>): number {
+    if (user.deal_cap_minor != null) return Number(user.deal_cap_minor);
+    return isVerified(user) ? this.maxDealVerifiedMinor : this.maxDealMinor;
+  }
+
+  /** The most this person could reach (after an ID check, if that's open to them). For "orders can be up to …". */
+  reachFor(user: Pick<User, 'deal_cap_minor' | 'kyc_status' | 'kyc_verified_at'>): number {
+    return user.deal_cap_minor == null && this.kycOn ? this.maxDealVerifiedMinor : this.capFor(user);
+  }
+
+  /** What an order of this size needs from this person: nothing, an ID check first, or it's over their limit. */
+  limitFor(user: Pick<User, 'deal_cap_minor' | 'kyc_status' | 'kyc_verified_at'>, priceMinor: number): 'ok' | 'kyc' | 'too-big' {
+    if (priceMinor <= this.capFor(user)) return 'ok';
+    if (user.deal_cap_minor == null && !isVerified(user) && this.kycOn && priceMinor <= this.maxDealVerifiedMinor) return 'kyc';
+    return 'too-big';
+  }
+
+  /** Throws NEEDS_KYC (verify, then try again) or TOO_BIG. `kycOnly`: only the ID check (an order that was fine when made). */
+  assertLimit(user: Pick<User, 'deal_cap_minor' | 'kyc_status' | 'kyc_verified_at'>, priceMinor: number, kycOnly = false): void {
+    const r = this.limitFor(user, priceMinor);
+    if (r === 'kyc') throw new DealError('NEEDS_KYC');
+    if (r === 'too-big' && !kycOnly) throw new DealError('TOO_BIG');
+  }
 
   /** Run fn in a transaction; send the queued WhatsApp messages only after it commits. */
   private async run<T>(fn: (tx: Tx, out: Outbox) => Promise<T>): Promise<T> {
@@ -213,14 +252,14 @@ export class DealService {
     const r = await this.o.db.query(
       `INSERT INTO users (phone, display_name) VALUES ($1,$2)
        ON CONFLICT (phone) DO UPDATE SET display_name = COALESCE(users.display_name, EXCLUDED.display_name)
-       RETURNING id, phone, display_name, blocked, deal_cap_minor, seller_since, menu_mode`,
+       RETURNING ${USER_COLS}`,
       [phone, name],
     );
     return r.rows[0];
   }
 
   async userById(q: Queryable, id: string): Promise<User> {
-    const r = await q.query('SELECT id, phone, display_name, blocked, deal_cap_minor, seller_since, menu_mode FROM users WHERE id=$1', [id]);
+    const r = await q.query(`SELECT ${USER_COLS} FROM users WHERE id=$1`, [id]);
     return r.rows[0];
   }
 
@@ -337,7 +376,8 @@ export class DealService {
    * buyer's number, and give the seller a backup link. The buyer accepts (confirming the address), then pays.
    */
   async createSellerDeal(seller: User, input: SellerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
-    const q = this.previewDeal(input.priceMinor, 'seller', this.capFor(seller));
+    this.assertLimit(seller, input.priceMinor);
+    const q = this.previewDeal(input.priceMinor, 'seller', Number.MAX_SAFE_INTEGER);
     const photos = await this.fetchPhotos(input.photos);
     const deal = await this.run(async (tx) => {
       const acct = await tx.query('SELECT 1 FROM bank_accounts WHERE id=$1 AND user_id=$2', [input.accountId, seller.id]);
@@ -465,7 +505,8 @@ export class DealService {
    * give the buyer a link for the seller, and alert the seller directly if the buyer gave their number.
    */
   async createBuyerDeal(buyer: User, input: BuyerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
-    const q = this.previewDeal(input.priceMinor, 'buyer', this.capFor(buyer));
+    this.assertLimit(buyer, input.priceMinor);
+    const q = this.previewDeal(input.priceMinor, 'buyer', Number.MAX_SAFE_INTEGER);
     const photos = await this.fetchPhotos(input.photos);
     const deal = await this.run(async (tx) => {
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -575,6 +616,7 @@ export class DealService {
       if (deal.accept_by && new Date(deal.accept_by).getTime() < Date.now()) throw new DealError('CLOSED');
       if (deal.buyer_id === seller.id && !this.o.testMode) throw new DealError('OWN_DEAL');
       if (deal.counter_seller_id && deal.counter_seller_id !== seller.id) { out.push({ phone: seller.phone, message: msg.dealHasSeller(deal.code) }); return; }
+      this.assertLimit(seller, deal.price_minor); // above their limit: they check their ID first (the order waits)
       if (deal.counter_seller_id) await tx.query('UPDATE deals SET counter_price_minor=NULL, counter_seller_id=NULL, counter_account_id=NULL WHERE id=$1', [deal.id]);
       const acct = await tx.query('SELECT bank_name, account_number FROM bank_accounts WHERE id=$1 AND user_id=$2', [accountId, seller.id]);
       if (!acct.rows[0]) throw new DealError('NOT_ALLOWED');
@@ -589,7 +631,7 @@ export class DealService {
 
   // ---------- Update price: the seller suggests a different price on a buyer's deal ----------
   async counterAsSeller(code: string, seller: User, accountId: string, newPriceMinor: number, reason: string): Promise<void> {
-    if (newPriceMinor > this.maxDealMinor) throw new DealError('TOO_BIG');
+    this.assertLimit(seller, newPriceMinor);
     reason = reason.replace(/\s+/g, ' ').trim().slice(0, 150);
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
@@ -613,6 +655,7 @@ export class DealService {
       const deal = await this.lockByCode(tx, code);
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
       if (deal.status !== 'AWAITING_SELLER' || !deal.counter_price_minor || !deal.counter_seller_id) { out.push({ phone: buyer.phone, message: msg.dealClosed(deal.code) }); return; }
+      this.assertLimit(buyer, Number(deal.counter_price_minor), true);
       const q = quote(deal.counter_price_minor, this.o.currency, this.pricingRules(), 'buyer', this.txnFees());
       await tx.query(
         `UPDATE deals SET price_minor=$2, fee_minor=$3, buyer_pays_minor=$4, seller_gets_minor=$5, seller_id=$6, seller_account_id=$7,
@@ -712,6 +755,7 @@ export class DealService {
       }
       if (deal.accept_by && new Date(deal.accept_by).getTime() < Date.now()) throw new DealError('CLOSED');
       if (deal.seller_id === buyer.id && !this.o.testMode) throw new DealError('OWN_DEAL');
+      this.assertLimit(buyer, deal.price_minor); // above their limit: they check their ID before paying
       const where = (address ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || deal.delivery_address;
       if (!where || where.length < 5) return 'need-address';
       await tx.query('UPDATE deals SET buyer_id=$2, delivery_address=$3 WHERE id=$1', [deal.id, buyer.id, where]);
@@ -764,6 +808,7 @@ export class DealService {
     if (!deal) throw new DealError('NOT_FOUND');
     if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
     if (deal.status !== 'AWAITING_PAYMENT') throw new DealError('CLOSED');
+    this.assertLimit(buyer, deal.price_minor, true);
 
     if (!forceNew) {
       const existing = await this.o.db.query(
@@ -1337,10 +1382,15 @@ export class DealService {
   // ---------- payouts ----------
   async submitPayout(payoutId: string): Promise<void> {
     const r = await this.o.db.query(
-      `SELECT p.*, b.bank_code, b.account_number, b.account_name, d.code FROM payouts p
+      `SELECT p.*, b.bank_code, b.account_number, b.account_name, b.bank_name, d.code, d.seller_id, d.buyer_id FROM payouts p
        JOIN bank_accounts b ON b.id=p.bank_account_id JOIN deals d ON d.id=p.deal_id WHERE p.id=$1`, [payoutId]);
     const p = r.rows[0];
     if (!p || p.status !== 'CREATED') return;
+    // every seller's ID is checked once before their money leaves, and the account must be in that name
+    if (p.kind === 'SELLER' && this.kycOn && p.seller_id) {
+      const seller = await this.userById(this.o.db, p.seller_id);
+      if (!isVerified(seller) || !namesMatch(seller.kyc_name, p.account_name)) return this.holdForKyc(p, seller);
+    }
     let result: PayoutResult;
     try {
       result = await this.o.provider.sendPayout({
@@ -1352,6 +1402,71 @@ export class DealService {
       result = { status: 'FAILED', message: (e as Error).message };
     }
     await this.applyPayoutResult(p.reference, result);
+  }
+
+  /** A seller's payout waits for their ID check (or for an account in their own name). They're told what to do. */
+  private async holdForKyc(p: any, seller: User): Promise<void> {
+    const held = await this.o.db.query(`UPDATE payouts SET status='WAITING_KYC', provider_message=$2, updated_at=now() WHERE id=$1 AND status='CREATED' RETURNING id`,
+      [p.id, isVerified(seller) ? 'Waiting for a payout account in the seller\'s own name' : 'Waiting for the seller\'s ID check']);
+    if (!held.rowCount) return;
+    await this.o.db.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) SELECT id, status, status, $2, $3 FROM deals WHERE id=$1',
+      [p.deal_id, 'system', isVerified(seller) ? 'Payout waiting: the payout account isn\'t in the seller\'s ID name' : 'Payout waiting: the seller checks their ID first']);
+    const buyerName = await this.who(this.o.db, p.buyer_id);
+    if (isVerified(seller)) {
+      await this.askForOwnAccount(seller.phone, { payoutFix: true });
+      await this.o.messenger.send(seller.phone, msg.payoutAccountMismatch(p.code, this.money(Number(p.amount_minor)), p.account_name, seller.kyc_name ?? '', buyerName));
+      return;
+    }
+    await this.o.messenger.send(seller.phone, msg.sellerPayoutNeedsKyc(p.code, this.money(Number(p.amount_minor)), buyerName));
+  }
+
+  /** Waits in the chat for an account number (after "this account isn't in your name"). */
+  private async askForOwnAccount(phone: string, data: Record<string, unknown>): Promise<void> {
+    await this.o.db.query(
+      `INSERT INTO chat_sessions (phone, state, data) VALUES ($1,'ACCOUNT_BANK',$2)
+       ON CONFLICT (phone) DO UPDATE SET state='ACCOUNT_BANK', data=$2, updated_at=now()`, [phone, JSON.stringify(data)]);
+  }
+
+  /** Seller payouts waiting for this seller's ID check. */
+  async heldPayouts(userId: string): Promise<{ id: string; code: string; amount_minor: number; account_name: string }[]> {
+    const r = await this.o.db.query(
+      `SELECT p.id, d.code, p.amount_minor, b.account_name FROM payouts p JOIN deals d ON d.id=p.deal_id JOIN bank_accounts b ON b.id=p.bank_account_id
+       WHERE p.status='WAITING_KYC' AND p.kind='SELLER' AND d.seller_id=$1 ORDER BY p.created_at`, [userId]);
+    return r.rows;
+  }
+
+  /**
+   * After the seller verifies (or adds an account in their own name): sends every payout that was waiting.
+   * Payouts going to an account in another name move to their default account if that one matches.
+   * 'mismatch': some still need an account in their own name (we've asked for one).
+   */
+  async releaseHeldPayouts(userId: string): Promise<'none' | 'released' | 'mismatch'> {
+    const seller = await this.userById(this.o.db, userId);
+    if (!isVerified(seller)) return 'none';
+    const held = await this.heldPayouts(userId);
+    if (!held.length) return 'none';
+    const def = await this.defaultBankAccount(userId);
+    const good = def && namesMatch(seller.kyc_name, def.account_name) ? def : null;
+    const go: string[] = [];
+    let stuck: (typeof held)[number] | null = null;
+    for (const p of held) {
+      if (namesMatch(seller.kyc_name, p.account_name)) { go.push(p.id); continue; }
+      if (good) {
+        await this.o.db.query('UPDATE payouts SET bank_account_id=$2 WHERE id=$1', [p.id, good.id]);
+        await this.o.db.query(`UPDATE deals SET seller_account_id=$2 WHERE code=$1`, [p.code, good.id]);
+        go.push(p.id);
+      } else stuck ??= p;
+    }
+    for (const id of go) {
+      await this.o.db.query(`UPDATE payouts SET status='CREATED', provider_message=NULL, updated_at=now() WHERE id=$1 AND status='WAITING_KYC'`, [id]);
+      await this.submitPayout(id);
+    }
+    if (stuck) {
+      await this.askForOwnAccount(seller.phone, { payoutFix: true });
+      await this.o.messenger.send(seller.phone, msg.payoutAccountMismatch(stuck.code, this.money(Number(stuck.amount_minor)), stuck.account_name, seller.kyc_name ?? '', null));
+      return 'mismatch';
+    }
+    return 'released';
   }
 
   async authorizePayout(reference: string, otp: string): Promise<PayoutResult> {

@@ -24,6 +24,7 @@ export const CAN: Record<string, Role[]> = {
   'support.close': ['OWNER', 'ADMIN', 'SUPPORT'],
   'user.block': ['OWNER', 'ADMIN'],
   'user.cap': ['OWNER', 'ADMIN'],
+  'user.kyc': ['OWNER', 'ADMIN'],               // approve or remove someone's ID check
   'settings.view': ['OWNER', 'ADMIN'],          // see Settings at all
   'settings.update': ['OWNER', 'ADMIN'],        // timing, alerts and forms switches
   'settings.core': ['OWNER'],                   // fees, limits, Hoolam's WhatsApp number

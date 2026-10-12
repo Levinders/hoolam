@@ -38,6 +38,15 @@ const schema = z.object({
   MONNIFY_WALLET_ACCOUNT: z.string().default(''),     // source account for payouts
   MONNIFY_REQUIRE_SIGNATURE: bool.default(false),     // sandbox webhooks are unsigned; set true in production
 
+  // ID checks (KYC): BVN or NIN, once per person. 'prembly' when PREMBLY_X_API_KEY is set; 'fake' (pretend checks) with
+  // pretend money; otherwise 'off' (then nobody can go above the no-ID limit unless staff raise it for them).
+  KYC_PROVIDER: z.enum(['prembly', 'fake', 'off']).optional(),
+  PREMBLY_X_API_KEY: z.string().default(''),          // Prembly → API keys: the secret key (sent as x-api-key)
+  PREMBLY_APP_ID: z.string().default(''),             // Prembly → API keys: the app ID (sent as app-id)
+  PREMBLY_BASE_URL: z.string().default('https://api.prembly.com'),
+  PREMBLY_BVN_PATH: z.string().default('/verification/bvn_validation'),
+  PREMBLY_NIN_PATH: z.string().default('/verification/vnin'),
+
   // Testing: lets one phone play both seller and buyer. Only allowed with the fake payment provider.
   ALLOW_SELF_DEAL: bool.default(false),
 
@@ -51,7 +60,7 @@ const schema = z.object({
   FLAG_AFTER_HOURS: z.coerce.number().default(72),      // put the deal in front of a human
 });
 
-export type Config = z.infer<typeof schema> & { PUBLIC_BASE_URL: string };
+export type Config = z.infer<typeof schema> & { PUBLIC_BASE_URL: string; KYC: 'prembly' | 'fake' | 'off' };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = schema.safeParse(env);
@@ -59,7 +68,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     const lines = parsed.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`);
     throw new Error(`Invalid configuration:\n${lines.join('\n')}`);
   }
-  const c = { ...parsed.data, PUBLIC_BASE_URL: parsed.data.PUBLIC_BASE_URL || parsed.data.RENDER_EXTERNAL_URL || 'http://localhost:3000' };
+  const d = parsed.data;
+  const KYC = d.KYC_PROVIDER ?? (d.PREMBLY_X_API_KEY ? 'prembly' : d.PAYMENT_PROVIDER === 'fake' ? 'fake' : 'off');
+  const c = { ...d, KYC, PUBLIC_BASE_URL: d.PUBLIC_BASE_URL || d.RENDER_EXTERNAL_URL || 'http://localhost:3000' };
+  if (c.KYC === 'prembly' && !c.PREMBLY_X_API_KEY) throw new Error('KYC_PROVIDER=prembly needs PREMBLY_X_API_KEY');
+  if (c.KYC === 'fake' && c.PAYMENT_PROVIDER !== 'fake') throw new Error('KYC_PROVIDER=fake (pretend ID checks) only works with pretend money (PAYMENT_PROVIDER=fake).');
   if (c.PAYMENT_PROVIDER === 'monnify' && (!c.MONNIFY_API_KEY || !c.MONNIFY_SECRET_KEY || !c.MONNIFY_CONTRACT_CODE)) {
     throw new Error('PAYMENT_PROVIDER=monnify needs MONNIFY_API_KEY, MONNIFY_SECRET_KEY and MONNIFY_CONTRACT_CODE');
   }

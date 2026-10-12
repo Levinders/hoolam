@@ -86,6 +86,10 @@ h1{font:700 26px/1.15 Poppins,Inter,sans-serif;letter-spacing:-.02em;margin-top:
 .chip .ic{width:15px;height:15px}
 .chip.green{background:var(--green-50);color:var(--green)}
 .chip.gold{background:var(--gold-50);color:#7A5A10}
+.chip.teal{background:var(--teal);color:#fff;position:relative;cursor:help}
+.chip.teal .tip{position:absolute;left:0;bottom:calc(100% + 8px);width:max-content;max-width:220px;background:var(--ink);color:#fff;font-weight:500;font-size:12.5px;line-height:1.35;padding:8px 10px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .15s}
+.chip.teal:hover .tip,.chip.teal:focus .tip{opacity:1}
+.chip.teal:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .socials{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;padding:0 20px 20px}
 .soc{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 12px;border:1px solid var(--line);border-radius:14px;text-decoration:none;transition:border-color .2s,background .2s,transform .2s}
 .soc:hover{border-color:#cfdcdc;background:#FCFCFA;transform:translateY(-1px)}
@@ -155,13 +159,15 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
     <h1>${esc(t.name)}</h1>
     <div class="meta">${t.city ? `<span>${ICON.mapPin}${esc(t.city)}</span>` : ''}<span>${ICON.calendar}On Hoolam since ${since}</span></div>
     <div class="chips">
-      ${t.bankName ? `<span class="chip green">${ICON.badgeCheck}Bank-verified payouts</span>` : ''}
+      ${t.verified ? `<span class="chip teal" tabindex="0" aria-describedby="vtip">${ICON.badgeCheck}Verified seller<span class="tip" id="vtip" role="tooltip">ID and bank account name checked by Hoolam</span></span>` : ''}
+      ${t.bankName && !t.verified ? `<span class="chip green">${ICON.badgeCheck}Bank-verified payouts</span>` : ''}
       ${t.isNew ? `<span class="chip gold">${ICON.sprout}New on Hoolam</span>` : ''}
     </div>
   </div>
   ${t.socials.length ? `<nav class="socials" aria-label="Where ${esc(t.name)} sells">${t.socials.map((s) => `<a class="soc ${s.kind}" href="${esc(s.url)}" target="_blank" rel="noopener nofollow ugc"><span class="si">${ICON[s.kind]}</span><span class="txt"><b>${{ instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', website: 'Website' }[s.kind]}</b><span>${esc(s.label)}</span></span><span class="go">${ICON.arrowUpRight}</span></a>`).join('')}</nav>` : ''}
   <div class="sec stats">${stats.map((s) => `<div class="stat"><span class="si ${s.tone ?? ''}">${s.icon}</span><span><b>${esc(s.big)}</b><small>${esc(s.small)}</small></span></div>`).join('')}${stats.length % 2 ? '<div class="stat"></div>' : ''}</div>
-  ${disputes || t.bankName || t.isNew ? `<div class="rows">
+  ${disputes || t.bankName || t.isNew || t.verified ? `<div class="rows">
+    ${t.verified ? `<div class="row good">${ICON.badgeCheck}<span><b>Verified seller.</b> ID and bank account name checked by Hoolam.</span></div>` : ''}
     ${disputes ? `<div class="row${t.problems ? '' : ' good'}">${ICON.scale}<span>${esc(disputes)}</span></div>` : ''}
     ${t.bankName ? `<div class="row">${ICON.landmark}<span>Paid out to ${esc(shortBankName(t.bankName))}, bank-verified${t.bankMatches ? ' · matches their name' : ''}</span></div>` : ''}
     ${t.isNew ? `<div class="row">${ICON.shieldCheck}<span>New on Hoolam. Every order is still protected: your money is held until you're happy.</span></div>` : ''}

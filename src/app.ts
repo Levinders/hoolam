@@ -6,7 +6,8 @@ import { DealError, DealService, viewKey, type Deal } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
-import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { FakeKycChecker, KycService, NoKycChecker, PremblyChecker, type KycChecker } from './kyc.js';
+import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { Media } from './whatsapp/media.js';
@@ -50,8 +51,13 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
   const siteMedia = new SiteMedia(db);
   const siteSync = new SiteSync(c.SITE_DEPLOY_HOOK, log);
+  // ID checks: Prembly (live keys), pretend checks with pretend money, or off
+  const checker: KycChecker = c.KYC === 'prembly'
+    ? new PremblyChecker({ apiKey: c.PREMBLY_X_API_KEY, appId: c.PREMBLY_APP_ID || undefined, baseUrl: c.PREMBLY_BASE_URL, bvnPath: c.PREMBLY_BVN_PATH, ninPath: c.PREMBLY_NIN_PATH, log })
+    : c.KYC === 'fake' ? new FakeKycChecker() : new NoKycChecker();
+  const kyc = new KycService(db, checker, log);
   const deals = new DealService({
-    db, provider, messenger, media, trust, settings, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
+    db, provider, messenger, media, trust, settings, kyc, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, log,
   });
   // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
@@ -62,6 +68,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   let orderForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // one order on its own
   let buyEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the buyer's form, filled in
   let sellEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the seller's form, filled in
+  let kycForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the ID check form
   const backupForms = { list: false, one: false }; // true when Meta refused the main forms and the backups are in use
   let keys: FlowKeys | null = null;
   const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
@@ -76,6 +83,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     hoolamNumber: () => settings.waNumber(),
     backupForms: () => backupForms,
     openOrder: (user, code, screen) => openOrders(user.phone, user, { screen, code }),
+    startKyc: (user, why, next) => chat.startKycFor(user, why, next),
   });
   const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller'; item?: string; totalMinor?: number; fresh?: boolean }): Promise<boolean> => {
     const form = at.screen === 'orders' ? ordersForm : orderForm;
@@ -112,8 +120,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     buyForm: () => (settings.formsEnabled() ? buyForm : null), sellForm: () => (settings.formsEnabled() ? sellForm : null),
     buyEditForm: () => (settings.formsEnabled() && buyForm ? buyEditForm : null),
     sellEditForm: () => (settings.formsEnabled() && sellForm ? sellEditForm : null),
-    onFormRefused: () => { buyForm = null; sellForm = null; }, // the same Meta check blocks both
+    onFormRefused: () => { buyForm = null; sellForm = null; kycForm = null; }, // the same Meta check blocks them all
     ordersForm: { open: openOrders },
+    kyc, kycForm: () => (settings.formsEnabled() ? kycForm : null),
     hoolamNumber: () => settings.waNumber(),
   });
 
@@ -158,6 +167,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       fees: { rate: p.ratePercent, min: p.min, max: p.max, roundTo: p.roundTo },
       txn: settings.txnFees(), // flat transaction fee bands (naira): seller's when the buyer starts, buyer's when the seller starts
       maxDeal: settings.maxDealMinor() / unit,
+      maxDealVerified: settings.maxDealVerifiedMinor() / unit, // once someone has checked their ID (BVN or NIN)
       contact: settings.contact(),
       timing: { acceptHours: settings.acceptHours(), nudgeHours: settings.nudgeHours(), flagHours: settings.flagHours(), unpaidHours: settings.unpaidCloseHours(), autoReleaseMinutes: settings.autoReleaseMinutes(), repReplyMinutes: settings.repReplyMinutes(), problemReplyHours: settings.problemReplyHours() },
       // logo and pictures set in Console → Settings: slot → { url, v }. Missing slots keep the website's drawings.
@@ -531,6 +541,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         sellForm = sellId ? { flowId: sellId, mode: c.WHATSAPP_FORM_MODE } : null;
         const sellEditId = await ensureSellEditFlow(o);
         sellEditForm = sellEditId ? { flowId: sellEditId, mode: c.WHATSAPP_FORM_MODE } : null;
+        const kycId = await ensureKycFlow(o);
+        kycForm = kycId ? { flowId: kycId, mode: c.WHATSAPP_FORM_MODE } : null;
       }
       if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {
         keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
@@ -554,7 +566,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   // ---------- the staff console (/console) ----------
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
-  registerConsoleApi(app, { config: c, db, deals, trust, settings, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, settings, kyc, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -574,7 +586,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const load = async () => { await settings.load(); await siteMedia.load(); };
   app.addHook('onClose', async () => siteSync.stop());
   return {
-    app, load, deals, chat, messenger, trust, settings, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
+    app, load, deals, chat, messenger, trust, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
     setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; }, setOrdersForm: (f: typeof ordersForm) => { ordersForm = f; }, setOrderForm: (f: typeof orderForm) => { orderForm = f; }, backupForms,
   };
 }

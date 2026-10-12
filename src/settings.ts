@@ -32,7 +32,8 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'seller_txn_fee', group: 'Fees', label: 'Seller transaction fee', help: 'A flat fee by order size, taken from the seller\'s payout on orders the buyer started. Only the seller sees it.', type: 'bands', core: true },
   { key: 'buyer_txn_fee', group: 'Fees', label: 'Buyer transaction fee', help: 'A flat fee by order size, added to what the buyer pays on orders the seller started. Only the buyer sees it.', type: 'bands', core: true },
   { key: 'handover_code_tries', group: 'Limits', label: 'Wrong handover code tries', help: 'How many wrong codes a seller can enter before the order locks and a rep helps finish the handover.', type: 'number', min: 1, max: 20 },
-  { key: 'max_deal', group: 'Limits', label: 'Largest order', help: 'Most a single order can be (before KYC). You can raise it for one person on their page.', type: 'money', min: 1_000, max: 100_000_000, core: true },
+  { key: 'max_deal', group: 'Limits', label: 'Largest order without ID', help: 'Most a single order can be before the person checks their ID (BVN or NIN). Above this, they verify once, then carry on. You can set a different limit for one person on their page.', type: 'money', min: 1_000, max: 100_000_000, core: true },
+  { key: 'max_deal_verified', group: 'Limits', label: 'Largest order once verified', help: 'Most a single order can be after the person has checked their ID. Must be at least the limit without ID.', type: 'money', min: 1_000, max: 1_000_000_000, core: true },
   { key: 'seller_accept_hours', group: 'Timing', label: 'Time to accept an order', help: 'The seller (for an order a buyer starts) or the buyer (for an order a seller starts) has this long to accept. After this, the order closes.', type: 'hours', min: 1, max: 336 },
   { key: 'nudge_after_hours', group: 'Timing', label: 'Remind the buyer after', help: 'Hours after shipping before we ask the buyer if the item arrived.', type: 'hours', min: 1, max: 336 },
   { key: 'auto_release_minutes', group: 'Timing', label: 'Pay the seller automatically after', help: 'Once the handover code is entered, the buyer has this long to tap "I\'m happy" or report a problem. If they do neither, the seller is paid.', type: 'minutes', min: 30, max: 20_160 },
@@ -67,7 +68,7 @@ export class Settings {
     return {
       fee_rate_percent: p.ratePercent, fee_min: p.min, fee_max: p.max, fee_round_to: p.roundTo,
       seller_txn_fee: DEFAULT_TXN_BANDS, buyer_txn_fee: DEFAULT_TXN_BANDS,
-      max_deal: this.c.MAX_DEAL_MINOR / this.unit,
+      max_deal: this.c.MAX_DEAL_MINOR / this.unit, max_deal_verified: 2_000_000,
       auto_release_minutes: 1440, dispatch_remind_hours: 12,
       unpaid_close_hours: 72, rep_reply_minutes: 30, problem_reply_hours: 24, handover_code_tries: 5,
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
@@ -127,6 +128,7 @@ export class Settings {
   async save(q: Queryable, changes: Record<string, Value>, staffId: string | null): Promise<void> {
     const next = { ...this.all(), ...changes };
     if ((next.fee_min as number) > (next.fee_max as number)) throw new Error('The minimum fee can\'t be above the maximum fee');
+    if ((next.max_deal as number) > (next.max_deal_verified as number)) throw new Error('The largest order once verified can\'t be below the largest order without ID');
     for (const [k, v] of Object.entries(changes)) {
       await q.query(
         `INSERT INTO settings (key, value, updated_by, updated_at) VALUES ($1,$2,$3,now())
@@ -149,6 +151,8 @@ export class Settings {
     return { seller: read('seller_txn_fee'), buyer: read('buyer_txn_fee') };
   }
   maxDealMinor(): number { return Math.round(this.get<number>('max_deal') * this.unit); }
+  /** The most one order can be once the person has checked their ID (never below the no-ID limit). */
+  maxDealVerifiedMinor(): number { return Math.max(this.maxDealMinor(), Math.round(this.get<number>('max_deal_verified') * this.unit)); }
   acceptHours(): number { return this.get('seller_accept_hours'); }
   /** The home page version visitors see. */
   homeVersion(): string { const v = this.get<string>('home_version'); return isHomeVersion(v) ? v : FIRST_VERSION; }

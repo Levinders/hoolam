@@ -14,7 +14,7 @@ describe('landing page ↔ server', () => {
     expect(r.statusCode).toBe(200);
     expect(r.headers['access-control-allow-origin']).toBe('*');
     expect(r.json()).toEqual({
-      currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, images: {}, homeVersion: '1.0.0',
+      currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, maxDealVerified: 2000000, images: {}, homeVersion: '1.0.0',
       txn: { seller: DEFAULT_TXN_BANDS, buyer: DEFAULT_TXN_BANDS }, // the website calculator shows the transaction fee too
       contact: { email: 'hello@hoolam.com', phone: '', whatsapp: '2348012345678', socials: [] },
       versions: { '1.0.0': { date: '2026-10-11', images: {} }, '1.1.0': { date: '2026-10-11', images: {} }, '1.2.0': { date: '2026-10-11', images: {} } },

@@ -9,6 +9,7 @@ import { MAX_UPLOAD_BYTES, MediaError, SLOTS, SiteMedia } from '../site-media.js
 import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
+import type { KycService } from '../kyc.js';
 import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
 import { ALL_TEMPLATES } from '../whatsapp/automation.js';
@@ -24,6 +25,7 @@ export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; settings: Settings; messenger: Messenger;
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   refreshTemplates?: () => Promise<void>;
+  kyc?: KycService;
 }
 
 declare module 'fastify' { interface FastifyRequest { staff?: StaffMember & { sessionId: string } } }
@@ -138,7 +140,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // =====================================================================================
     api.get('/inbox', async () => {
       const flag = d.settings.flagHours();
-      const [disputes, payouts, notes, support, unhappy, overdue, expiring, templates, stuck, dismissed] = await Promise.all([
+      const [disputes, payouts, notes, support, unhappy, overdue, expiring, templates, stuck, dismissed, kycReview] = await Promise.all([
         db.query(`SELECT x.id, x.reason, x.created_at, d.code, d.item, d.buyer_pays_minor, d.currency FROM disputes x JOIN deals d ON d.id=x.deal_id WHERE x.status='OPEN' ORDER BY x.created_at`),
         db.query(`SELECT p.reference, p.kind, p.status, p.amount_minor, p.currency, p.provider_message, p.updated_at, d.code FROM payouts p JOIN deals d ON d.id=p.deal_id WHERE p.status IN ('NEEDS_AUTHORIZATION','FAILED','REVERSED') ORDER BY p.updated_at`),
         db.query(`SELECT e.id, e.note, e.created_at, d.code, d.currency FROM deal_events e JOIN deals d ON d.id=e.deal_id WHERE e.note LIKE 'NEEDS_ATTENTION%' AND e.note NOT LIKE 'NEEDS_ATTENTION: payout %' AND e.created_at > now() - interval '30 days' ORDER BY e.created_at DESC LIMIT 50`),
@@ -149,6 +151,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         db.query(`SELECT id, phone, body->>'text' AS text, created_at FROM outbound_messages WHERE status='NEEDS_TEMPLATE' AND created_at > now() - interval '3 days' ORDER BY id DESC LIMIT 20`),
         db.query(`SELECT id, source, event_key, attempts, last_error, received_at FROM webhook_events WHERE processed_at IS NULL AND attempts >= 3 ORDER BY id DESC LIMIT 20`),
         db.query(`SELECT item_key FROM inbox_dismissals`),
+        db.query(`SELECT id, phone, display_name, business_name, kyc_review_reason, kyc_review_at FROM users WHERE kyc_status='REVIEW' ORDER BY kyc_review_at LIMIT 50`),
       ]);
       const gone = new Set(dismissed.rows.map((r) => r.item_key));
       const money = (m: number, c: string) => msg.moneyText({ minor: Number(m), currency: c as 'NGN' });
@@ -166,6 +169,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       for (const r of unhappy.rows) items.push({ key: `rating:${r.deal_id}`, kind: 'rating', severity: 'low', title: `👎 on ${r.code}${r.seller ? ' (' + r.seller.split(' ')[0] + ')' : ''}`, detail: r.comment ? `“${String(r.comment).slice(0, 110)}”` : 'No comment', at: r.created_at, link: `/deals/${r.code}`, cta: 'Look', dismissible: true });
       for (const r of expiring.rows) items.push({ key: `expiring:${r.code}`, kind: 'expiring', severity: 'low', title: `${r.code} closes soon`, detail: `${r.item} · seller hasn't accepted · closes ${until(r.accept_by)}`, at: r.accept_by, link: `/deals/${r.code}`, cta: 'Extend', dismissible: true });
       for (const r of templates.rows) items.push({ key: `template:${r.id}`, kind: 'template', severity: 'low', title: `Message not delivered (24-hour rule)`, detail: `To …${String(r.phone).slice(-4)}: ${String(r.text ?? '').slice(0, 90)}`, at: r.created_at, link: `/support?tab=messages`, cta: 'See', dismissible: true });
+      for (const r of kycReview.rows) items.push({ key: `kyc:${r.id}:${new Date(r.kyc_review_at ?? 0).getTime()}`, kind: 'kyc', severity: 'medium', title: `ID check needs review: ${r.business_name ?? r.display_name ?? r.phone}`, detail: String(r.kyc_review_reason ?? ''), at: r.kyc_review_at, link: `/people/${r.id}`, cta: 'Review' });
       for (const r of stuck.rows) items.push({ key: `webhook:${r.id}`, kind: 'system', severity: 'medium', title: `A ${r.source} update keeps failing`, detail: `${r.attempts} tries · ${String(r.last_error ?? '').slice(0, 100)}`, at: r.received_at, link: `/audit`, cta: 'Details', dismissible: true });
       const order = { high: 0, medium: 1, low: 2 };
       const open = items.filter((i) => !gone.has(i.key)).sort((a, b) => order[a.severity] - order[b.severity] || +new Date(a.at) - +new Date(b.at));
@@ -430,14 +434,16 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       if (q.kind === 'sellers') where.push(`EXISTS (SELECT 1 FROM deals x WHERE x.seller_id=u.id)`);
       if (q.kind === 'buyers') where.push(`EXISTS (SELECT 1 FROM deals x WHERE x.buyer_id=u.id)`);
       if (q.kind === 'paused') where.push('u.blocked');
+      if (q.kind === 'review') where.push(`u.kyc_status='REVIEW'`);
+      if (q.kind === 'verified') where.push(`u.kyc_status='VERIFIED'`);
       const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
       const [rows, total] = await Promise.all([
         db.query(
-          `SELECT u.id, u.phone, u.display_name, u.business_name, u.city, u.blocked, u.deal_cap_minor, u.created_at, u.profile_public,
+          `SELECT u.id, u.phone, u.display_name, u.business_name, u.city, u.blocked, u.deal_cap_minor, u.created_at, u.profile_public, u.kyc_status, u.kyc_review_reason, u.kyc_review_at,
                   (SELECT count(*)::int FROM deals x WHERE x.seller_id=u.id) AS sales,
                   (SELECT count(*)::int FROM deals x WHERE x.buyer_id=u.id) AS purchases,
                   (SELECT max(updated_at) FROM deals x WHERE x.seller_id=u.id OR x.buyer_id=u.id) AS last_deal_at
-           FROM users u ${w} ORDER BY u.created_at DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`, args),
+           FROM users u ${w} ORDER BY ${q.kind === 'review' ? 'u.kyc_review_at ASC NULLS LAST,' : ''} u.created_at DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`, args),
         db.query(`SELECT count(*)::int AS n FROM users u ${w}`, args),
       ]);
       return { rows: rows.rows, total: total.rows[0].n, page, pageSize: PAGE };
@@ -447,18 +453,22 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const id = (req.params as { id: string }).id;
       const u = (await db.query('SELECT * FROM users WHERE id=$1', [id])).rows[0];
       if (!u) throw new HttpError(404, 'No such person');
-      const [banks, deals, support, optout, trail] = await Promise.all([
+      const [banks, deals, support, optout, trail, checks, held] = await Promise.all([
         db.query(`SELECT bank_name, right(account_number, 4) AS last4, account_name, is_default, created_at FROM bank_accounts WHERE user_id=$1 ORDER BY created_at DESC`, [id]),
         db.query(`SELECT code, item, status, buyer_pays_minor, currency, created_at, CASE WHEN seller_id=$1 THEN 'seller' ELSE 'buyer' END AS role FROM deals WHERE seller_id=$1 OR buyer_id=$1 OR counter_seller_id=$1 ORDER BY created_at DESC LIMIT 30`, [id]),
         db.query(`SELECT id, message, status, created_at FROM support_requests WHERE user_id=$1 ORDER BY id DESC LIMIT 10`, [id]),
         db.query(`SELECT r.deal_code, r.created_at, COALESCE(f.business_name, f.display_name, f.phone) AS from_name, f.id AS from_id
                   FROM alert_refusals r JOIN users f ON f.id = r.from_user_id WHERE r.phone=$1 ORDER BY r.created_at DESC`, [u.phone]),
         db.query(`SELECT at, actor, action, reason, details FROM audit_log WHERE target_type='user' AND target_id=$1 ORDER BY id DESC LIMIT 30`, [id]),
+        db.query(`SELECT method, last4, result, provider, reference, created_at FROM kyc_checks WHERE user_id=$1 ORDER BY id DESC LIMIT 10`, [id]),
+        d.deals.heldPayouts(id),
       ]);
+      const k = d.kyc ? await d.kyc.status(id) : null;
       return {
         user: u, seller: await d.trust.seller(id), buyer: await d.trust.buyer(id),
         banks: banks.rows, deals: deals.rows, support: support.rows, refusals: optout.rows, trail: trail.rows,
-        normalCapMinor: d.deals.maxDealMinor,
+        normalCapMinor: d.deals.maxDealMinor, verifiedCapMinor: d.deals.maxDealVerifiedMinor,
+        kyc: k ? { ...k, checks: checks.rows, heldPayouts: held, provider: d.kyc!.checker.name, triesLeft: await d.kyc!.triesLeft(id) } : null,
       };
     });
 
@@ -494,6 +504,28 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const reason = reasonOf(req.body);
       await act(req, { action: paused ? 'user.pause' : 'user.unpause', targetType: 'user', targetId: id, reason },
         () => db.query('UPDATE users SET blocked=$2, blocked_reason=$3 WHERE id=$1', [id, paused, paused ? reason : null]));
+      return { ok: true };
+    });
+    // ID check (KYC): approve after checking it another way, take it away, or clear Needs review. Always with a reason.
+    api.post('/people/:id/kyc', async (req) => {
+      need(req, 'user.kyc');
+      if (!d.kyc) throw new HttpError(400, 'ID checks are not set up');
+      const id = (req.params as { id: string }).id;
+      const b = req.body as { action?: 'approve' | 'remove' | 'clear'; name?: string };
+      const reason = reasonOf(req.body);
+      const before = await d.kyc.status(id);
+      if (b.action === 'approve') {
+        const name = String(b.name ?? '').replace(/\s+/g, ' ').trim();
+        if (name.split(' ').filter((w) => w.length >= 2).length < 2) throw new HttpError(400, 'Type their full name as it is on their ID (at least two names).');
+        await act(req, { action: 'user.kyc.approve', targetType: 'user', targetId: id, reason, details: { name, before: before.status } },
+          () => d.kyc!.approve(id, name, `staff:${req.staff!.email}`));
+        await d.deals.releaseHeldPayouts(id).catch((e) => d.log(`release after approval: ${(e as Error).message}`));
+      } else if (b.action === 'remove') {
+        await act(req, { action: 'user.kyc.remove', targetType: 'user', targetId: id, reason, details: { name: before.name, method: before.method, last4: before.last4 } },
+          () => d.kyc!.remove(id));
+      } else if (b.action === 'clear') {
+        await act(req, { action: 'user.kyc.clear', targetType: 'user', targetId: id, reason, details: { was: before.reviewReason } }, () => d.kyc!.clearReview(id));
+      } else throw new HttpError(400, 'Unknown action');
       return { ok: true };
     });
     api.post('/people/:id/cap', async (req) => {
