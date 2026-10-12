@@ -27,6 +27,7 @@ One Node.js server does everything (WhatsApp bot, forms endpoint, payments, cons
 | Website | Static HTML built by `site/build.mjs` | Render static site `hoolam-site`, hoolam.com |
 | WhatsApp | Meta WhatsApp Cloud API (messages, templates, Flows) | Meta, Graph API v26.0 |
 | Payments | Monnify (virtual accounts in, transfers out); a built-in pretend provider for testing | Monnify; currently the pretend provider (test mode) |
+| ID checks (KYC) | Prembly (BVN and NIN checks); a built-in pretend checker for testing | Prembly once its keys are in Render; until then the pretend checker (test mode) |
 | Images | sharp (resize, WebP/JPEG) | inside the server |
 | Code | GitHub, Levinders/hoolam | GitHub; Render deploys on push |
 | Tests | Vitest with a real embedded Postgres | locally / in this workspace |
@@ -35,7 +36,7 @@ One Node.js server does everything (WhatsApp bot, forms endpoint, payments, cons
 
 **Plans:** both Render services are on the free plan. The server sleeps after 15 minutes without traffic and takes about a minute to wake; move it to Starter once real money moves.
 
-**Open items:** the Monnify sandbox error, SCUML approval, switching Monnify settlement to the corporate account, the go./pay. domains, and possibly moving Supabase.
+**Open items:** Prembly keys and confirming its BVN/NIN addresses, the Monnify sandbox error, SCUML approval, switching Monnify settlement to the corporate account, the go./pay. domains, and possibly moving Supabase.
 
 ## Keys and settings
 
@@ -62,6 +63,10 @@ Secrets and platform IDs live only in Render (service `hoolam` → Environment);
 | `MONNIFY_API_KEY`, `MONNIFY_SECRET_KEY` | Monnify API access and webhook signatures | Secret. |
 | `MONNIFY_CONTRACT_CODE`, `MONNIFY_WALLET_ACCOUNT`, `MONNIFY_BASE_URL` | Which Monnify contract and wallet; sandbox or live |  |
 | `MONNIFY_REQUIRE_SIGNATURE` | Refuse unsigned payment webhooks | true in production |
+| `KYC_PROVIDER` | Which ID checker: `prembly`, `fake` (pretend) or `off` | Optional. If unset: `prembly` when `PREMBLY_X_API_KEY` is set, else `fake` with pretend money, else `off`. `fake` is refused with real money. |
+| `PREMBLY_X_API_KEY` | Prembly secret key, sent as `x-api-key` | From the Prembly dashboard (API keys). Secret. |
+| `PREMBLY_APP_ID` | Prembly app ID, sent as `app-id` | From the Prembly dashboard. |
+| `PREMBLY_BASE_URL`, `PREMBLY_BVN_PATH`, `PREMBLY_NIN_PATH` | Where the checks go | Default `https://api.prembly.com`, `/verification/bvn_validation`, `/verification/vnin`. Change only if Prembly's docs for your account say otherwise. |
 | `ALLOW_SELF_DEAL` | One phone can play buyer and seller | Testing only; refused with live Monnify keys |
 | `TRUST_COUNT_TEST_DEALS` | Test orders count on trust cards | Remove for real money |
 | `PUBLIC_BASE_URL`, `CONSOLE_URL`, `SITE_URL`, `PAY_URL` | The server's, console's, website's and payment links' addresses |  |
@@ -77,7 +82,7 @@ Owner-only values are marked. Changes apply to new orders; an order keeps the fe
 | Fees (owner) | Hoolam fee rate, minimum, maximum, round to | 2.5%, ₦300, ₦5,000, ₦100 |
 | Fees (owner) | Seller transaction fee (5 bands) | ₦500 up to ₦100k, ₦1,000 to ₦200k, ₦1,500 to ₦300k, ₦2,000 to ₦400k, ₦2,500 above |
 | Fees (owner) | Buyer transaction fee (5 bands) | same bands |
-| Limits | Largest order (owner); wrong handover code tries | ₦50,000; 5 |
+| Limits | Largest order without ID (owner); largest order once verified (owner, never below the first); wrong handover code tries | ₦50,000; ₦2,000,000; 5 |
 | Timing | Time to accept an order (the seller for a buyer's order, the buyer for a seller's); close unpaid orders after | 48 h; 72 h |
 | Timing | Remind the seller to dispatch after; pay the seller automatically after | 12 h; 24 h |
 | Timing | Remind the buyer after; flag for the team after | 24 h; 72 h |
@@ -122,9 +127,9 @@ Everything passes through the one server: messages come in from Meta, money move
 
 | Area | Tables |
 | --- | --- |
-| People | `users`, `bank_accounts`, `user_photos`, `alert_refusals` (who said Not me to whom) |
+| People | `users` (incl. the ID check result: `kyc_status` UNVERIFIED / VERIFIED / REVIEW, `kyc_verified_at`, `kyc_method` BVN / NIN / MANUAL, `kyc_name`, `kyc_last4`, `kyc_ref`, `kyc_review_reason`), `kyc_checks` (every try: method, last 4 digits, result, checker, reference; never the number), `bank_accounts`, `user_photos`, `alert_refusals` (who said Not me to whom) |
 | Orders | `deals` (incl. `handover_by`: seller or courier; `courier_alert`: sent, not-sent, skipped; `legacy_ship`: a seller's order from before Sell something was rebuilt), `deal_events`, `deal_photos`, `deal_notes`, `deal_ratings`, `disputes` |
-| Money | `payment_intents`, `payouts`, `ledger_entries` |
+| Money | `payment_intents`, `payouts` (status `WAITING_KYC`: a seller payout waiting for their ID check or an account in their ID name), `ledger_entries` |
 | WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages` |
 | Website | `media` (logo, logo icon, and each version's website images as `<spot>@<version>`; migration 017 moved the existing ones to 1.0.0) |
 | Team | `staff`, `staff_invites`, `staff_sessions`, `audit_log`, `support_requests`, `inbox_dismissals` |
@@ -286,11 +291,37 @@ Dispatch, handover, payment to the seller, problems and refunds continue below.
 
 ### My trust card and public page
 
+- **Verified seller:** a seller who has checked their ID, with a payout account in the same name, shows "☑️ **Verified seller**" in the chat trust line and on the card ("ID and bank account name checked by Hoolam"), and a **Verified seller** badge on the public page (tap or hover: "ID and bank account name checked by Hoolam") plus a line under the stats. The home page example card's tick means the same.
 - **My trust card:** the record buyers see, counted only from real paid orders: orders completed, different buyers, how fast they ship, problems and how they ended, ratings (shown as a % from 5 ratings), bank verified and whether the name matches, links.
 - **Buttons:** Share my link (a ready-to-forward message), Edit my page (photo, name and city, Instagram, TikTok, Facebook, website), Hide my page.
 - **Public page** `/s/<slug>`: the card with a photo, a share image, and **Buy safely**, which starts a protected order with that seller.
 - **Check a seller** (buyers): send a number or an order code to see that seller's record, then **Buy from them**.
 - **Ratings:** after release the buyer is asked "To help other buyers like you, how was Bayo?" 👍 Great / 👎 Not great (a short private note for the team after 👎).
+
+## ID checks (KYC)
+
+Once per person, with their BVN or NIN (their choice) and date of birth, checked by Prembly. Code: `src/kyc.ts` (checkers, rules, name matching), the chat in `src/whatsapp/flow.ts`, the form in `src/whatsapp/kyc-flow.ts`.
+
+**When it's needed** (only a single order counts; there is no running total):
+
+| Who | When | What waits |
+| --- | --- | --- |
+| A buyer starting an order | the price is above **Largest order without ID** | the order: it carries on from the next question after the check |
+| A seller starting a Sell order | the same | the order, the same way |
+| A seller accepting a buyer's order (or updating its price) | the order's price is above their limit | the order, inside its time to accept; after the check the same Accept goes through |
+| A buyer accepting or paying for a seller's order (or a new price) | the same | the order: the check comes before the address and the payment details |
+| Every seller | before adding their first payout account | the payout account question |
+| Sellers who already have a payout account | before their next payout | that payout (`WAITING_KYC`), then it goes out by itself |
+
+- **Limits:** up to **Largest order without ID** (₦50,000) nobody is asked. After the check, a single order can be up to **Largest order once verified** (₦2,000,000). A person's own limit set by staff overrides both. Above the verified limit: "orders can be up to ₦2,000,000".
+- **The steps:** "🪪 Quick ID check, once" (why, in plain words; "We store only the result, never your BVN or NIN") → the form, or in the chat **Use BVN** / **Use NIN** / **Not now** → date of birth ("25/12/1995"; also 25-12-1995 or 25 Dec 1995) → the 11-digit number (with the USSD hint: BVN *565*0#, NIN *346#) → "✅ You're verified, **Name**. You can now do orders up to ₦2,000,000." (sellers: "Your trust card now shows Verified seller") → back to what they were doing.
+- **Not now:** on a new order they can type a smaller price to carry on, or tap **Check my ID** later (the price comes back). Elsewhere they tap the same button again when ready.
+- **When it doesn't pass:** a plain reason, tries left, **Try again** · **Talk to a rep**. "We couldn't find that BVN. Check the 11 digits, or try your NIN instead." / "The date of birth doesn't match what's on your BVN." / "We can't check IDs right now. Please try again in a few minutes. Nothing is lost." (Prembly down, busy or out of credit: it doesn't use a try). **3 tries a day** (Lagos time); after the third the person goes to **Needs review**. Tapping Talk to a rep after a failure also puts them there.
+- **What we store:** the result, the name on the ID (as Prembly gives it, in normal capitals), BVN or NIN, the last 4 digits, the date and Prembly's reference; each try with its last 4 digits and result. Never the number: the chat message or form answer that carried it is blanked in `webhook_events` as soon as it's read, it never goes into the chat session, and no message repeats it.
+- **Names must match:** once verified, payouts (and refunds of a verified buyer) go only to a bank account in the name on their ID. Matching is tolerant: any order, middle names optional, titles (Mr, Mrs, Chief…) ignored, one-letter slips allowed (Chidinma/Chidimma); it needs two names in common (one if either name is a single word). Another name: "⚠️ This account is in another name. It belongs to X, but your ID says Y." and they send another.
+- **Existing sellers:** when the buyer is happy, the seller gets "💰 **Ada** · Order **HL-X**: your money is ready. Before we pay you, we check your ID once…" with **Check my ID** · **Talk to a rep**. After the check every waiting payout goes out. If their payout account is in another name, they're asked for one in their own name, and the waiting payouts move to it and go out.
+- **Checkers:** `prembly` (POST `/verification/bvn_validation` with `number`, POST `/verification/vnin` with `number_nin`; any answer without a clear match is "not found", outages and our-side errors are "try again"); `fake` with pretend money (any 11 digits pass with the name TEST ACCOUNT HOLDER, which matches the pretend bank; 00000000000 not found, 11111111111 date of birth doesn't match, 99999999999 checker down; the chat shows a TEST MODE hint); `off` (no keys and real money: nobody can go above the limit without ID unless staff raise their own limit, and seller payouts aren't held).
+- **Console:** see the staff console below.
 
 ## Dispatch, handover, release and problems
 
@@ -350,6 +381,7 @@ The server creates every form on Meta when it starts; a changed form gets a new 
 | Buyer form (`hoolam_buy_…`) | Static | Item, delivery, photos; answers arrive in the webhook |
 | Buyer edit form (`hoolam_buyedit_…`) | Static, filled in | The buyer form with their answers; photos optional (kept unless replaced) |
 | Seller form (`hoolam_sell_…`) | Static | Item, price, buyer's number, photos |
+| ID check form (`hoolam_kyc_…`) | Static | BVN or NIN, the 11-digit number, date of birth, "We store only the result, never your BVN or NIN", **Check my ID**. The webhook copy is blanked once read. |
 | My orders (`hoolam_orders_…`) | Live | Filter → list → order → dispatch / rider details / code → done |
 | Single order (`hoolam_order_…`) | Live | Opens on one order: a new order for a seller, the buyer's review, dispatch, enter code |
 
@@ -408,17 +440,17 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 
 | Page | What it's for |
 | --- | --- |
-| Home | Needs action (stuck orders, waiting messages, open problems, support), today's numbers, fees earned |
+| Home | Needs action (stuck orders, waiting messages, open problems, support, ID checks that need review), today's numbers, fees earned |
 | Orders | Every order with filters; an order shows its timeline, photos, people, money (both fees), dispatch details (incl. whether the rider/driver was sent the delivery message, and who entered the code), notes and messages |
 | Problems | Open disputes with the buyer's evidence; release or refund |
 | Money | Ledger balances (held, owed, fees earned), payouts, retries, OTP approvals, export |
-| Buyers & sellers | Each person's record, orders, bank accounts, trust card, who they said "Not me" to, order limit, pause, **Message them** |
+| Buyers & sellers | Each person's record, orders, bank accounts, trust card, who they said "Not me" to, order limit, pause, **Message them**. Filters: Everyone, Sellers, Buyers, Paused, **Needs review**, **ID verified**. **ID check** panel: status (Verified / Needs review / Not verified), name on ID, BVN or NIN with last 4 digits (or "Approved by the team"), date, reference, recent tries and tries left today, payouts waiting for it; **Approve ID** (with the full name on their ID), **Remove verification**, **Clear review**, each with a reason in the audit trail. The Limits panel shows the limit without ID and once verified. |
 | Support | The inbox of "Talk to a rep" and problem messages, with replies |
 | Insights | Trends: orders, value, fees, conversion |
 | Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, template statuses), Contact, Brand, Website content (home page versions and their images), History |
 | Team, Audit | Staff and roles; the full audit trail |
 
-**Roles:** Owner (everything, including fees, limits and Hoolam's number), Admin (orders, money moves, people, most settings), Finance (payouts, exports, audit), Support (messages, notes, support inbox).
+**Roles:** Owner (everything, including fees, limits and Hoolam's number), Admin (orders, money moves, people incl. approving or removing ID checks, most settings), Finance (payouts, exports, audit), Support (messages, notes, support inbox).
 
 ### Messages from Hoolam support
 
@@ -437,10 +469,10 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 
 ## Website, legal pages and private pages
 
-The website reads its live values (fees, both transaction fee tables, the largest order, timings, Hoolam's number, contact details, images) from the server's `/site.json`, so it always matches the bot. The console rebuilds it through `SITE_DEPLOY_HOOK` when those change.
+The website reads its live values (fees, both transaction fee tables, the largest order without ID and once verified, timings, Hoolam's number, contact details, images) from the server's `/site.json`, so it always matches the bot. The console rebuilds it through `SITE_DEPLOY_HOOK` when those change.
 
 - **Home page (hoolam.com):** how it works, the worked example (a ₦10,000 order: buyer pays ₦10,300, seller receives ₦9,500), a fee calculator (who starts the order; Hoolam fee and transaction fee; what the buyer pays and the seller gets), FAQ, and "Chat on WhatsApp" buttons. Light theme only.
-- **Legal pages** (`/legal/...`): terms, holding agreement (how money is held, released, refunded, the fees and who pays, the auto-release window), disputes, money, privacy, cookies, acceptable use, delete your data. Values are filled in at build time. Effective date: 11 October 2026 (transaction fee added; riders and drivers can enter the handover code; privacy says what the rider sees; a seller's order is accepted by the buyer before paying). The holding agreement promises 7 days' notice before important changes such as fees.
+- **Legal pages** (`/legal/...`): terms, holding agreement (how money is held, released, refunded, the fees and who pays, the auto-release window), disputes, money, privacy, cookies, acceptable use, delete your data. Values are filled in at build time. Effective date: 12 October 2026 (ID checks: privacy has "Checking your ID (BVN or NIN)" with what's kept, why, Prembly as the identity partner and how long the result is kept; terms have "Checking your ID": bigger orders, sellers, your own name, 3 tries a day, Verified seller; both limits come from the console). The holding agreement promises 7 days' notice before important changes such as fees.
 - **Home page versions:** each version is a frozen page in `site/versions/<version>.html`, listed in `site/versions/versions.json` (number, date, notes, the version it started from). `site/index.html` is the work in progress. The live version is the `home_version` setting; the build puts it at hoolam.com and builds every version at `/v/<version>/` and the work in progress at `/v/draft/`.
   - **Versions so far:** 1.0.0, the order card in the hero (live); 1.1.0 and 1.2.0 put the hero inside a WhatsApp chat on a phone, with Hoolam's number from the console in the chat header (the 0811… format, no country code). 1.1.0 is one picture (buyer, Hoolam holding the money, seller, "I'm happy" / "Report a problem"); 1.2.0 is three moments (the order, "Buyer: 2 pairs of sneakers · From Mama Bella (seller)", with both pictures side by side and the labels colour-coded, teal for the buyer and gold for the seller, in a full-width bubble; money held; on the way with the code, "I'm happy", seller paid).
   - **1.2.0, section 2 ("True life story"):** the headline is "Pay before delivery? Pay on delivery? Who go trust who?", with the story of Ivana (paid ₦15,000, got ghosted) and Musa (sent a bag to GRA, paid for delivery for nothing). The two pictures are drawn to feel real in Port Harcourt: Ivana at night by a barred window with her WhatsApp chat on screen, and a rider calling at a closed compound gate while the buyer peeks from behind a curtain. They are stand-ins until real photos are uploaded for 1.2.0 in Website content.
@@ -487,6 +519,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 - The free Render plan sleeps after 15 minutes idle (about a minute to wake).
 - Templates need Meta's approval; until then, people outside their 24 hours only get messages through older approved versions, or not at all (they wait in Needs action).
 - Voice notes aren't understood yet.
+- ID checks run on the pretend checker until the Prembly keys are in Render. Prembly's BVN/NIN addresses come from their public docs; if the dashboard docs for your account show others, set `PREMBLY_BVN_PATH` / `PREMBLY_NIN_PATH`. The ID check form needs WhatsApp forms on (Meta business verification); until then the chat asks the same questions.
 - A rider or driver only gets the delivery message (and can only enter the code) once Meta approves `hoolam_delivery_for_rider`, unless they wrote to Hoolam in the last 24 hours. Until then the seller enters the code.
 - The trust card link only shows to buyers when the seller has turned their public page on (Share my link); sellers who never shared it show the trust line and **Seller's record** only.
 
@@ -494,6 +527,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 12 Oct 2026 | ID checks (KYC) with Prembly: BVN or NIN once, above the limit without ID (either side) and for every seller before payouts; two console limits; Verified seller; payout and refund names must match; console ID panel and Needs review; privacy and terms sections | e3c13f0 |
 | 12 Oct 2026 | 1.2.0 why trust us: "Deposits insured by NDIC" card replaces Live reps | ca8e855 |
 | 12 Oct 2026 | 1.2.0: the buyer in the stories is now Ivana (was Precious) | fa09e67 |
 | 12 Oct 2026 | 1.2.0: "Questions" removed from the top bar menu and the phone sidebar | e46cdfb |
