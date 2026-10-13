@@ -450,7 +450,7 @@
       '.hc *{box-sizing:border-box}.hc button,.hc input,.hc textarea{font:inherit;color:inherit}.hc a{color:var(--teal)}',
       '.ic{width:19px;height:19px;flex:none;display:block}',
       '.mark{border-radius:10px;flex:none;display:block;object-fit:contain}',
-      '.veil{position:fixed;inset:0;background:rgba(4,22,24,.85);display:grid;place-items:center;padding-right:416px}.veil.anim{animation:fade .25s ease}',
+      '.veil{position:fixed;inset:0;background:#061E20;display:grid;place-items:center;padding-right:416px}.veil.anim{animation:fade .25s ease}',
       '.veil .ghost{display:none;opacity:.16;pointer-events:none}.veil .ghost .mark{display:block;border-radius:36px;box-shadow:none}',
       '@media (min-width:900px){.veil .ghost{display:block}}',
       '@keyframes fade{from{opacity:0}to{opacity:1}}',
