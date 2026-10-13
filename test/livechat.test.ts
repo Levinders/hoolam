@@ -184,6 +184,51 @@ describe('live chat', () => {
     expect((await site('GET', `/threads/${thread}`, null, r.json.key)).status).toBe(200);
   });
 
+  it('one conversation per WhatsApp number: a new device joins it but sees only what comes after', async () => {
+    const old = await site('GET', `/threads/${thread}`, null, key);
+    expect(old.json.partial).toBe(false);
+    const before = old.json.messages.length;
+    // same number, new browser (no key): same conversation, new key
+    const r = await site('POST', '/start', { name: 'Ivana O.', phone: '+234 803 123 4567', text: 'It’s me again, from my laptop', page: '/about/' });
+    expect(r.json.threadId).toBe(thread);
+    expect(r.json.key).not.toBe(key);
+    const me = await site('GET', '/me', null, r.json.key);
+    expect(me.json.threads).toHaveLength(1);
+    const fresh = await site('GET', `/threads/${thread}`, null, r.json.key);
+    expect(fresh.json.partial).toBe(true);
+    expect(fresh.json.messages.map((m: any) => m.body)).toEqual(['It’s me again, from my laptop']);
+    // the first device still sees everything
+    expect((await site('GET', `/threads/${thread}`, null, key)).json.messages).toHaveLength(before + 1);
+    // a closed chat reopens when the same number writes again
+    await con('owner', 'POST', `/livechat/${thread}/close`);
+    const again = await site('POST', '/start', { name: 'Ivana', phone: '08031234567', text: 'Back again' }, key);
+    expect(again.json.threadId).toBe(thread);
+    expect((await site('GET', `/threads/${thread}`, null, key)).json.status).toBe('OPEN');
+    // a different number is a different person
+    const other = await site('POST', '/start', { name: 'Ivana', phone: '08039998888', text: 'New number' }, key);
+    expect(other.json.threadId).not.toBe(thread);
+  });
+
+  it('new questions and news go to the top; news can carry a picture', async () => {
+    const q = await con('rep', 'POST', '/livechat-content', { kind: 'QUESTION', title: 'Can I cancel?', body: 'Yes, before the seller sends it.' });
+    expect((await site('GET', '/config')).json.questions[0].title).toBe('Can I cancel?');
+    const n = await con('rep', 'POST', '/livechat-content', { kind: 'NEWS', title: 'New look', body: 'The chat has a fresh look.' });
+    expect((await con('rep', 'POST', `/livechat-content/${n.json.id}/image`, null, { bytes: Buffer.from('<svg/>'), name: 'x' })).status).toBe(415);
+    expect((await con('rep', 'POST', `/livechat-content/${n.json.id}/image`, null, { bytes: PNG, name: 'look.png' })).status).toBe(200);
+    const news = (await site('GET', '/config')).json.news;
+    expect(news[0].title).toBe('New look');
+    expect(news[0].imageId).toBeGreaterThan(0);
+    const img = await site('GET', `/media/${news[0].imageId}`);
+    expect(img.status).toBe(200);
+    expect(img.headers['content-type']).toBe('image/png');
+    expect(Buffer.compare(img.raw, PNG)).toBe(0);
+    await con('rep', 'DELETE', `/livechat-content/${n.json.id}/image`);
+    expect((await site('GET', '/config')).json.news[0].imageId).toBeNull();
+    expect((await site('GET', `/media/${news[0].imageId}`)).status).toBe(404);
+    await con('rep', 'DELETE', `/livechat-content/${q.json.id}`);
+    await con('rep', 'DELETE', `/livechat-content/${n.json.id}`);
+  });
+
   it('reps manage what the chat shows; saved replies stay with the team', async () => {
     const c = await con('rep', 'GET', '/livechat-content');
     expect(c.json.rows.filter((r: any) => r.kind === 'SAVED').map((r: any) => r.shortcut)).toEqual(['fees', 'safe', 'order', 'hours']);

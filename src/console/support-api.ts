@@ -111,6 +111,22 @@ export function registerSupportApi(api: FastifyInstance, d: {
     await chat.reorderContent(b.kind, b.ids.map(Number).filter(Boolean));
     return { ok: true };
   });
+  api.post('/livechat-content/:id/image', { bodyLimit: CHAT_MAX_FILE + 1024 }, async (req) => {
+    need(req, 'livechat.content');
+    const imageId = await chat.setContentImage(idOf(req), req.body as Buffer);
+    await audit(db, d.actorOf(req), { action: 'livechat.content.image', targetType: 'livechat_content', targetId: String(idOf(req)) });
+    return { ok: true, imageId };
+  });
+  api.delete('/livechat-content/:id/image', async (req) => {
+    need(req, 'livechat.content');
+    await chat.removeContentImage(idOf(req));
+    return { ok: true };
+  });
+  api.get('/livechat-media/:id', async (req, reply) => {
+    live(req);
+    const m = await chat.media(idOf(req));
+    return reply.type(m.mime).header('x-content-type-options', 'nosniff').header('cache-control', 'private, max-age=86400').send(m.bytes);
+  });
   api.delete('/livechat-content/:id', async (req) => {
     need(req, 'livechat.content');
     await chat.removeContent(idOf(req));

@@ -16,6 +16,7 @@ import type { Messenger } from './whatsapp/client.js';
 
 export const CHAT_MAX_TEXT = 2000;
 export const CHAT_MAX_FILE = 10 * 1024 * 1024;
+export const CHAT_MAX_IMAGE = 5 * 1024 * 1024; // News pictures
 export const REP_HOURS = { opens: 9, closes: 17 }; // Lagos time, every day
 const NOTIFY_AFTER_MINUTES = 2;
 
@@ -111,8 +112,8 @@ export class LiveChat {
   }
 
   async contentForVisitors() {
-    const rows = (await this.db.query(`SELECT id, kind, title, body, url, created_at, updated_at FROM chat_content WHERE published AND kind <> 'SAVED' ORDER BY kind, position, id`)).rows;
-    const of = (k: ContentKind) => rows.filter((r) => r.kind === k).map((r) => ({ id: Number(r.id), title: this.fill(r.title), body: this.fill(r.body), url: r.url, at: r.updated_at }));
+    const rows = (await this.db.query(`SELECT id, kind, title, body, url, image_id, created_at, updated_at FROM chat_content WHERE published AND kind <> 'SAVED' ORDER BY kind, position, id`)).rows;
+    const of = (k: ContentKind) => rows.filter((r) => r.kind === k).map((r) => ({ id: Number(r.id), title: this.fill(r.title), body: this.fill(r.body), url: r.url, at: r.created_at, imageId: r.image_id ? Number(r.image_id) : null }));
     return {
       welcome: of('WELCOME')[0]?.body ?? 'Hi there. How can we help today?',
       home: of('HOME'), questions: of('QUESTION'), news: of('NEWS'), chips: of('CHIP').map((c) => c.body),
@@ -122,7 +123,7 @@ export class LiveChat {
 
   async contentForStaff() {
     const rows = (await this.db.query(`SELECT c.*, s.name AS updated_by_name FROM chat_content c LEFT JOIN staff s ON s.id=c.updated_by ORDER BY kind, position, id`)).rows;
-    return rows.map((r) => ({ id: Number(r.id), kind: r.kind, title: r.title, body: r.body, url: r.url, shortcut: r.shortcut, published: r.published, position: r.position, updatedAt: r.updated_at, updatedBy: r.updated_by_name, preview: this.fill(r.body) }));
+    return rows.map((r) => ({ id: Number(r.id), kind: r.kind, title: r.title, body: r.body, url: r.url, shortcut: r.shortcut, published: r.published, position: r.position, updatedAt: r.updated_at, updatedBy: r.updated_by_name, preview: this.fill(r.body), imageId: r.image_id ? Number(r.image_id) : null }));
   }
 
   async saveContent(staff: ChatStaff, item: { id?: number; kind: ContentKind; title?: string; body?: string; url?: string | null; shortcut?: string | null; published?: boolean }): Promise<number> {
@@ -152,12 +153,40 @@ export class LiveChat {
     }
     const r = await this.db.query(
       `INSERT INTO chat_content (kind, title, body, url, shortcut, published, position, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6, COALESCE((SELECT max(position)+1 FROM chat_content WHERE kind=$1), 1), $7) RETURNING id`,
+       VALUES ($1,$2,$3,$4,$5,$6, CASE WHEN $1 IN ('QUESTION','NEWS') THEN COALESCE((SELECT min(position)-1 FROM chat_content WHERE kind=$1), 1)
+                                     ELSE COALESCE((SELECT max(position)+1 FROM chat_content WHERE kind=$1), 1) END, $7) RETURNING id`,
       [item.kind, title, body, url, shortcut, item.published ?? true, staff.id]);
     return Number(r.rows[0].id);
   }
 
-  async removeContent(id: number) { await this.db.query(`DELETE FROM chat_content WHERE id=$1 AND kind <> 'WELCOME'`, [id]); }
+  /** A News post's picture (JPG, PNG or WebP, up to 5 MB). Replaces the old one. */
+  async setContentImage(id: number, bytes: Buffer) {
+    if (!bytes?.length) throw new ChatError('That file is empty.');
+    if (bytes.length > CHAT_MAX_IMAGE) throw new ChatError('Pictures can be up to 5 MB.', 413);
+    const mime = sniffFile(bytes);
+    if (!mime || !mime.startsWith('image/')) throw new ChatError('Use a JPG, PNG or WebP picture.', 415);
+    const before = (await this.db.query('SELECT image_id FROM chat_content WHERE id=$1', [id])).rows[0];
+    if (!before) throw new ChatError('Not found.', 404);
+    const m = await this.db.query('INSERT INTO chat_media (mime, size, bytes) VALUES ($1,$2,$3) RETURNING id', [mime, bytes.length, bytes]);
+    await this.db.query('UPDATE chat_content SET image_id=$2, updated_at=now() WHERE id=$1', [id, m.rows[0].id]);
+    if (before.image_id) await this.db.query('DELETE FROM chat_media WHERE id=$1', [before.image_id]);
+    return Number(m.rows[0].id);
+  }
+  async removeContentImage(id: number) {
+    const before = (await this.db.query('SELECT image_id FROM chat_content WHERE id=$1', [id])).rows[0];
+    await this.db.query('UPDATE chat_content SET image_id=NULL, updated_at=now() WHERE id=$1', [id]);
+    if (before?.image_id) await this.db.query('DELETE FROM chat_media WHERE id=$1', [before.image_id]);
+  }
+  async media(id: number) {
+    const m = (await this.db.query('SELECT mime, bytes FROM chat_media WHERE id=$1', [id])).rows[0];
+    if (!m) throw new ChatError('Not found.', 404);
+    return { mime: m.mime as string, bytes: m.bytes as Buffer };
+  }
+
+  async removeContent(id: number) {
+    const r = await this.db.query(`DELETE FROM chat_content WHERE id=$1 AND kind <> 'WELCOME' RETURNING image_id`, [id]);
+    if (r.rows[0]?.image_id) await this.db.query('DELETE FROM chat_media WHERE id=$1', [r.rows[0].image_id]);
+  }
   async reorderContent(kind: ContentKind, ids: number[]) {
     for (const [i, id] of ids.entries()) await this.db.query('UPDATE chat_content SET position=$3 WHERE id=$1 AND kind=$2', [id, kind, i + 1]);
   }
@@ -165,10 +194,11 @@ export class LiveChat {
   // ---------------------------------------------------------------------------------------------
   // Visitors
   // ---------------------------------------------------------------------------------------------
-  async visitorFor(key: string | null | undefined): Promise<{ id: number; name: string; phone: string } | null> {
+  /** Who a browser key belongs to. `since`: a key from a new device sees only messages after it joined. */
+  async visitorFor(key: string | null | undefined): Promise<{ id: number; name: string; phone: string; since: number } | null> {
     if (!key || key.length < 20 || key.length > 80) return null;
-    const r = await this.db.query(`SELECT v.id, v.name, v.phone FROM chat_visitor_keys k JOIN chat_visitors v ON v.id=k.visitor_id WHERE k.key_hash=$1`, [hash(key)]);
-    return r.rows[0] ? { id: Number(r.rows[0].id), name: r.rows[0].name, phone: r.rows[0].phone } : null;
+    const r = await this.db.query(`SELECT v.id, v.name, v.phone, k.since_id FROM chat_visitor_keys k JOIN chat_visitors v ON v.id=k.visitor_id WHERE k.key_hash=$1`, [hash(key)]);
+    return r.rows[0] ? { id: Number(r.rows[0].id), name: r.rows[0].name, phone: r.rows[0].phone, since: Number(r.rows[0].since_id) } : null;
   }
 
   /** At most `n` actions a minute for one visitor or address. */
@@ -180,7 +210,11 @@ export class LiveChat {
     if (this.rate.size > 5000) for (const [k, v] of this.rate) if (!v.some((t) => now - t < perMs)) this.rate.delete(k);
   }
 
-  /** The first message: name, WhatsApp number and what they want. Returns the browser key (new visitors) and the chat. */
+  /**
+   * The first message from this browser: name, WhatsApp number and what they want. One conversation per WhatsApp number:
+   * the same number always lands in the same chat (a closed one reopens). A browser that isn't theirs yet gets a key
+   * that sees only what comes after it joined; the WhatsApp link shows the whole conversation.
+   */
   async start(input: { key?: string | null; name: string; phone: string; text: string; page?: string | null; ip?: string | null }) {
     const name = String(input.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
     if (name.length < 2) throw new ChatError('Please tell us your name.');
@@ -190,20 +224,36 @@ export class LiveChat {
     if (!text) throw new ChatError('Please type your message.');
     this.limit(`start:${input.ip ?? '?'}`, 6, 60 * 60_000);
     const user = (await this.db.query('SELECT id FROM users WHERE phone=$1', [phone])).rows[0];
-    let visitor = await this.visitorFor(input.key);
+    const mine = await this.visitorFor(input.key);
+    let visitor = mine && mine.phone === phone ? mine : null;
     let key: string | null = null;
-    if (visitor) {
-      await this.db.query('UPDATE chat_visitors SET name=$2, phone=$3, user_id=$4 WHERE id=$1', [visitor.id, name, phone, user?.id ?? null]);
-    } else {
-      const v = await this.db.query('INSERT INTO chat_visitors (name, phone, user_id) VALUES ($1,$2,$3) RETURNING id', [name, phone, user?.id ?? null]);
-      visitor = { id: Number(v.rows[0].id), name, phone };
-      key = token();
-      await this.db.query('INSERT INTO chat_visitor_keys (key_hash, visitor_id) VALUES ($1,$2)', [hash(key), visitor.id]);
+    if (!visitor) {
+      const known = (await this.db.query('SELECT id, name, phone FROM chat_visitors WHERE phone=$1 ORDER BY id LIMIT 1', [phone])).rows[0];
+      if (known) {
+        visitor = { id: Number(known.id), name, phone, since: 0 };
+        const last = (await this.db.query('SELECT COALESCE(max(m.id),0) AS n FROM chat_messages m JOIN chat_threads t ON t.id=m.thread_id WHERE t.visitor_id=$1', [visitor.id])).rows[0].n;
+        key = token();
+        await this.db.query('INSERT INTO chat_visitor_keys (key_hash, visitor_id, since_id) VALUES ($1,$2,$3)', [hash(key), visitor.id, Number(last)]);
+      } else {
+        const v = await this.db.query('INSERT INTO chat_visitors (name, phone, user_id) VALUES ($1,$2,$3) RETURNING id', [name, phone, user?.id ?? null]);
+        visitor = { id: Number(v.rows[0].id), name, phone, since: 0 };
+        key = token();
+        await this.db.query('INSERT INTO chat_visitor_keys (key_hash, visitor_id) VALUES ($1,$2)', [hash(key), visitor.id]);
+      }
     }
-    const t = await this.db.query(
-      `INSERT INTO chat_threads (ref, visitor_id, resume_code, source_page, last_visitor_at) VALUES ($1,$2,$3,$4, now()) RETURNING id`,
-      [refCode(), visitor.id, token(12), String(input.page ?? '').slice(0, 200) || null]);
-    const threadId = Number(t.rows[0].id);
+    await this.db.query('UPDATE chat_visitors SET name=$2, user_id=COALESCE($3, user_id) WHERE id=$1', [visitor.id, name, user?.id ?? null]);
+    const existing = (await this.db.query('SELECT id, status FROM chat_threads WHERE visitor_id=$1 ORDER BY id DESC LIMIT 1', [visitor.id])).rows[0];
+    let threadId: number;
+    if (existing) {
+      threadId = Number(existing.id);
+      if (existing.status === 'CLOSED') await this.reopen(threadId, null);
+      if (input.page) await this.db.query('UPDATE chat_threads SET source_page=$2 WHERE id=$1', [threadId, String(input.page).slice(0, 200)]);
+    } else {
+      const t = await this.db.query(
+        `INSERT INTO chat_threads (ref, visitor_id, resume_code, source_page, last_visitor_at) VALUES ($1,$2,$3,$4, now()) RETURNING id`,
+        [refCode(), visitor.id, token(12), String(input.page ?? '').slice(0, 200) || null]);
+      threadId = Number(t.rows[0].id);
+    }
     await this.addMessage(threadId, 'VISITOR', text, null, null);
     bus.chat({ threadId, type: 'thread' });
     return { key, threadId };
@@ -229,23 +279,23 @@ export class LiveChat {
     return Number((await this.db.query('SELECT COALESCE(max(last_read_id),0) AS n FROM chat_reads WHERE thread_id=$1', [threadId])).rows[0].n);
   }
 
-  async visitorThreads(visitorId: number) {
+  async visitorThreads(visitorId: number, since = 0) {
     const r = await this.db.query(
       `SELECT t.id, t.ref, t.status, t.updated_at, t.visitor_read_id, s.name AS staff_name,
-              (SELECT row_to_json(x) FROM (SELECT m.kind, m.body, m.file_id, m.created_at FROM chat_messages m WHERE m.thread_id=t.id AND m.kind IN ('VISITOR','STAFF') ORDER BY m.id DESC LIMIT 1) x) AS last,
-              (SELECT count(*)::int FROM chat_messages m WHERE m.thread_id=t.id AND m.kind='STAFF' AND m.id > t.visitor_read_id) AS unread
-       FROM chat_threads t LEFT JOIN staff s ON s.id=t.assigned_to WHERE t.visitor_id=$1 ORDER BY t.updated_at DESC LIMIT 20`, [visitorId]);
+              (SELECT row_to_json(x) FROM (SELECT m.kind, m.body, m.file_id, m.created_at FROM chat_messages m WHERE m.thread_id=t.id AND m.kind IN ('VISITOR','STAFF') AND m.id > $2 ORDER BY m.id DESC LIMIT 1) x) AS last,
+              (SELECT count(*)::int FROM chat_messages m WHERE m.thread_id=t.id AND m.kind='STAFF' AND m.id > GREATEST(t.visitor_read_id, $2)) AS unread
+       FROM chat_threads t LEFT JOIN staff s ON s.id=t.assigned_to WHERE t.visitor_id=$1 ORDER BY t.updated_at DESC LIMIT 1`, [visitorId, since]);
     return r.rows.map((t) => ({
       id: Number(t.id), status: t.status, updatedAt: t.updated_at, rep: firstName(t.staff_name) || null, unread: t.unread,
       last: t.last ? { kind: t.last.kind, text: t.last.body || (t.last.file_id ? 'Sent a file' : ''), at: t.last.created_at } : null,
     }));
   }
 
-  async visitorThread(visitorId: number, threadId: number) {
+  async visitorThread(visitorId: number, threadId: number, since = 0) {
     const t = await this.ownThread(visitorId, threadId);
-    const msgs = (await this.db.query(`${MSG_SQL} WHERE m.thread_id=$1 AND m.kind <> 'NOTE' ORDER BY m.id`, [threadId])).rows;
+    const msgs = (await this.db.query(`${MSG_SQL} WHERE m.thread_id=$1 AND m.kind <> 'NOTE' AND m.id > $2 ORDER BY m.id`, [threadId, since])).rows;
     return {
-      id: Number(t.id), status: t.status, rep: firstName(t.staff_name) || null, rating: t.rating ?? null,
+      id: Number(t.id), status: t.status, rep: firstName(t.staff_name) || null, rating: t.rating ?? null, partial: since > 0,
       seenUpTo: await this.staffReadUpTo(threadId),
       messages: msgs.map((m) => messageOut(m, false)),
     };
@@ -293,10 +343,10 @@ export class LiveChat {
     bus.chat({ threadId, type: 'thread' });
   }
 
-  async file(fileId: number, opts: { visitorId?: number; staff?: boolean }) {
+  async file(fileId: number, opts: { visitorId?: number; since?: number; staff?: boolean }) {
     const f = (await this.db.query(
-      `SELECT f.*, t.visitor_id FROM chat_files f JOIN chat_threads t ON t.id=f.thread_id WHERE f.id=$1`, [fileId])).rows[0];
-    if (!f || (!opts.staff && Number(f.visitor_id) !== opts.visitorId)) throw new ChatError('File not found.', 404);
+      `SELECT f.*, t.visitor_id, (SELECT max(m.id) FROM chat_messages m WHERE m.file_id=f.id) AS message_id FROM chat_files f JOIN chat_threads t ON t.id=f.thread_id WHERE f.id=$1`, [fileId])).rows[0];
+    if (!f || (!opts.staff && (Number(f.visitor_id) !== opts.visitorId || Number(f.message_id ?? 0) <= (opts.since ?? 0)))) throw new ChatError('File not found.', 404);
     return { name: f.name as string, mime: f.mime as string, bytes: f.bytes as Buffer };
   }
 

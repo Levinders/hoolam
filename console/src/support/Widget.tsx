@@ -10,7 +10,7 @@ import './support.css';
 
 /**
  * Support lives here, on every console page: a round button bottom right with the unread count,
- * ribbons that slide out for new messages, and a panel with Live chat, WhatsApp and Chat content.
+ * ribbons that slide out for new messages, and a panel with Live chat, WhatsApp and Chat config.
  */
 export function SupportWidget() {
   const s = useSupport();
@@ -23,7 +23,7 @@ export function SupportWidget() {
   const tabs: { key: SupportTab; label: string; n?: number; show: boolean }[] = [
     { key: 'live', label: 'Live chat', n: s.counts.liveMessages, show: s.canLive },
     { key: 'whatsapp', label: 'WhatsApp', n: s.counts.whatsapp, show: s.canWa },
-    { key: 'content', label: 'Chat content', show: s.canLive },
+    { key: 'content', label: 'Chat config', show: s.canLive },
   ];
   return (
     <>

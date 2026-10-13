@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleCheck, Eye, FileText, Globe, MessageCircle, Paperclip, RotateCcw, Search, Send, StickyNote, ThumbsDown, ThumbsUp, UserRoundCheck, X } from 'lucide-react';
+import { ArrowLeft, CircleCheck, Eye, FileText, Globe, MessageCircle, PanelRightClose, PanelRightOpen, Paperclip, RotateCcw, Search, Send, StickyNote, ThumbsDown, ThumbsUp, UserRound, UserRoundCheck, X } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as KE } from 'react';
 import { Link } from 'react-router-dom';
 import { api, post } from '../api';
@@ -209,19 +209,7 @@ function Thread({ id, onBack, onChanged }: { id: number; onBack: () => void; onC
           {typing > 0 && <div className="lc-msg them"><div className="lc-typing" aria-label={`${first(t.visitor.name)} is typing`}><i /><i /><i /></div></div>}
           <div ref={end} />
         </div>
-        {s.expanded && (
-          <aside className="lc-info">
-            <h3>About {first(t.visitor.name)}</h3>
-            <dl>
-              <dt>WhatsApp</dt><dd>{t.visitor.phone}</dd>
-              <dt>On Hoolam</dt><dd>{t.visitor.userId ? <Link to={`/people/${t.visitor.userId}`}>Their record · {t.visitor.orders} order{t.visitor.orders === 1 ? '' : 's'}</Link> : 'Not yet (no orders on this number)'}</dd>
-              <dt>Chats</dt><dd>{t.visitor.chats} on the website</dd>
-              <dt>Started on</dt><dd className="row" style={{ gap: 6 }}><Globe style={{ width: 14 }} className="faint" />{t.sourcePage || '/'}</dd>
-              <dt>Started</dt><dd>{ago(t.createdAt)}</dd>
-            </dl>
-            {t.waNotifiedAt && <p className="small muted">We told them about a reply on WhatsApp {ago(t.waNotifiedAt)}.</p>}
-          </aside>
-        )}
+        {s.expanded && <InfoRail t={t} />}
       </div>
 
       {othersHandling ? (
@@ -260,6 +248,64 @@ function Thread({ id, onBack, onChanged }: { id: number; onBack: () => void; onC
   );
 }
 
+/** Plain page names for where a chat started. */
+export function pageName(path?: string | null): string {
+  const p = String(path || '/').replace(/[?#].*$/, '');
+  if (p === '/' || /^\/v\/[^/]+\/?$/.test(p)) return 'Home page';
+  if (p.startsWith('/about')) return 'About';
+  if (p.startsWith('/contact')) return 'Contact us';
+  if (p === '/legal/' || p === '/legal') return 'Legal pages';
+  const legal = /^\/legal\/([a-z-]+)/.exec(p);
+  if (legal) return ({ terms: 'Terms of service', privacy: 'Privacy policy', 'holding-agreement': 'Holding agreement', disputes: 'If something goes wrong', 'acceptable-use': 'Acceptable use', money: 'Where the money sits', cookies: 'Cookies', 'delete-your-data': 'Delete your data' } as Record<string, string>)[legal[1]!] ?? 'Legal pages';
+  return 'Website';
+}
+
+/** Full screen: the visitor's details and every internal note, folding down to icons. */
+function InfoRail({ t }: { t: any }) {
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('hoolam:support:rail') !== '0'; } catch { return true; } });
+  const [pane, setPane] = useState<'about' | 'notes'>('about');
+  const notes = t.messages.filter((m: any) => m.kind === 'NOTE');
+  const set = (v: boolean) => { setOpen(v); try { localStorage.setItem('hoolam:support:rail', v ? '1' : '0'); } catch { /* ignore */ } };
+  const jump = (id: number) => {
+    const el = document.getElementById(`lcm-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  };
+  const show = (p: 'about' | 'notes') => { setPane(p); set(true); };
+  return (
+    <aside className={`lc-info${open ? '' : ' folded'}`}>
+      <div className="lc-rail">
+        <button className={`sw-icon dark${open && pane === 'about' ? ' on' : ''}`} title={`About ${first(t.visitor.name)}`} aria-label={`About ${first(t.visitor.name)}`} onClick={() => (open && pane === 'about' ? set(false) : show('about'))}><UserRound /></button>
+        <button className={`sw-icon dark${open && pane === 'notes' ? ' on' : ''}`} title="Internal notes" aria-label={`Internal notes (${notes.length})`} onClick={() => (open && pane === 'notes' ? set(false) : show('notes'))}><StickyNote />{notes.length > 0 && <span className="lc-rail-n">{notes.length}</span>}</button>
+        <span className="spacer" />
+        <button className="sw-icon dark" title={open ? 'Fold' : 'Open'} aria-label={open ? 'Fold the side panel' : 'Open the side panel'} onClick={() => set(!open)}>{open ? <PanelRightClose /> : <PanelRightOpen />}</button>
+      </div>
+      {open && (pane === 'about' ? (
+        <div className="lc-pane">
+          <h3>About {first(t.visitor.name)}</h3>
+          <dl>
+            <dt>WhatsApp</dt><dd>{t.visitor.phone}</dd>
+            <dt>On Hoolam</dt><dd>{t.visitor.userId ? <Link to={`/people/${t.visitor.userId}`}>Their record · {t.visitor.orders} order{t.visitor.orders === 1 ? '' : 's'}</Link> : 'Not yet (no orders on this number)'}</dd>
+            <dt>Started on</dt><dd className="row" style={{ gap: 6 }}><Globe style={{ width: 14 }} className="faint" />{pageName(t.sourcePage)}</dd>
+            <dt>Started</dt><dd>{ago(t.createdAt)}</dd>
+          </dl>
+          {t.waNotifiedAt && <p className="small muted">We told them about a reply on WhatsApp {ago(t.waNotifiedAt)}.</p>}
+        </div>
+      ) : (
+        <div className="lc-pane">
+          <h3>Internal notes <span className="faint">{notes.length}</span></h3>
+          {!notes.length ? <p className="small muted">No notes yet. Notes are only for the team.</p> : (
+            <ol className="lc-notes">{[...notes].reverse().map((n: any) => (
+              <li key={n.id}><button onClick={() => jump(n.id)}><span>{n.body}</span><small>{[first(n.by), ago(n.at)].filter(Boolean).join(' · ')}</small></button></li>
+            ))}</ol>
+          )}
+        </div>
+      ))}
+    </aside>
+  );
+}
+
 function Message({ m, t, seen }: { m: any; t: any; seen: boolean }) {
   if (m.kind === 'SYSTEM') {
     const who = first(m.by);
@@ -269,7 +315,7 @@ function Message({ m, t, seen }: { m: any; t: any; seen: boolean }) {
   }
   const mine = m.kind === 'STAFF' || m.kind === 'NOTE';
   return (
-    <div className={`lc-msg ${mine ? 'us' : 'them'}${m.kind === 'NOTE' ? ' lc-note' : ''}`}>
+    <div id={`lcm-${m.id}`} className={`lc-msg ${mine ? 'us' : 'them'}${m.kind === 'NOTE' ? ' lc-note' : ''}`}>
       {m.kind === 'NOTE' && <span className="lc-notelabel"><StickyNote />Internal note · only the team sees this</span>}
       <div className="lc-bubble">
         {m.file && <FileView f={m.file} />}

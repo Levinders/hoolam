@@ -46,9 +46,9 @@ export function registerLiveChatRoutes(app: FastifyInstance, chat: LiveChat, db:
 
     r.get('/me', async (req) => {
       const v = await visitor(req);
-      return { visitor: { name: v.name, phone: v.phone.replace(/^\+234/, '0') }, threads: await chat.visitorThreads(v.id) };
+      return { visitor: { name: v.name, phone: v.phone.replace(/^\+234/, '0') }, threads: await chat.visitorThreads(v.id, v.since) };
     });
-    r.get('/threads/:id', async (req) => chat.visitorThread((await visitor(req)).id, idOf(req)));
+    r.get('/threads/:id', async (req) => { const v = await visitor(req); return chat.visitorThread(v.id, idOf(req), v.since); });
     r.post('/threads/:id/messages', async (req) => { await chat.visitorSend((await visitor(req)).id, idOf(req), String((req.body as { text?: string }).text ?? '')); return { ok: true }; });
     r.post('/threads/:id/files', { bodyLimit: CHAT_MAX_FILE + 1024 }, async (req) => {
       const v = await visitor(req);
@@ -61,9 +61,15 @@ export function registerLiveChatRoutes(app: FastifyInstance, chat: LiveChat, db:
     r.post('/threads/:id/close', async (req) => { await chat.visitorClose((await visitor(req)).id, idOf(req)); return { ok: true }; });
     r.post('/threads/:id/rate', async (req) => { await chat.rateThread((await visitor(req)).id, idOf(req), (req.body as { rating: 'UP' | 'DOWN' }).rating); return { ok: true }; });
 
+    // News pictures (public)
+    r.get('/media/:id', async (req, reply) => {
+      const m = await chat.media(idOf(req));
+      return reply.type(m.mime).header('x-content-type-options', 'nosniff').header('cache-control', 'public, max-age=31536000, immutable').send(m.bytes);
+    });
+
     r.get('/files/:id', async (req, reply) => {
       const v = await visitor(req);
-      const f = await chat.file(idOf(req), { visitorId: v.id });
+      const f = await chat.file(idOf(req), { visitorId: v.id, since: v.since });
       return reply.type(f.mime).header('x-content-type-options', 'nosniff').header('cache-control', 'private, max-age=86400')
         .header('content-disposition', `${f.mime === 'application/pdf' ? 'attachment' : 'inline'}; filename="${f.name.replace(/"/g, '')}"`).send(f.bytes);
     });
