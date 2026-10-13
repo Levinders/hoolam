@@ -129,7 +129,7 @@ Everything passes through the one server: messages come in from Meta, money move
 | People | `users` (incl. the ID check result: `kyc_status` UNVERIFIED / VERIFIED / REVIEW, `kyc_verified_at`, `kyc_method` BVN / NIN / MANUAL, `kyc_name`, `kyc_last4`, `kyc_ref`, `kyc_review_reason`), `kyc_checks` (every try: method, last 4 digits, result, checker, reference; never the number), `bank_accounts`, `user_photos`, `alert_refusals` (who said Not me to whom) |
 | Orders | `deals` (incl. `handover_by`: seller or courier; `courier_alert`: sent, not-sent, skipped; `legacy_ship`: a seller's order from before Sell something was rebuilt), `deal_events`, `deal_photos`, `deal_notes`, `deal_ratings`, `disputes` |
 | Money | `payment_intents`, `payouts` (status `WAITING_KYC`: a seller payout waiting for their ID check or an account in their ID name), `ledger_entries` |
-| WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages` |
+| WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages` (incl. `wa_id`, WhatsApp's id, to match read receipts), `contact_cards` (who got Hoolam's contact card). Deals also keep `alert_wa_id` and `seen_at` (seen), `delivery_pin` and `courier_pin` (shared locations, "lat,lng"); support requests keep `wa_message_id` (for quoting). Migration 019. |
 | Website | `media` (logo, logo icon, and each version's website images as `<spot>@<version>`; migration 017 moved the existing ones to 1.0.0) |
 | Team | `staff`, `staff_invites`, `staff_sessions`, `audit_log`, `support_requests`, `inbox_dismissals` |
 | System | `settings` (console values, incl. `home_version`), `app_secrets` (forms key), `contact_optouts` (old, now empty) |
@@ -201,6 +201,15 @@ Everyone starts on the buying menu; becoming a seller (a one-time setup that cre
 - **Bold** marks names, amounts, order codes, addresses, dates and warnings.
 - **Bank accounts:** send just the 10-digit number and pick the bank from a list (see Dispatch), or type "0123456789 GTBank". The account name is looked up and shown with the full number to confirm.
 - **Voice notes** aren't understood yet; the bot asks for text.
+- **Typing and blue ticks:** the moment someone sends a message, it's marked read (blue ticks) and "typing…" shows until the reply (WhatsApp shows it for up to 25 seconds). If WhatsApp refuses, the reply still goes.
+- **Quoting:** a correction (a wrong price, account, date, phone number, BVN/NIN detail…) and an acknowledgement (a photo added) quote the message they're about. A rep's reply from Support quotes the person's question.
+- **Contact card:** on anyone's first message (buyer, seller, rider), once: "📇 Save Hoolam so you always know it's really us. Our messages only ever come from this number, and we never ask for your PIN or OTP." then Hoolam's contact card (**Save contact** fills in "Hoolam", the number, the company, email and website). WhatsApp doesn't tell businesses whether a number is saved, so it's sent once (table `contact_cards`).
+- **Seen:** when the other side opens a new order (reads the alert, taps View order, or opens it in a form), the person waiting is told once: "👀 **Mama Bella** has seen your order **HL-X**. We'll tell you as soon as they…". Only inside their 24 hours, and nothing shows if the other side has read receipts off. My orders shows "👀 Seen 13 Oct · 2:14 pm".
+- **Sharing a location:** every address question in the chat (the buyer's delivery address, the seller giving the buyer's address, accepting a seller's order, the rider's drop-off) ends with "📍 Or share your location: tap 📎 → *Location*." A shared pin is followed by an optional landmark ("Blue gate, opposite First Bank", or **Skip**). Forms keep typed addresses (WhatsApp forms have no location field). The seller's "has paid" message shows "📍 Deliver to" with a **🗺️ Map** link; the rider's or driver's delivery message has the map link, plus a real map pin when they're in the chat with Hoolam. Typed addresses get a map link that searches the address; a pin gives the exact spot.
+- **Receipts:** a branded receipt picture (Hoolam colours, the amount large, names, the order, the money lines, date, reference, company and RC number; never a full account number) goes just before the message at every money point:
+  - the buyer's payment lands: the buyer gets "Payment received · Held safely by Hoolam until you're happy"; the seller gets a copy, "Payment confirmed by Hoolam", with what they receive and "This is Hoolam's own record of the payment. Only trust payments confirmed here, not a buyer's screenshot.";
+  - the seller is paid ("Payout sent to GTBank ••••6789", with the rider's fee if one was paid); a refund ("Refund sent"); a rider or driver paid ("Delivery fee sent", to them if they're in the chat, and a copy to the seller).
+  Pictures only go inside the person's 24 hours; they're always in **My orders** (the newest in the order, and "🧾 Receipts to chat" sends them all) and on the private order page. Drawn by the server from bundled fonts (`assets/fonts`, Inter and Poppins), so they look the same anywhere (`src/receipt.ts`).
 
 ## Buy something, end to end
 
@@ -280,7 +289,7 @@ Dispatch, handover, payment to the seller, problems and refunds continue below.
 2. **Payout account**, only if they don't have one yet: account number, pick the bank, confirm the name (full number shown). "You only do this once."
 3. **Check your order** (form "🏷️ Check your order", or the chat): photos, item, description, category; in bold Total price, **Hoolam fee −₦X**, **You receive**, deliver to (or "The buyer adds the delivery address"), Ready by, the buyer's WhatsApp number; "Minus the rider's fee, if you send one", the payout bank; "Nothing is paid yet. The buyer accepts, then pays Hoolam." **Send to buyer** · **Edit order** (the seller form filled in, or pick one thing in the chat) · **Start again**.
 4. **Order sent:** "✅ **Ada** · Order **HL-X** is sent", "We've sent the buyer your order. They accept it, then pay Hoolam", a backup link to forward, "They have **48 hours** to accept" (the console's time to accept), "**Don't send anything before the money is held.**", the order page. **Cancel order** · Main menu.
-5. **Buyer alert** (📨 template `hoolam_new_order_for_buyer`): "🛍️ **New order for you** on **Hoolam**", seller, item, total price and **You pay** on bold lines; **View order** · **Not me**. "Not me" works per person, as for sellers.
+5. **Buyer alert** (📨 template `hoolam_new_order_for_buyer_v2`, with the item's first photo at the top): "🛍️ **New order for you** on **Hoolam**", seller, item, total price and **You pay** on bold lines; **View order** · **Not me**. "Not me" works per person, as for sellers.
 6. **The buyer looks at it** (the single-order form, or the chat): headed "🛍️ **Bayo** · HL-X · New order for you", photos, details, the seller's trust line and trust card link (when their page is on), Total price / Transaction fee / **You pay**, deliver to, Ready by, "Accept within 48 hours". **Accept order** · **Decline** · **Seller's record**. Looking changes nothing.
 7. **Accept:** the buyer confirms the seller's address (**Yes, deliver here**), types another one, or adds it if the seller left it out (in the form, a "Delivery address" box on the same screen: empty keeps the one shown). Then straight away: "✅ **Bayo** · Order **HL-X** accepted. Here's how to pay:" with the account number and its exact end time.
 8. **The seller is told:** "✅ **Ada** · Order **HL-X** accepted", the buyer's record, Total price / Hoolam fee / **You receive**, "**Don't ship before we confirm the money is held.**" (📨 `hoolam_buyer_accepted` if needed).
@@ -369,7 +378,8 @@ Once the buyer has paid, the seller says how the item travels, the buyer gets a 
 
 - **My orders** (form): Pending / Completed / All with counts, then 20 per page; each row reads "**Bayo · HL-X · ₦X**" (the other person's name, the code, the amount) with the item and next step; opening one shows the Order summary, headed with the other person's name, the code and the status, with only its next action.
 - **My orders** (chat fallback): each line starts with the other person's name in bold, then the code and item, the amount and status.
-- **Private order page** (`/o/HL-X?k=…`): photos, a status timeline, delivery details and that person's own money lines (the buyer's link and the seller's link differ). It never shows the handover code.
+- **Receipts in My orders:** once money has moved, the order shows the newest receipt as its third picture (WhatsApp allows three per screen), and **🧾 Receipts to chat** (in a free link spot) sends all of them to the chat.
+- **Private order page** (`/o/HL-X?k=…`): photos, a status timeline, delivery details (with **Open in Maps**), that person's own money lines (the buyer's link and the seller's link differ) and their receipts. It never shows the handover code.
 
 ## WhatsApp forms (Flows)
 
@@ -406,12 +416,14 @@ If Meta refuses the fields that switch between required and optional, the server
 
 WhatsApp only lets Hoolam message someone who hasn't written in 24 hours with a template Meta approved in advance. The server submits all of them on start, checks their status every 10 minutes, and the console lists each one with its status (Settings → WhatsApp).
 
+**Order alerts with a picture:** "New order request" (`hoolam_new_order_request_v3`) and "New order for you" (`hoolam_new_order_for_buyer_v2`) show the item's first photo at the top, or the Hoolam card ("Pay safe. Ship safe.") when there's none. Meta needs a sample picture to approve them, which the server uploads when it submits them. Until Meta approves, the previous versions (v2 and v1, no picture) keep being used.
+
 **Fallback rules:** inside 24 hours the normal chat message goes out. Outside, the approved template goes; while a reworded template is being reviewed, the older approved version it replaces is used, given only the values and buttons it takes. If neither is approved, the message waits in the console's Needs action. All are UTILITY (about one order, nothing promotional). Meta rejects codes inside utility templates, so none carries the handover code.
 
 | Template | Replaces (used until approved) | Sent to, when | Buttons |
 | --- | --- | --- | --- |
-| `hoolam_new_order_request_v2` | `hoolam_new_order_request` | Seller: a buyer typed their number | View order · Not me |
-| `hoolam_new_order_for_buyer` | `hoolam_order_payment_request` | Buyer: a seller's new order (seller, item, total, what they pay) | View order · Not me |
+| `hoolam_new_order_request_v3` (picture at the top) | `hoolam_new_order_request_v2` | Seller: a buyer typed their number | View order · Not me |
+| `hoolam_new_order_for_buyer_v2` (picture at the top) | `hoolam_new_order_for_buyer` | Buyer: a seller's new order (seller, item, total, what they pay) | View order · Not me |
 | `hoolam_order_accepted_pay` | `hoolam_order_accepted` | Buyer: the seller accepted, pay now | Pay now · Cancel order |
 | `hoolam_order_new_price_breakdown` | `hoolam_order_new_price` | Buyer: new price, reason, Hoolam fee, total | Accept new price · Cancel order |
 | `hoolam_order_paid_v2` | `hoolam_order_paid` | Seller (seller-started): the buyer paid | I have sent it |
@@ -530,6 +542,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 13 Oct 2026 | Live chat: typing and blue ticks, quoted corrections, "seen" updates, sharing a location (map links and pins for sellers and riders), receipts as pictures at every money point (incl. the seller's copy of the payment) in the chat, My orders and the order page, Hoolam's contact card on first arrival, order alerts with the item's photo | 64bdbce |
 | 13 Oct 2026 | `WHATSAPP_FORM_MODE` removed: every form is published at start like the rest; if Meta won't publish one yet, it's sent as a draft and its card says why | 2908ba1, 9e68a43 |
 | 13 Oct 2026 | WhatsApp forms are sent as Meta has them (draft or published), not from `WHATSAPP_FORM_MODE`; a refused form rests 30 minutes instead of switching every form off until a restart; console WhatsApp forms panel with Meta's reasons and Try again now | 412a05d |
 | 12 Oct 2026 | Prembly: the dashboard's BVN address and the same pattern for NIN as defaults; NIN sends both number fields; a wrong address or refused request says "try again" without using a try; Prembly's reference is kept | 7e34fe3 |
