@@ -42,6 +42,8 @@ const COMPANY = {
   incorporated: '8 October 2026',
   bankPartner: 'Moniepoint Microfinance Bank',
   payService: 'Monnify',
+  // the EFCC's Special Control Unit against Money Laundering: put the registration number here once it's approved
+  scuml: '',
 };
 // The date the legal pages took effect. Change it (and say what changed) whenever their wording changes.
 const LEGAL_EFFECTIVE = '12 October 2026'; // ID checks (BVN or NIN) above the limit without ID and for sellers' payouts
@@ -289,6 +291,9 @@ for (const p of INFO_PAGES) {
   const canonical = site ? `${site}${path}` : '';
   const vars = {
     ...shared, WA_HREF: esc(waLink), REP_HREF: esc(repLink), BANK_SHORT: String(COMPANY.bankPartner).replace(/\s*Microfinance Bank$/, ' MFB'),
+    SCUML: COMPANY.scuml ? `Registered with the EFCC’s Special Control Unit against Money Laundering (SCUML), no. ${esc(COMPANY.scuml)}`
+      : 'Registration with the EFCC’s Special Control Unit against Money Laundering (SCUML) is in progress',
+    HERE_ABOUT: p.slug === 'about' ? ' class="here" aria-current="page"' : '', HERE_CONTACT: p.slug === 'contact' ? ' class="here" aria-current="page"' : '',
     WA_BIG: wa ? `<a class="big" data-wa href="${esc(waLink)}" target="_blank" rel="noopener">${esc(phoneText(wa))}</a>` : '',
     PHONE_CARD: contact.phone && contact.phone !== wa
       ? `<div class="way card"><i><svg class="ic" aria-hidden="true"><use href="#sf-phone"/></svg></i><h2>Call us</h2><a class="big" href="tel:+${esc(contact.phone)}">${esc(phoneText(contact.phone))}</a><p>From 9am to 5pm, every day.</p></div>` : '',

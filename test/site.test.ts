@@ -109,7 +109,18 @@ describe('landing page ↔ server', () => {
     expect(about).toContain('<b>digital pay on delivery</b>');
     expect(about).toContain('Ivana · buyer');
     expect(about).toContain('Mama Bella · seller');
-    expect(contact).toContain('When you need assistance, a rep answers.');
+    expect(contact).toContain('When you need assistance, a rep is available to answer.');
+    expect(about).toContain('Pay on delivery, made digital (DPOD)</h2>');
+    expect(about).toContain('Hoolam is a social commerce platform for buying and selling');
+    expect(about).not.toContain('cash to count');
+    expect(about).toContain('Special Control Unit against Money Laundering (SCUML)');
+    // About and Contact us in the phone menu only (here and on home 1.2.0), never in the wide top bar
+    for (const f of ['dist-site/about/index.html', 'dist-site/contact/index.html', 'dist-site/v/1.2.0/index.html']) {
+      const h = readFileSync(f, 'utf8');
+      const drawer = h.slice(h.indexOf('<aside class="drawer"'), h.indexOf('</aside>'));
+      expect(drawer, f).toMatch(/<a href="\/about\/"[^>]*>About<svg/);
+      expect(drawer, f).toMatch(/<a href="\/contact\/"[^>]*>Contact us<svg/);
+    }
     for (const [name, html] of [['about', about], ['contact', contact]] as const) {
       // the same top bar as the home page; About and Contact us live only in the footer
       const header = html.slice(html.indexOf('<header class="top"'), html.indexOf('</aside>'));

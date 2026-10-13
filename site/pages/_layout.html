@@ -84,6 +84,8 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
   .dr-nav { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
   .dr-nav a { display: flex; align-items: center; gap: 14px; min-height: 58px; padding: 0 14px 0 16px; border-radius: 18px; color: var(--ink); text-decoration: none; font: 600 1.08rem var(--font-display); letter-spacing: -0.01em; transition: background .2s; }
   .dr-nav a:active { background: var(--card); }
+  .dr-nav a.here { background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 18px -12px rgba(60,48,30,.35); }
+  .dr-nav a.here .go { color: var(--teal); opacity: 1; }
   .dr-nav .go { margin-left: auto; width: 18px; height: 18px; color: var(--soft); opacity: .6; }
   .dr-foot { margin-top: auto; display: flex; gap: 10px; align-items: flex-start; padding: 14px 6px 0; border-top: 1px solid var(--rule); color: var(--soft); font-size: .84rem; font-weight: 500; line-height: 1.45; }
   .dr-foot .ic { width: 18px; height: 18px; color: var(--green); flex: none; margin-top: 1px; }
@@ -125,6 +127,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
 .flow .amt { font: 700 clamp(1.7rem, 3vw, 2.2rem) var(--font-display); letter-spacing: -0.03em; }
 .flow .chip { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 99px; background: rgba(255,255,255,.12); color: #fff; font-size: .84rem; font-weight: 600; }
 .flow .chip .ic { width: 15px; height: 15px; color: var(--gold); }
+.flow .who .tag { margin-left: auto; font-family: var(--font-body); }
 .flow .stop.paid .who i { background: var(--green-tint); color: var(--green); }
 .flow .arrow { display: grid; place-items: center; width: 44px; color: var(--gold); }
 .flow .arrow .ic { width: 26px; height: 26px; }
@@ -242,6 +245,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
 .way.main > .mini { position: absolute; right: clamp(20px, 3vw, 32px); bottom: clamp(20px, 3vw, 28px); width: min(300px, 42%); display: flex; flex-direction: column; gap: 8px; z-index: 1; }
 .mini .bub { max-width: 88%; padding: 8px 12px 6px; border-radius: 14px; font-size: .9rem; line-height: 1.45; color: var(--ink); box-shadow: 0 8px 24px rgba(0,0,0,.18); }
 .mini .bub.in { align-self: flex-start; background: #fff; border-top-left-radius: 4px; }
+.mini .tag { align-self: flex-end; }
 .mini .bub.out { align-self: flex-end; background: #D9FDD3; border-top-right-radius: 4px; }
 .mini .bub small { display: block; margin-top: 2px; font-size: .7rem; color: var(--soft); text-align: right; }
 .mini .opts { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -262,10 +266,10 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
 .hours p b { color: var(--ink); font-weight: 600; }
 .day { display: grid; gap: 10px; }
 .day .row { display: grid; grid-template-columns: 92px 1fr; gap: 12px; align-items: center; font-size: .86rem; color: var(--soft); font-weight: 500; }
-.day .bar { position: relative; height: 14px; border-radius: 99px; background: var(--rule); overflow: hidden; }
-.day .bar span { position: absolute; top: 0; bottom: 0; border-radius: 99px; }
-.day .bar .all { left: 0; right: 0; background: var(--teal); }
-.day .bar .reps { left: calc(9 / 24 * 100%); width: calc(8 / 24 * 100%); background: var(--gold); }
+.day .track { position: relative; height: 14px; border-radius: 99px; background: var(--rule); overflow: hidden; }
+.day .track span { position: absolute; top: 0; bottom: 0; border-radius: 99px; }
+.day .track .all { left: 0; right: 0; background: var(--teal); }
+.day .track .reps { left: calc(9 / 24 * 100%); width: calc(8 / 24 * 100%); background: var(--gold); }
 .day .ticks2 { display: grid; grid-template-columns: 92px 1fr; gap: 12px; }
 .day .ticks2 div { position: relative; height: 18px; font-size: .74rem; color: var(--soft); font-variant-numeric: tabular-nums; }
 .day .ticks2 div span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
@@ -332,6 +336,8 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
     <a href="/#journey">How it works<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
     <a href="/#pricing">Pricing<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
     <a href="/#trust">Why trust us<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+    <a href="/about/"{{HERE_ABOUT}}>About<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+    <a href="/contact/"{{HERE_CONTACT}}>Contact us<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
   </nav>
   <div class="dr-foot"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg><span>Safe orders on WhatsApp<br><small>{{LEGAL_NAME}}<br>RC {{RC}}</small></span></div>
 </aside>
