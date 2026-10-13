@@ -10,6 +10,7 @@ import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
 import type { KycService } from '../kyc.js';
+import type { FormRegistry } from '../whatsapp/forms.js';
 import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
 import { ALL_TEMPLATES } from '../whatsapp/automation.js';
@@ -26,6 +27,8 @@ export interface ConsoleDeps {
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   refreshTemplates?: () => Promise<void>;
   kyc?: KycService;
+  forms?: FormRegistry;
+  retryForms?: () => Promise<void>;
 }
 
 declare module 'fastify' { interface FastifyRequest { staff?: StaffMember & { sessionId: string } } }
@@ -676,6 +679,18 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       need(req, 'settings.update');
       await d.refreshTemplates?.();
       return { templates: templateList() };
+    });
+
+    // ---- WhatsApp forms: which ones are being sent, and Meta's reason when one isn't ----
+    const formList = () => ({
+      connected: !d.config.WHATSAPP_DRY_RUN && !!d.config.WHATSAPP_WABA_ID, formsOn: d.settings.formsEnabled(),
+      publishNew: d.config.WHATSAPP_FORM_MODE === 'published', forms: d.forms?.list() ?? [],
+    });
+    api.get('/whatsapp/forms', async (req) => { need(req, 'settings.view'); return formList(); });
+    api.post('/whatsapp/forms/retry', async (req) => {
+      need(req, 'settings.update');
+      await act(req, { action: 'whatsapp.forms.retry', targetType: 'settings', targetId: 'forms' }, async () => { await d.retryForms?.(); });
+      return formList();
     });
 
     // ---- the payment partner: is it connected, and does it answer? ----

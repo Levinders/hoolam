@@ -65,7 +65,7 @@ export interface FlowOptions {
   /** The live "My orders" form (needs the forms endpoint). Returns false when it can't be sent. */
   ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code' | 'preview'; code?: string; item?: string; totalMinor?: number; mode?: 'buyer' | 'seller'; fresh?: boolean }): Promise<boolean> };
   /** Called when WhatsApp refuses to send a form, so we stop trying until the next restart. */
-  onFormRefused?: () => void;
+  onFormRefused?: (key: 'buy' | 'sell' | 'buyEdit' | 'sellEdit' | 'kyc', phone: string) => Promise<void> | void;
   /** Seller and buyer records. */
   trust?: Trust;
   /** Where public seller pages live, e.g. https://hoolam.onrender.com */
@@ -661,7 +661,7 @@ export class Conversation {
     if (form) {
       const status = await this.send(phone, msg.kycForm(form.flowId, form.mode, why, this.limits(), k.testMode));
       if (status !== 'FAILED') return;
-      this.o.onFormRefused?.();
+      await this.o.onFormRefused?.('kyc', phone);
     }
     return this.send(phone, msg.kycIntro(why, this.limits(), k.testMode));
   }
@@ -845,8 +845,7 @@ export class Conversation {
       await this.save(phone, 'BUY_FORM', { side: 'sell' });
       const status = await this.send(phone, msg.sellForm(form.flowId, form.mode));
       if (status !== 'FAILED') return;
-      this.o.onFormRefused?.();
-      this.o.log?.('seller form could not be sent; asking in the chat instead (forms switched off until the next restart)');
+      await this.o.onFormRefused?.('sell', phone);
     }
     await this.save(phone, 'BUY_ITEM', { side: 'sell' });
     return this.send(phone, msg.askItem());
@@ -1038,8 +1037,7 @@ export class Conversation {
       await this.save(phone, 'BUY_FORM', { side: 'buy' });
       const status = await this.send(phone, msg.buyForm(form.flowId, form.mode));
       if (status !== 'FAILED') return;
-      this.o.onFormRefused?.();
-      this.o.log?.('buyer form could not be sent; asking in the chat instead (form switched off until the next restart)');
+      await this.o.onFormRefused?.('buy', phone);
     }
     await this.save(phone, 'BUY_ITEM', { side: 'buy' });
     return this.send(phone, msg.askBuyItem());
@@ -1144,6 +1142,7 @@ export class Conversation {
       };
       const status = await this.send(phone, sell ? msg.sellEditForm(form.flowId, form.mode, data) : msg.buyEditForm(form.flowId, form.mode, data));
       if (status !== 'FAILED') return;
+      await this.o.onFormRefused?.(sell ? 'sellEdit' : 'buyEdit', phone);
     }
     return this.send(phone, msg.askWhatToChange(sell ? 'sell' : 'buy'));
   }

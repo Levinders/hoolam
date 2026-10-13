@@ -367,10 +367,54 @@ export function WhatsAppPage() {
           <div className="note"><Clock /><span>Changing it here updates links. It doesn't move your WhatsApp account: that's set on Meta, and on Render as <code>WHATSAPP_PHONE_NUMBER_ID</code>.</span></div>
         </div>
       </section>
-    )} after={<TemplatesPanel />} />;
+    )} after={<><FormsPanel /><TemplatesPanel /></>} />;
 }
 
 // ---------------------------------------------------------------------------------------------
+
+interface FormRow { key: string; label: string; state: 'ready' | 'resting' | 'failed' | 'off'; name: string | null; mode: 'draft' | 'published' | null; reason: string | null; at: string | null; retryAt: string | null; backup: boolean }
+const FORM_TONE: Record<FormRow['state'], 'green' | 'gold' | 'red' | 'grey'> = { ready: 'green', resting: 'gold', failed: 'red', off: 'grey' };
+const FORM_WORD: Record<FormRow['state'], string> = { ready: 'Ready', resting: 'Resting', failed: 'Failed', off: 'Not set up' };
+
+/** Each WhatsApp form: being sent (and as draft or published, as Meta says), resting after a refusal, or why not. */
+function FormsPanel() {
+  const q = useData<{ connected: boolean; formsOn: boolean; publishNew: boolean; forms: FormRow[] }>('/whatsapp/forms');
+  const [busy, setBusy] = useState(false);
+  const { can } = useAuth();
+  const toast = useToast();
+  if (!q.data) return null;
+  const rows = q.data.forms;
+  const ready = rows.filter((r) => r.state === 'ready').length;
+  const retry = async () => {
+    setBusy(true);
+    try { await post('/whatsapp/forms/retry'); q.reload(); toast({ kind: 'ok', title: 'Checked the forms with Meta' }); } finally { setBusy(false); }
+  };
+  return (
+    <section className="panel tpl-panel">
+      <div className="panel-head">
+        <h2>WhatsApp forms</h2>
+        <span className="right"><span className="small muted">{ready} of {rows.length} ready</span>
+          {can('settings.update') && q.data.connected && <Button size="sm" variant="ghost" icon={RotateCcw} busy={busy} onClick={retry}>Try again now</Button>}</span>
+      </div>
+      <div className="panel-body stack" style={{ gap: 12 }}>
+        <p className="small muted">Each form is sent the way Meta has it, draft or published. If WhatsApp refuses one, only that form rests for 30 minutes and is then tried again; meanwhile the chat asks the same questions, so nobody gets stuck. {q.data.publishNew ? 'New forms are published on Meta when the server starts.' : <>New forms stay drafts on Meta (they only open for testers) until <code>WHATSAPP_FORM_MODE</code> is <code>published</code> on Render.</>}</p>
+        {!q.data.formsOn && <div className="banner gold small"><AlertTriangle /><div>The <b>WhatsApp forms</b> switch above is off, so everyone answers in the chat.</div></div>}
+        <ul className="tpl-list">
+          {rows.map((r) => (
+            <li key={r.key}>
+              <div className="tpl-top"><b>{r.label}</b><Pill tone={FORM_TONE[r.state]}>{r.state === 'ready' && r.mode ? `Ready · ${r.mode}` : FORM_WORD[r.state]}</Pill></div>
+              {r.reason && <p className="tpl-body">{r.state === 'resting' ? 'WhatsApp refused it: ' : ''}{r.reason}</p>}
+              <p className="small muted" style={{ margin: 0 }}>
+                {r.state === 'resting' && r.retryAt ? <>Tried again at {new Date(r.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. </> : null}
+                {r.name ? <code>{r.name}</code> : null}{r.backup ? ' · backup version' : ''}{r.at ? ` · since ${ago(r.at)}` : ''}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
 
 interface TemplateRow { name: string; label: string; body: string; buttons: string[]; status: string | null }
 const TPL_TONE: Record<string, 'green' | 'gold' | 'red' | 'grey'> = { APPROVED: 'green', PENDING: 'gold', IN_APPEAL: 'gold', REJECTED: 'red', PAUSED: 'red', DISABLED: 'red' };

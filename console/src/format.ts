@@ -116,6 +116,7 @@ export const ACTIONS: Record<string, string> = {
   'user.unpause': 'Unpaused an account',
   'user.cap': 'Changed an order limit',
   'user.kyc.approve': 'Approved their ID',
+  'whatsapp.forms.retry': 'Tried the WhatsApp forms again',
   'user.kyc.remove': 'Removed their ID verification',
   'user.kyc.clear': 'Cleared their ID review',
   'settings.update': 'Changed settings',

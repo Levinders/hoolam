@@ -134,7 +134,7 @@ describe('the encrypted endpoint', () => {
     expect(await registerFlowsKey(o, '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----')).toBe(true);
     expect(String(calls[1]!.init.body)).toMatch(/^business_public_key=/);
     expect(await ensureOrdersFlow(o, 'https://x.test/flows/endpoint')).toBe('777');
-    const created = JSON.parse(String(calls.at(-1)!.init.body));
+    const created = JSON.parse(String(calls.filter((c) => c.init.method === 'POST' && /\/999\/flows$/.test(c.url)).at(-1)!.init.body));
     expect(created).toMatchObject({ endpoint_uri: 'https://x.test/flows/endpoint', publish: true });
     expect(created.name).toMatch(/^hoolam_orders_[0-9a-f]{8}$/);
   });

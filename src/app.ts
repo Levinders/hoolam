@@ -10,6 +10,7 @@ import { FakeKycChecker, KycService, NoKycChecker, PremblyChecker, type KycCheck
 import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
+import { FormRegistry, type FormKey, type FormUse } from './whatsapp/forms.js';
 import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
 import { Settings } from './settings.js';
@@ -60,15 +61,17 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     db, provider, messenger, media, trust, settings, kyc, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, log,
   });
-  // The buyer's WhatsApp form, once it exists on Meta (see setupMeta). Until then buyers answer in the chat.
-  let buyForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
-  let sellForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
-  // ---------- "My orders": the live form and its encrypted endpoint ----------
-  let ordersForm: { flowId: string; mode: 'draft' | 'published' } | null = null;
-  let orderForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // one order on its own
-  let buyEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the buyer's form, filled in
-  let sellEditForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the seller's form, filled in
-  let kycForm: { flowId: string; mode: 'draft' | 'published' } | null = null; // the ID check form
+  // Every WhatsApp form, once it exists on Meta (see setupMeta), sent in the state Meta reports. A form WhatsApp
+  // refuses rests for 30 minutes on its own; meanwhile the chat asks the same questions. Console → Settings → WhatsApp shows them.
+  const forms = new FormRegistry(30, Date.now, log);
+  if (c.WHATSAPP_DRY_RUN) for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order'] as FormKey[]) forms.off(k, 'WhatsApp is in dry run (WHATSAPP_DRY_RUN)');
+  /** A form to send, if the console switch is on and the form is ready. */
+  const formFor = (key: FormKey): FormUse | null => (settings.formsEnabled() ? forms.use(key) : null);
+  /** WhatsApp refused a form we sent: rest that one form, with Meta's reason (saved with the failed message). */
+  const formRefused = async (key: FormKey, phone: string) => {
+    const r = await db.query(`SELECT error FROM outbound_messages WHERE phone=$1 AND status='FAILED' ORDER BY id DESC LIMIT 1`, [phone]).catch(() => null);
+    forms.refused(key, r?.rows[0]?.error ?? null);
+  };
   const backupForms = { list: false, one: false }; // true when Meta refused the main forms and the backups are in use
   let keys: FlowKeys | null = null;
   const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
@@ -86,8 +89,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     startKyc: (user, why, next) => chat.startKycFor(user, why, next),
   });
   const openOrders = async (phone: string, user: { menu_mode?: string; seller_since?: Date | null }, at: { screen: Entry; code?: string; mode?: 'buyer' | 'seller'; item?: string; totalMinor?: number; fresh?: boolean }): Promise<boolean> => {
-    const form = at.screen === 'orders' ? ordersForm : orderForm;
-    if (!form || !settings.formsEnabled()) return false;
+    const key: FormKey = at.screen === 'orders' ? 'orders' : 'order';
+    const form = formFor(key);
+    if (!form) return false;
     const mode = at.mode ?? (at.screen === 'dispatch' || at.screen === 'code' ? 'seller' : user.seller_since && user.menu_mode === 'seller' ? 'seller' : 'buyer');
     const titles: Record<Exclude<Entry, 'preview'>, [string, string]> = {
       orders: ['📋 My orders', mode === 'seller' ? 'Everything you\'re selling: what needs you first, then the rest.' : 'Everything you\'re buying, and where your money is.'],
@@ -104,6 +108,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const status = await messenger.send(phone, q
         ? msg.sellReview(form.flowId, form.mode, token, at.item ?? '', deals.sellerSum({ price_minor: q.priceMinor, seller_gets_minor: q.sellerGetsMinor, fee_payer: 'SELLER' }))
         : msg.buyReview(form.flowId, form.mode, token, at.item ?? '', total));
+      if (status === 'FAILED') await formRefused(key, phone);
       return status !== 'FAILED';
     }
     const [header, text] = titles[at.screen as Exclude<Entry, 'preview'>];
@@ -112,17 +117,17 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       flowId: form.flowId, mode: form.mode, screen: at.screen === 'orders' ? 'FILTER' : 'ORDER', live: true,
       flowToken: signToken(formSecret, phone, mode, at.screen, at.code ?? '-'),
     });
+    if (status === 'FAILED') await formRefused(key, phone);
     return status !== 'FAILED';
   };
 
   const chat = new Conversation({
     db, deals, provider, messenger, currency: c.CURRENCY, testMode, log, trust, publicBaseUrl: c.PUBLIC_BASE_URL, media,
-    buyForm: () => (settings.formsEnabled() ? buyForm : null), sellForm: () => (settings.formsEnabled() ? sellForm : null),
-    buyEditForm: () => (settings.formsEnabled() && buyForm ? buyEditForm : null),
-    sellEditForm: () => (settings.formsEnabled() && sellForm ? sellEditForm : null),
-    onFormRefused: () => { buyForm = null; sellForm = null; kycForm = null; }, // the same Meta check blocks them all
+    buyForm: () => formFor('buy'), sellForm: () => formFor('sell'),
+    buyEditForm: () => formFor('buyEdit'), sellEditForm: () => formFor('sellEdit'),
+    onFormRefused: (key, phone) => formRefused(key, phone), // only that form rests, then it's tried again
     ordersForm: { open: openOrders },
-    kyc, kycForm: () => (settings.formsEnabled() ? kycForm : null),
+    kyc, kycForm: () => formFor('kyc'),
     hoolamNumber: () => settings.waNumber(),
   });
 
@@ -481,7 +486,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     admin.post('/whatsapp/sync-menu', async (_req, reply) => {
       if (c.WHATSAPP_DRY_RUN) return reply.code(400).send({ error: 'WhatsApp is in dry-run mode' });
       await setupMeta();
-      return { ok: true, buyForm, sellForm };
+      return { ok: true, forms: forms.list() };
     });
     admin.get('/trust/:phone', async (req, reply) => {
       const phone = '+' + (req.params as { phone: string }).phone.replace(/\D/g, '');
@@ -525,25 +530,26 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (c.WHATSAPP_SYNC_MENU) await syncMenu();
       if (!c.WHATSAPP_WABA_ID) {
         log('buyer form + seller alerts need WHATSAPP_WABA_ID in Render. Buyers answer in the chat until then.');
+        for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
         return;
       }
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log };
+      /** Meta's answer for one form goes into the registry (ready with its state, or failed with the reason). */
+      const into = (key: FormKey, backup = false) => ({ ...o, report: (r: { name: string; id: string | null; status: string | null; error: string | null }) => {
+        if (r.id && r.status) forms.ready(key, { flowId: r.id, name: r.name, status: r.status, backup });
+        else forms.failed(key, r.error ?? 'Unknown problem', r.name);
+      } });
       // the alerts and the deal updates used outside WhatsApp's 24-hour window (submitted once; used after Meta approves)
       for (const t of ALL_TEMPLATES) messenger.setTemplateStatus(t.name, await ensureTemplate(o, t, t.label));
       // reworded templates: keep using the earlier approved version until Meta approves the new wording
       await refreshTemplates();
       if (c.WHATSAPP_BUY_FORM) {
-        const buyId = await ensureBuyFlow(o);
-        buyForm = buyId ? { flowId: buyId, mode: c.WHATSAPP_FORM_MODE } : null;
-        const editId = await ensureBuyEditFlow(o);
-        buyEditForm = editId ? { flowId: editId, mode: c.WHATSAPP_FORM_MODE } : null;
-        const sellId = await ensureSellFlow(o);
-        sellForm = sellId ? { flowId: sellId, mode: c.WHATSAPP_FORM_MODE } : null;
-        const sellEditId = await ensureSellEditFlow(o);
-        sellEditForm = sellEditId ? { flowId: sellEditId, mode: c.WHATSAPP_FORM_MODE } : null;
-        const kycId = await ensureKycFlow(o);
-        kycForm = kycId ? { flowId: kycId, mode: c.WHATSAPP_FORM_MODE } : null;
-      }
+        await ensureBuyFlow(into('buy'));
+        await ensureBuyEditFlow(into('buyEdit'));
+        await ensureSellFlow(into('sell'));
+        await ensureSellEditFlow(into('sellEdit'));
+        await ensureKycFlow(into('kyc'));
+      } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
       if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {
         keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
         log(`forms key: ${keys.source === 'env' ? 'from FLOWS_PRIVATE_KEY' : keys.source === 'new' ? 'made a new one (kept in the database)' : 'loaded from the database'}`);
@@ -551,14 +557,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
           const endpoint = `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/flows/endpoint`;
           // if Meta refuses a newer form feature, fall back to the plain version so My orders keeps working
           const ex = localPhone(settings.waNumber()) || undefined; // Hoolam's number as the example in phone hints
-          let id = await ensureOrdersFlow(o, endpoint, ordersFlowJson('FILTER', false, ex));
-          if (!id) { id = await ensureOrdersFlow(o, endpoint, ordersFlowJson('FILTER', true, ex)); backupForms.list = !!id; if (id) log('orders form: using the backup version'); }
-          ordersForm = id ? { flowId: id, mode: c.WHATSAPP_FORM_MODE } : null;
-          let one = await ensureOrderFlow(o, endpoint, ordersFlowJson('ORDER', false, ex));
-          if (!one) { one = await ensureOrderFlow(o, endpoint, ordersFlowJson('ORDER', true, ex)); backupForms.one = !!one; if (one) log('order form: using the backup version'); }
-          orderForm = one ? { flowId: one, mode: c.WHATSAPP_FORM_MODE } : null;
-        }
-      }
+          let id = await ensureOrdersFlow(into('orders'), endpoint, ordersFlowJson('FILTER', false, ex));
+          if (!id) { id = await ensureOrdersFlow(into('orders', true), endpoint, ordersFlowJson('FILTER', true, ex)); backupForms.list = !!id; if (id) log('orders form: using the backup version'); }
+          let one = await ensureOrderFlow(into('order'), endpoint, ordersFlowJson('ORDER', false, ex));
+          if (!one) { one = await ensureOrderFlow(into('order', true), endpoint, ordersFlowJson('ORDER', true, ex)); backupForms.one = !!one; if (one) log('order form: using the backup version'); }
+        } else for (const k of ['orders', 'order'] as FormKey[]) forms.failed(k, 'Meta didn\'t accept the forms key, so the live forms can\'t start (see the Render log)');
+      } else for (const k of ['orders', 'order'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_ORDERS_FORM=false) or no PUBLIC_BASE_URL');
     } catch (e) {
       log(`WhatsApp setup failed: ${(e as Error).message}`);
     }
@@ -566,7 +570,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
 
   // ---------- the staff console (/console) ----------
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
-  registerConsoleApi(app, { config: c, db, deals, trust, settings, kyc, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, settings, kyc, forms, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -587,7 +591,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   app.addHook('onClose', async () => siteSync.stop());
   return {
     app, load, deals, chat, messenger, trust, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
-    setBuyForm: (f: typeof buyForm) => { buyForm = f; }, setSellForm: (f: typeof sellForm) => { sellForm = f; }, setOrdersForm: (f: typeof ordersForm) => { ordersForm = f; }, setOrderForm: (f: typeof orderForm) => { orderForm = f; }, backupForms,
+    forms,
+    setBuyForm: (f: FormUse | null) => forms.set('buy', f), setSellForm: (f: FormUse | null) => forms.set('sell', f),
+    setOrdersForm: (f: FormUse | null) => forms.set('orders', f), setOrderForm: (f: FormUse | null) => forms.set('order', f), backupForms,
   };
 }
 

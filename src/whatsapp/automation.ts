@@ -89,7 +89,13 @@ export async function syncAutomation(o: AutomationOptions): Promise<{ ok: boolea
 // (needs WHATSAPP_WABA_ID). If anything fails, the chat questions and the forwarded link still work.
 // ---------------------------------------------------------------------------------------------
 
-export interface MetaSetupOptions extends AutomationOptions { wabaId: string; formMode: 'draft' | 'published' }
+export interface MetaSetupOptions extends AutomationOptions {
+  wabaId: string;
+  /** 'published': new or draft forms are published on Meta at start. Forms are always SENT in the state Meta reports. */
+  formMode: 'draft' | 'published';
+  /** Told what happened to each form: its id and Meta's state (PUBLISHED / DRAFT), or why it can't be used. */
+  report?: (r: { name: string; id: string | null; status: string | null; error: string | null }) => void;
+}
 
 /**
  * The seller alert. Utility template: strictly about the order, nothing promotional.
@@ -378,27 +384,35 @@ export async function registerFlowsKey(o: AutomationOptions, publicKeyPem: strin
 }
 
 async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label: string, endpointUri?: string): Promise<string | null> {
+  const fail = (error: string): null => { o.report?.({ name, id: null, status: null, error: error.slice(0, 400) }); return null; };
+  const ok = (id: string, status: string): string => { o.report?.({ name, id, status, error: null }); return id; };
   const list = await graph(o, 'GET', `${o.wabaId}/flows?fields=id,name,status,validation_errors&limit=100`);
-  if (!list.ok) { o.log?.(`${label}: can't list forms (HTTP ${list.status}): ${list.text}`); return null; }
+  if (!list.ok) { o.log?.(`${label}: can't list forms (HTTP ${list.status}): ${list.text}`); return fail(`Can't list forms on Meta (HTTP ${list.status}): ${list.text}`); }
   const existing = (list.json?.data ?? []).find((x: { name: string }) => x.name === name);
   if (existing) {
     const errs: { message?: string }[] = existing.validation_errors ?? [];
     if (errs.length) {
       o.log?.(`${label} FAILED: ${name} has ${errs.length} problem(s): ${errs.map((e) => e.message).join(' | ').slice(0, 600)}`);
-      return null;
+      return fail(`Meta found ${errs.length} problem(s): ${errs.map((e) => e.message).join(' | ')}`);
+    }
+    if (['BLOCKED', 'DEPRECATED', 'THROTTLED'].includes(existing.status)) {
+      o.log?.(`${label} FAILED: ${name} is ${existing.status} on Meta`);
+      return fail(`The form is ${String(existing.status).toLowerCase()} on Meta`);
     }
     // switched to published after the form was first made as a draft: publish it now (published forms can't change, so this is one-way)
     if (o.formMode === 'published' && existing.status === 'DRAFT') {
       const pub = await graph(o, 'POST', `${existing.id}/publish`);
       if (!pub.ok) {
         // a draft form only opens for testers, so people answer in the chat instead until it's published
-        o.log?.(`${label}: couldn't publish ${name} (HTTP ${pub.status}): ${pub.text}. People answer in the chat until it's fixed.`);
-        return null;
+        // still usable as a draft (it opens for testers); the console shows why it isn't published
+        o.log?.(`${label}: couldn't publish ${name} (HTTP ${pub.status}): ${pub.text}. Sending it as a draft.`);
+        return ok(existing.id, 'DRAFT');
       }
       o.log?.(`${label} published: ${name}`);
+      return ok(existing.id, 'PUBLISHED');
     }
-    o.log?.(`${label} ready: ${name} (${o.formMode === 'published' ? 'PUBLISHED' : existing.status}, sending as ${o.formMode})`);
-    return existing.id;
+    o.log?.(`${label} ready: ${name} (${existing.status}, sending as ${existing.status === 'PUBLISHED' ? 'published' : 'draft'})`);
+    return ok(existing.id, existing.status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT');
   }
   const created = await graph(o, 'POST', `${o.wabaId}/flows`, {
     name, categories: ['OTHER'], flow_json: JSON.stringify(json), publish: o.formMode === 'published',
@@ -406,14 +420,20 @@ async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label
   });
   if (!created.ok || !created.json?.id) {
     o.log?.(`${label} FAILED to create (HTTP ${created.status}): ${created.text}`);
-    return null;
+    return fail(`Couldn't create it on Meta (HTTP ${created.status}): ${created.text}`);
   }
   const errors: { message?: string }[] = created.json.validation_errors ?? [];
   if (errors.length) {
     // Never send a broken form: buyers answer in the chat until it's fixed.
     o.log?.(`${label} FAILED: Meta found ${errors.length} problem(s): ${errors.map((e) => e.message).join(' | ').slice(0, 600)}`);
-    return null;
+    return fail(`Meta found ${errors.length} problem(s): ${errors.map((e) => e.message).join(' | ')}`);
   }
-  o.log?.(`${label} created: ${name} (${o.formMode})`);
-  return created.json.id;
+  // Meta says whether publishing worked; if it didn't say, read it back rather than guess
+  let status: string = created.json.status ?? '';
+  if (!status) {
+    const r = await graph(o, 'GET', `${created.json.id}?fields=status`);
+    status = r.ok && r.json?.status ? r.json.status : o.formMode === 'published' ? 'PUBLISHED' : 'DRAFT';
+  }
+  o.log?.(`${label} created: ${name} (${status}, sending as ${status === 'PUBLISHED' ? 'published' : 'draft'})`);
+  return ok(created.json.id, status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT');
 }
