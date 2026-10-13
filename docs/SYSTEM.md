@@ -578,6 +578,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 13 Oct 2026 | Live chat: the cover behind the chat is solid dark, so the page is hidden while it is open | e3a5692 |
 | 13 Oct 2026 | Live chat: dark cover behind the chat with a faint logo on bigger screens; Home is just "Prefer WhatsApp?"; Home cards removed (migration 023); console chat header on one line (number, ref, You / rep / Waiting for a rep), no "On the page now"; rating and "looking at this chat too" shown in the chat | 86db2bc |
 | 13 Oct 2026 | Live chat round 2: blurred page behind, lighter Home, curved header with the logo only, website soft theme, smaller text, 1px borders; name, number and message in one form; one conversation per WhatsApp number (new device sees later messages only, until the WhatsApp link); questions open in place, newest first; news pictures. Console: Chat config (dropdown in the side panel), accordions, notes and About in a foldable side rail, page names for Started on. Migration 022 | 848d063 |
 | 13 Oct 2026 | About: the SCUML line back without "is in progress"; "Moniepoint Microfinance Bank (Monnify)" | 1d3b264 |
