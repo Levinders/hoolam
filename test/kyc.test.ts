@@ -81,18 +81,18 @@ describe('Prembly answers', () => {
       return new Response(JSON.stringify(json), { status });
     }) as unknown as typeof fetch;
     const bvn = new PremblyChecker({ apiKey: 'k', appId: 'a', fetch: answer(200, { status: true, response_code: '00', data: { firstName: 'JOHN', middleName: 'DOE', lastName: 'JANE', dateOfBirth: '01-Jan-2000' }, verification: { reference: 'R1' } }) });
-    expect(await bvn.check('BVN', '54651333604')).toEqual({ found: true, name: 'JOHN DOE JANE', dob: '2000-01-01', reference: 'R1' });
-    expect(seen[0]!.url).toBe('https://api.prembly.com/identitypass/verification/bvn');
+    expect(await bvn.check('BVN', '54651333604')).toEqual({ found: true, name: 'JOHN DOE JANE', dob: '2000-01-01', reference: 'R1', flag: null });
+    expect(seen[0]!.url).toBe('https://api.prembly.com/verification/bvn_validation');
     expect(JSON.parse(seen[0]!.body)).toEqual({ number: '54651333604' });
     expect(seen[0]!.headers['x-api-key']).toBe('k');
     expect(seen[0]!.headers['app-id']).toBe('a');
     const nin = new PremblyChecker({ apiKey: 'k', fetch: answer(200, { status: true, response_code: '00', data: { firstname: 'CHIDERA', middlename: 'ANITA', surname: 'JOHNSON', birthdate: '22-05-1998' } }) });
     expect(await nin.check('NIN', '12345678901')).toMatchObject({ found: true, name: 'CHIDERA ANITA JOHNSON', dob: '1998-05-22' });
-    expect(seen[1]!.url).toBe('https://api.prembly.com/identitypass/verification/nin');
-    expect(JSON.parse(seen[1]!.body)).toEqual({ number: '12345678901', number_nin: '12345678901' });
+    expect(seen[1]!.url).toBe('https://api.prembly.com/verification/vnin-basic');
+    expect(JSON.parse(seen[1]!.body)).toEqual({ number: '12345678901' });
     // the dashboard's answer: first_name, last_name, dob, verification_reference
     const dash = new PremblyChecker({ apiKey: 'k', fetch: answer(200, { status: true, detail: 'Verification Successful', data: { first_name: 'JOHN', last_name: 'DOE', dob: '1990-01-01', verification_reference: 'REF_123456' } }) });
-    expect(await dash.check('BVN', '12345678901')).toEqual({ found: true, name: 'JOHN DOE', dob: '1990-01-01', reference: 'REF_123456' });
+    expect(await dash.check('BVN', '12345678901')).toEqual({ found: true, name: 'JOHN DOE', dob: '1990-01-01', reference: 'REF_123456', flag: null });
     // a wrong address or a refused request is our setup: "try again", never "not found"
     expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(404, { detail: 'Not Found' }) }).check('NIN', '1')).toMatchObject({ unavailable: true });
     expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(400, { status: false, detail: 'number_nin is required' }) }).check('NIN', '1')).toMatchObject({ unavailable: true });
@@ -101,6 +101,37 @@ describe('Prembly answers', () => {
     expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(200, { status: false, detail: 'Insufficient wallet balance' }) }).check('BVN', '1')).toMatchObject({ unavailable: true });
     expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(503, { detail: 'down' }) }).check('BVN', '1')).toMatchObject({ unavailable: true });
     expect(await new PremblyChecker({ apiKey: 'k', fetch: (async () => { throw new Error('offline'); }) as unknown as typeof fetch }).check('BVN', '1')).toMatchObject({ unavailable: true });
+  });
+});
+
+describe('Prembly\'s own example answers (BVN Basic, NIN Basic)', () => {
+  const answer = (json: unknown) => (async () => new Response(JSON.stringify(json), { status: 200 })) as unknown as typeof fetch;
+  it('BVN Basic: the name and date of birth, and a NIBSS watchlist is a flag', async () => {
+    const { PremblyChecker } = await import('../src/kyc.js');
+    // exactly as the docs show it
+    const json = {
+      status: true, detail: 'Verification Successfull', response_code: '00',
+      data: { watchListed: true, watchListMessage: 'BVN has been watchlisted by NIBSS', firstName: 'John', middleName: 'Doe', lastName: 'Jane', dateOfBirth: '01-Jan-2000', phoneNumber: '08012345678' },
+      source: 'API', user_info: null, request_data: { number: '54651333604' },
+    };
+    expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(json) }).check('BVN', '54651333604'))
+      .toEqual({ found: true, name: 'John Doe Jane', dob: '2000-01-01', reference: null, flag: 'BVN watchlisted by NIBSS' });
+    const clean = { ...json, data: { ...json.data, watchListed: false } };
+    expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(clean) }).check('BVN', '54651333604')).toMatchObject({ found: true, flag: null });
+  });
+  it('NIN Basic: the name and date of birth (the photo, address and phone are ignored), and a suspension is a flag', async () => {
+    const { PremblyChecker } = await import('../src/kyc.js');
+    const person = { nin_suspension_status: false, birthdate: '23-05-1999', nin_suspension_message: 'NOT SUSPENDED', firstname: 'GRACE', surname: 'AMANDA', middlename: 'CHIMAMANDA', nin: '56182742701', telephoneno: '07082078516', residence_address: '21Z AGO PALACE EKENE', photo: 'data:image/jpeg;base64,AAAA', gender: 'f' };
+    const json = {
+      status: true, response_code: '00', message: 'National Identity Number (NIN) - Basic verification successful', detail: 'National Identity Number (NIN) - Basic verification successful',
+      data: person, meta: {}, billing_info: { was_charged: true, amount: '50.00', currency: 'NGN', note: 'Wallet charged 50.00 NGN' },
+      verification: { status: 'VERIFIED', reference: 'a8d3c167-5689-48c3-a867-59ba05e0ea68', verification_id: '6dd48a71-cc0d-4644-aa38-f3bf37c73907' },
+      reference_id: 'VER-NIN_BASIC-OCXBW0Z6IM', transaction_id: 'e0000591-6cbd-4a6a-b465-a591107d1c9c', verification_status: 'verified', nin_data: person,
+    };
+    const got = await new PremblyChecker({ apiKey: 'k', fetch: answer(json) }).check('NIN', '56182742701');
+    expect(got).toEqual({ found: true, name: 'GRACE CHIMAMANDA AMANDA', dob: '1999-05-23', reference: 'a8d3c167-5689-48c3-a867-59ba05e0ea68', flag: null });
+    const suspended = { ...json, data: { ...person, nin_suspension_status: true, nin_suspension_message: 'SUSPENDED' } };
+    expect(await new PremblyChecker({ apiKey: 'k', fetch: answer(suspended) }).check('NIN', '56182742701')).toMatchObject({ found: true, flag: 'NIN suspended by NIMC' });
   });
 });
 
@@ -358,6 +389,63 @@ describe('the console', () => {
     expect((await call('POST', `/people/${id}/kyc`, { action: 'remove', reason: 'Wrong person' })).status).toBe(200);
     expect((await call('GET', `/people/${id}`)).json.kyc.status).toBe('UNVERIFIED');
   });
+  it('a flagged ID (watchlist, suspension): Needs review, no more checks with BVN or NIN, then the team declines or approves', async () => {
+    const buyer = phone();
+    await buyTo(buyer, '120000');
+    await verify(buyer, '22222222222'); // the pretend checker's "flagged" number
+    const first = h.last(buyer);
+    expect(first).toMatch(/couldn't confirm your ID right away/);
+    expect(first).toMatch(/Our team will check it and message you/);
+    expect(first).toMatch(/up to \*₦50,000\*\. Type a smaller price to carry on/);
+    expect(first).not.toMatch(/watchlist|NIBSS|suspend/i); // the reason is for the team only
+    const u = await user(buyer);
+    expect(u).toMatchObject({ kyc_status: 'REVIEW', kyc_flag: 'BVN watchlisted by NIBSS', kyc_declined_at: null });
+    expect(u.kyc_review_reason).toBe('BVN watchlisted by NIBSS (BVN ••••2222, name on it: Test Account Holder)');
+    expect(await h.app.kyc.triesLeft(u.id)).toBe(3); // not a used try
+    const checks = async () => (await h.db.query('SELECT result FROM kyc_checks WHERE user_id=$1', [u.id])).rows.map((r) => r.result);
+    expect(await checks()).toEqual(['FLAGGED']);
+    // asking again, or switching to NIN: no check, they're told the team has it
+    await h.tap(buyer, 'kyc:retry');
+    expect(h.last(buyer)).toMatch(/Your ID is with our team for checking/);
+    await h.tap(buyer, 'kyc:nin');
+    expect(h.last(buyer)).toMatch(/Your ID is with our team for checking/);
+    expect(await h.app.kyc.verify(u.id, 'NIN', '12312312312', '1995-12-25')).toMatchObject({ ok: false, reason: 'IN_REVIEW' });
+    expect(await checks()).toEqual(['FLAGGED']); // nothing more sent to the checker
+    // a smaller price still carries on
+    await h.say(buyer, '40000');
+    expect(h.last(buyer)).toMatch(/delivery address/);
+    // the team sees it flagged, and can only approve or decline it
+    const inbox = await call('GET', '/inbox');
+    expect(inbox.json.items.find((i: any) => i.link === `/people/${u.id}`)).toMatchObject({ kind: 'kyc', severity: 'high', title: expect.stringMatching(/^ID flagged/) });
+    expect((await call('GET', `/people/${u.id}`)).json.kyc).toMatchObject({ status: 'REVIEW', flag: 'BVN watchlisted by NIBSS', declined: false });
+    expect((await call('POST', `/people/${u.id}/kyc`, { action: 'clear', reason: 'Spoke to them' })).status).toBe(400);
+    expect((await call('POST', `/people/${u.id}/kyc`, { action: 'decline', reason: 'Could not confirm on a call' })).status).toBe(200);
+    expect(h.last(buyer)).toMatch(/We couldn't confirm your ID\. You can keep using Hoolam for orders up to ₦50,000\./);
+    const declined = (await call('GET', `/people/${u.id}`)).json;
+    expect(declined.kyc).toMatchObject({ status: 'UNVERIFIED', declined: true, flag: 'BVN watchlisted by NIBSS' });
+    expect(declined.trail[0]).toMatchObject({ action: 'user.kyc.decline', reason: 'Could not confirm on a call' });
+    // declined: still no checks
+    await buyTo(buyer, '150000');
+    expect(h.last(buyer)).toMatch(/We couldn't confirm your ID\.\* You can keep using Hoolam for orders up to \*₦50,000\*/);
+    expect(await checks()).toEqual(['FLAGGED']);
+    // the team can still approve later: verified, and told so
+    expect((await call('POST', `/people/${u.id}/kyc`, { action: 'approve', name: 'grace amanda', reason: 'Saw her ID and bank statement' })).status).toBe(200);
+    expect(h.last(buyer)).toMatch(/Your ID is confirmed, Grace Amanda\. You can now do orders up to ₦2,000,000\./);
+    expect(await user(buyer)).toMatchObject({ kyc_status: 'VERIFIED', kyc_flag: null, kyc_declined_at: null });
+  });
+  it('the same for a suspended NIN, and a seller\'s payouts are told they wait', async () => {
+    const seller = phone();
+    const u = await oldSeller(seller);
+    await h.app.chat.startKycFor(u, 'seller', { kind: 'none' });
+    await h.tap(seller, 'kyc:nin');
+    await h.say(seller, '25/12/1995');
+    await h.say(seller, '22222222222');
+    expect(h.last(seller)).toMatch(/couldn't confirm your ID right away[\s\S]*Your payouts wait until then/);
+    expect(await user(seller)).toMatchObject({ kyc_status: 'REVIEW', kyc_flag: 'NIN suspended by NIMC' });
+    // "Talk to a rep" doesn't overwrite the flag's reason
+    await h.tap(seller, 'kyc:rep');
+    expect((await user(seller)).kyc_review_reason).toMatch(/^NIN suspended by NIMC/);
+  });
   it('the two limits are settings', async () => {
     expect((await call('PUT', '/settings', { changes: { max_deal_verified: 40_000 }, reason: 'Below the other one' })).status).toBe(400);
     expect((await call('PUT', '/settings', { changes: { max_deal_verified: 1_000_000 }, reason: 'Start smaller' })).status).toBe(200);
@@ -365,6 +453,29 @@ describe('the console', () => {
     const buyer = phone();
     await buyTo(buyer, '1500000');
     expect(h.last(buyer)).toMatch(/up to \*₦1,000,000\*/);
+  });
+});
+
+describe('paying Prembly once', () => {
+  it('someone already verified is never checked again (a second form, an old form)', async () => {
+    const buyer = phone();
+    await buyTo(buyer, '120000');
+    await verify(buyer);
+    const u = await user(buyer);
+    let calls = 0;
+    const real = fake().check.bind(fake());
+    fake().check = async (...a) => { calls++; return real(...a); };
+    try {
+      expect(await h.app.kyc.verify(u.id, 'NIN', '12312312312', '1990-01-01')).toEqual({ ok: true, name: 'Test Account Holder' });
+      expect(calls).toBe(0);
+    } finally { fake().check = real; }
+    expect((await h.db.query('SELECT count(*)::int n FROM kyc_checks WHERE user_id=$1', [u.id])).rows[0].n).toBe(1);
+  });
+  it('real ID checks with pretend money: payout account names aren\'t matched until real payments are on', async () => {
+    const { KycService } = await import('../src/kyc.js');
+    expect(new KycService(h.db, fake(), undefined, { skipAccountMatch: true }).accountMatches('Grace Amanda', 'TEST ACCOUNT HOLDER')).toBe(true);
+    expect(new KycService(h.db, fake()).accountMatches('Grace Amanda', 'TEST ACCOUNT HOLDER')).toBe(false);
+    expect(new KycService(h.db, fake()).accountMatches('Grace Amanda', 'AMANDA GRACE')).toBe(true);
   });
 });
 

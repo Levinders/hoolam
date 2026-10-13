@@ -12,12 +12,16 @@ import type { Db } from './db.js';
  */
 
 export type KycMethod = 'BVN' | 'NIN';
-export type KycFailure = 'BAD_NUMBER' | 'NOT_FOUND' | 'DOB_MISMATCH' | 'UNAVAILABLE' | 'NO_TRIES';
-export type KycResult = { ok: true; name: string } | { ok: false; reason: KycFailure; triesLeft: number };
+export type KycFailure = 'BAD_NUMBER' | 'NOT_FOUND' | 'DOB_MISMATCH' | 'UNAVAILABLE' | 'NO_TRIES' | 'IN_REVIEW' | 'DECLINED';
+/** `fresh`: this check is what put them in review (IN_REVIEW only). */
+export type KycResult = { ok: true; name: string } | { ok: false; reason: KycFailure; triesLeft: number; fresh?: boolean };
 
-/** What a checker found. `dob` is YYYY-MM-DD (null when it didn't say). */
+/**
+ * What a checker found. `dob` is YYYY-MM-DD (null when it didn't say).
+ * `flag`: the ID exists but its issuer has flagged it (a BVN watchlisted by NIBSS, a NIN suspended by NIMC).
+ */
 export type CheckerAnswer =
-  | { found: true; name: string; dob: string | null; reference: string | null }
+  | { found: true; name: string; dob: string | null; reference: string | null; flag?: string | null }
   | { found: false; reference?: string | null }
   | { unavailable: true; why: string };
 
@@ -35,12 +39,15 @@ export interface PremblyOptions {
   apiKey: string;
   appId?: string;
   baseUrl?: string;        // https://api.prembly.com
-  bvnPath?: string;        // /identitypass/verification/bvn  (from the Prembly dashboard)
-  ninPath?: string;        // /identitypass/verification/nin  (the same pattern)
+  bvnPath?: string;        // /verification/bvn_validation  (BVN Basic)
+  ninPath?: string;        // /verification/vnin-basic      (NIN Basic)
   fetch?: typeof fetch;
   timeoutMs?: number;
   log?: (line: string) => void;
 }
+
+export const PREMBLY_BVN_PATH = '/verification/bvn_validation';
+export const PREMBLY_NIN_PATH = '/verification/vnin-basic';
 
 export class PremblyChecker implements KycChecker {
   readonly name = 'prembly' as const;
@@ -48,9 +55,8 @@ export class PremblyChecker implements KycChecker {
 
   async check(method: KycMethod, number: string): Promise<CheckerAnswer> {
     const base = (this.o.baseUrl || 'https://api.prembly.com').replace(/\/$/, '');
-    const path = method === 'BVN' ? this.o.bvnPath || '/identitypass/verification/bvn' : this.o.ninPath || '/identitypass/verification/nin';
-    // NIN: both names Prembly has used for the number, so either version of the address understands it
-    const body = method === 'BVN' ? { number } : { number, number_nin: number };
+    const path = method === 'BVN' ? this.o.bvnPath || PREMBLY_BVN_PATH : this.o.ninPath || PREMBLY_NIN_PATH;
+    const body = { number }; // BVN Basic and NIN Basic both take just the number
     const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json', 'x-api-key': this.o.apiKey };
     if (this.o.appId) headers['app-id'] = this.o.appId;
     let res: Response;
@@ -82,7 +88,11 @@ export class PremblyChecker implements KycChecker {
       const name = [pick('firstName', 'firstname', 'first_name'), pick('middleName', 'middlename', 'middle_name'), pick('lastName', 'surname', 'last_name')]
         .filter(Boolean).join(' ').trim();
       if (!name) { this.o.log?.(`prembly ${method}: found, but no name in the answer`); return { unavailable: true, why: 'no name in the answer' }; }
-      return { found: true, name, dob: readDate(pick('dateOfBirth', 'birthdate', 'date_of_birth', 'dob') ?? ''), reference };
+      // flagged by the issuer: NIBSS watchlist (BVN Basic), NIMC suspension (NIN Basic)
+      const flag = method === 'BVN'
+        ? (isYes(d.watchListed ?? d.watchlisted ?? d.watch_listed) ? 'BVN watchlisted by NIBSS' : null)
+        : (isYes(d.nin_suspension_status ?? d.suspended) ? 'NIN suspended by NIMC' : null);
+      return { found: true, name, dob: readDate(pick('dateOfBirth', 'birthdate', 'date_of_birth', 'dob') ?? ''), reference, flag };
     }
     // a "no" that's really about our account or their service, not the number
     if (/insufficient|wallet|balance|unauthori[sz]ed|credential|api key|service|timeout|timed out|unavailable|try again|maintenance/i.test(detail)) {
@@ -93,12 +103,14 @@ export class PremblyChecker implements KycChecker {
   }
 }
 
+const isYes = (v: unknown) => v === true || (typeof v === 'string' && /^(true|yes|1)$/i.test(v.trim()));
+
 // ---------------------------------------------------------------------------------------------
 // Pretend checker (test mode, like the fake payments)
 // ---------------------------------------------------------------------------------------------
 /**
  * Any 11 digits pass, with the date of birth typed. 00000000000 = not found, 11111111111 = date of birth
- * doesn't match, 99999999999 = the checker is down. The name matches the fake bank's account name, so
+ * doesn't match, 99999999999 = the checker is down, 22222222222 = flagged (goes to Needs review). The name matches the fake bank's account name, so
  * payout accounts pass the name check unless `names` says otherwise.
  */
 export class FakeKycChecker implements KycChecker {
@@ -106,9 +118,10 @@ export class FakeKycChecker implements KycChecker {
   /** The name returned for a number (default: the fake bank's account name). */
   names: Record<string, string> = {};
   defaultName = 'TEST ACCOUNT HOLDER';
-  async check(_method: KycMethod, number: string, dob: string): Promise<CheckerAnswer> {
+  async check(method: KycMethod, number: string, dob: string): Promise<CheckerAnswer> {
     if (number === '00000000000') return { found: false, reference: null };
     if (number === '99999999999') return { unavailable: true, why: 'pretend outage' };
+    if (number === '22222222222') return { found: true, name: this.names[number] ?? this.defaultName, dob, reference: 'FAKE-KYC-FLAG', flag: method === 'BVN' ? 'BVN watchlisted by NIBSS' : 'NIN suspended by NIMC' };
     if (number === '11111111111') return { found: true, name: this.names[number] ?? this.defaultName, dob: '1970-01-01', reference: 'FAKE-KYC' };
     return { found: true, name: this.names[number] ?? this.defaultName, dob, reference: `FAKE-KYC-${number.slice(-4)}` };
   }
@@ -132,22 +145,47 @@ export interface KycStatus {
   at: Date | null;
   reference: string | null;
   reviewReason: string | null;
+  /** Flagged by the ID's issuer: no more checks until the team decides. */
+  flag: string | null;
+  declined: boolean;
+}
+
+export interface KycServiceOptions {
+  /**
+   * The bank names are pretend (pretend money) while the ID checks are real: payout accounts can't be matched to the
+   * ID name, so that match is skipped until real payments (Monnify) come on. Then it applies by itself.
+   */
+  skipAccountMatch?: boolean;
 }
 
 export class KycService {
-  constructor(private readonly db: Db, readonly checker: KycChecker, private readonly log?: (line: string) => void) {}
+  constructor(private readonly db: Db, readonly checker: KycChecker, private readonly log?: (line: string) => void, private readonly opts: KycServiceOptions = {}) {}
+
+  /** Is this payout account in the name on their ID? (Always yes while the bank names are pretend: see skipAccountMatch.) */
+  accountMatches(idName: string | null | undefined, accountName: string | null | undefined): boolean {
+    return this.opts.skipAccountMatch ? true : namesMatch(idName, accountName);
+  }
+  get skipsAccountMatch(): boolean { return !!this.opts.skipAccountMatch; }
+
+  /** Flagged and waiting for the team ('REVIEW'), or the team declined ('DECLINED'): no more checks. Null: they can check. */
+  async blocked(userId: string): Promise<'REVIEW' | 'DECLINED' | null> {
+    const u = (await this.db.query('SELECT kyc_status, kyc_flag, kyc_declined_at FROM users WHERE id=$1', [userId])).rows[0];
+    if (!u || u.kyc_status === 'VERIFIED' || !u.kyc_flag) return null;
+    return u.kyc_declined_at ? 'DECLINED' : 'REVIEW';
+  }
 
   /** Can people verify right now (a checker is set up)? */
   get available(): boolean { return this.checker.name !== 'off'; }
   get testMode(): boolean { return this.checker.name === 'fake'; }
 
   async status(userId: string): Promise<KycStatus> {
-    const u = (await this.db.query('SELECT kyc_status, kyc_verified_at, kyc_method, kyc_name, kyc_last4, kyc_ref, kyc_review_reason FROM users WHERE id=$1', [userId])).rows[0] ?? {};
+    const u = (await this.db.query('SELECT kyc_status, kyc_verified_at, kyc_method, kyc_name, kyc_last4, kyc_ref, kyc_review_reason, kyc_flag, kyc_declined_at FROM users WHERE id=$1', [userId])).rows[0] ?? {};
     const verified = u.kyc_status === 'VERIFIED' && !!u.kyc_verified_at;
     return {
       status: verified ? 'VERIFIED' : u.kyc_status === 'REVIEW' ? 'REVIEW' : 'UNVERIFIED', verified,
       name: u.kyc_name ?? null, method: u.kyc_method ?? null, last4: u.kyc_last4 ?? null,
       at: u.kyc_verified_at ?? null, reference: u.kyc_ref ?? null, reviewReason: u.kyc_review_reason ?? null,
+      flag: verified ? null : u.kyc_flag ?? null, declined: !verified && !!u.kyc_flag && !!u.kyc_declined_at,
     };
   }
 
@@ -159,9 +197,15 @@ export class KycService {
     return Math.max(0, KYC_TRIES_PER_DAY - r.rows[0].n);
   }
 
-  /** Checks the ID. On success the person is verified for good. `dob` is YYYY-MM-DD. */
+  /**
+   * Checks the ID. On success the person is verified for good. `dob` is YYYY-MM-DD.
+   * Never calls the checker (each call costs money) for someone already verified, or flagged and waiting for the team.
+   */
   async verify(userId: string, method: KycMethod, rawNumber: string, dob: string): Promise<KycResult> {
     const number = rawNumber.replace(/\D/g, '');
+    const now = (await this.db.query('SELECT kyc_status, kyc_verified_at, kyc_name, kyc_flag, kyc_declined_at FROM users WHERE id=$1', [userId])).rows[0];
+    if (now?.kyc_status === 'VERIFIED' && now.kyc_verified_at && now.kyc_name) return { ok: true, name: now.kyc_name };
+    if (now?.kyc_flag) return { ok: false, reason: now.kyc_declined_at ? 'DECLINED' : 'IN_REVIEW', triesLeft: 0 };
     let left = await this.triesLeft(userId);
     if (left <= 0) return { ok: false, reason: 'NO_TRIES', triesLeft: 0 };
     if (!/^\d{11}$/.test(number)) return { ok: false, reason: 'BAD_NUMBER', triesLeft: left };
@@ -185,24 +229,34 @@ export class KycService {
       return { ok: false, reason, triesLeft: left };
     }
     const name = titleName(a.name);
+    if (a.flag) {
+      // the ID is real and the details match, but its issuer has flagged it: the team decides (doesn't use a try)
+      await record('FLAGGED', a.reference);
+      await this.db.query(
+        `UPDATE users SET kyc_status='REVIEW', kyc_flag=$2, kyc_declined_at=NULL, kyc_review_reason=$3, kyc_review_at=now() WHERE id=$1 AND kyc_status <> 'VERIFIED'`,
+        [userId, a.flag.slice(0, 120), `${a.flag} (${method} ••••${last4}, name on it: ${name})`.slice(0, 200)]);
+      this.log?.(`ID check flagged for review: ${a.flag}`);
+      return { ok: false, reason: 'IN_REVIEW', triesLeft: left, fresh: true };
+    }
     await record('VERIFIED', a.reference);
     await this.db.query(
       `UPDATE users SET kyc_status='VERIFIED', kyc_verified_at=now(), kyc_method=$2, kyc_name=$3, kyc_last4=$4, kyc_ref=$5,
-              kyc_review_reason=NULL, kyc_review_at=NULL WHERE id=$1`, [userId, method, name, last4, a.reference]);
+              kyc_review_reason=NULL, kyc_review_at=NULL, kyc_flag=NULL, kyc_declined_at=NULL WHERE id=$1`, [userId, method, name, last4, a.reference]);
     return { ok: true, name };
   }
 
-  /** Puts someone in Needs review (unless they're verified). */
+  /** Puts someone in Needs review (unless they're verified, or already flagged: that reason stays). */
   async markReview(userId: string, reason: string): Promise<void> {
     await this.db.query(
-      `UPDATE users SET kyc_status='REVIEW', kyc_review_reason=$2, kyc_review_at=now() WHERE id=$1 AND kyc_status <> 'VERIFIED'`, [userId, reason.slice(0, 200)]);
+      `UPDATE users SET kyc_status='REVIEW', kyc_review_reason=$2, kyc_review_at=now() WHERE id=$1 AND kyc_status <> 'VERIFIED' AND kyc_flag IS NULL`, [userId, reason.slice(0, 200)]);
   }
 
   /** Staff: mark someone verified after checking their ID another way. */
   async approve(userId: string, name: string, staffRef: string): Promise<void> {
     await this.db.query(
       `UPDATE users SET kyc_status='VERIFIED', kyc_verified_at=now(), kyc_method=CASE WHEN kyc_status='VERIFIED' THEN kyc_method ELSE 'MANUAL' END,
-              kyc_name=$2, kyc_ref=COALESCE(CASE WHEN kyc_status='VERIFIED' THEN kyc_ref END, $3), kyc_review_reason=NULL, kyc_review_at=NULL WHERE id=$1`,
+              kyc_name=$2, kyc_ref=COALESCE(CASE WHEN kyc_status='VERIFIED' THEN kyc_ref END, $3), kyc_review_reason=NULL, kyc_review_at=NULL,
+              kyc_flag=NULL, kyc_declined_at=NULL WHERE id=$1`,
       [userId, titleName(name), staffRef]);
   }
 
@@ -210,12 +264,19 @@ export class KycService {
   async remove(userId: string): Promise<void> {
     await this.db.query(
       `UPDATE users SET kyc_status='UNVERIFIED', kyc_verified_at=NULL, kyc_method=NULL, kyc_name=NULL, kyc_last4=NULL, kyc_ref=NULL,
-              kyc_review_reason=NULL, kyc_review_at=NULL WHERE id=$1`, [userId]);
+              kyc_review_reason=NULL, kyc_review_at=NULL, kyc_flag=NULL, kyc_declined_at=NULL WHERE id=$1`, [userId]);
+  }
+
+  /** Staff: decline a flagged ID. They stay at the limit without ID, and no more checks run for them. */
+  async decline(userId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE users SET kyc_status='UNVERIFIED', kyc_declined_at=now(), kyc_review_reason=NULL, kyc_review_at=NULL
+        WHERE id=$1 AND kyc_flag IS NOT NULL AND kyc_status <> 'VERIFIED'`, [userId]);
   }
 
   /** Staff: take someone off Needs review without verifying them. */
   async clearReview(userId: string): Promise<void> {
-    await this.db.query(`UPDATE users SET kyc_status='UNVERIFIED', kyc_review_reason=NULL, kyc_review_at=NULL WHERE id=$1 AND kyc_status='REVIEW'`, [userId]);
+    await this.db.query(`UPDATE users SET kyc_status='UNVERIFIED', kyc_review_reason=NULL, kyc_review_at=NULL WHERE id=$1 AND kyc_status='REVIEW' AND kyc_flag IS NULL`, [userId]);
   }
 }
 

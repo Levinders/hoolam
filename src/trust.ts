@@ -42,7 +42,7 @@ const DONE = `('RELEASING','PAYOUT_PENDING','COMPLETED')`;
 
 export class Trust {
   /** includeTest: count pretend-money deals too (only for trying things out on the test number). */
-  constructor(private readonly db: Db, private readonly includeTest = false) {}
+  constructor(private readonly db: Db, private readonly includeTest = false, private readonly skipAccountMatch = false) {}
 
   async seller(userId: string): Promise<SellerStats | null> {
     const u = (await this.db.query(`SELECT u.id, u.display_name, u.business_name, u.city, u.created_at, u.profile_slug, u.profile_public, u.kyc_status, u.kyc_verified_at, u.kyc_name,
@@ -86,7 +86,7 @@ export class Trust {
       rated: ratings.rows[0].rated,
       bankName,
       bankMatches: bankName ? namesOverlap(bankName, [u.display_name, u.business_name]) : false,
-      verified: u.kyc_status === 'VERIFIED' && !!u.kyc_verified_at && !!bankName && namesMatch(u.kyc_name, bankName),
+      verified: u.kyc_status === 'VERIFIED' && !!u.kyc_verified_at && !!bankName && (this.skipAccountMatch || namesMatch(u.kyc_name, bankName)),
       isNew: row.completed < 3,
       slug: u.profile_slug,
       isPublic: u.profile_public,

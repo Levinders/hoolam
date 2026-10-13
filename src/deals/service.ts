@@ -158,6 +158,10 @@ export class DealService {
 
   /** Can people check their ID right now (Prembly, or pretend checks in test mode)? */
   get kycOn(): boolean { return !!this.o.kyc?.available; }
+  /** Is a payout account in the name on the ID? (skipped while real ID checks run with pretend money) */
+  accountMatches(idName: string | null | undefined, accountName: string | null | undefined): boolean {
+    return this.o.kyc ? this.o.kyc.accountMatches(idName, accountName) : namesMatch(idName, accountName);
+  }
 
   /** The most this person can put in one order: their own limit if staff set one, else the normal one (higher once verified). */
   capFor(user: Pick<User, 'deal_cap_minor' | 'kyc_status' | 'kyc_verified_at'>): number {
@@ -1416,7 +1420,7 @@ export class DealService {
     // every seller's ID is checked once before their money leaves, and the account must be in that name
     if (p.kind === 'SELLER' && this.kycOn && p.seller_id) {
       const seller = await this.userById(this.o.db, p.seller_id);
-      if (!isVerified(seller) || !namesMatch(seller.kyc_name, p.account_name)) return this.holdForKyc(p, seller);
+      if (!isVerified(seller) || !this.accountMatches(seller.kyc_name, p.account_name)) return this.holdForKyc(p, seller);
     }
     let result: PayoutResult;
     try {
@@ -1638,11 +1642,11 @@ export class DealService {
     const held = await this.heldPayouts(userId);
     if (!held.length) return 'none';
     const def = await this.defaultBankAccount(userId);
-    const good = def && namesMatch(seller.kyc_name, def.account_name) ? def : null;
+    const good = def && this.accountMatches(seller.kyc_name, def.account_name) ? def : null;
     const go: string[] = [];
     let stuck: (typeof held)[number] | null = null;
     for (const p of held) {
-      if (namesMatch(seller.kyc_name, p.account_name)) { go.push(p.id); continue; }
+      if (this.accountMatches(seller.kyc_name, p.account_name)) { go.push(p.id); continue; }
       if (good) {
         await this.o.db.query('UPDATE payouts SET bank_account_id=$2 WHERE id=$1', [p.id, good.id]);
         await this.o.db.query(`UPDATE deals SET seller_account_id=$2 WHERE code=$1`, [p.code, good.id]);

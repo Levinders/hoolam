@@ -119,6 +119,7 @@ export const ACTIONS: Record<string, string> = {
   'whatsapp.forms.retry': 'Tried the WhatsApp forms again',
   'user.kyc.remove': 'Removed their ID verification',
   'user.kyc.clear': 'Cleared their ID review',
+  'user.kyc.decline': 'Declined their flagged ID',
   'settings.update': 'Changed settings',
   'media.upload': 'Uploaded an image',
   'user.photo.remove': 'Removed a seller\'s photo',

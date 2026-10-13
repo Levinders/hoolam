@@ -9,7 +9,7 @@ import { MAX_UPLOAD_BYTES, MediaError, SLOTS, SiteMedia } from '../site-media.js
 import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
-import type { KycService } from '../kyc.js';
+import { titleName, type KycService } from '../kyc.js';
 import type { FormRegistry } from '../whatsapp/forms.js';
 import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
@@ -154,7 +154,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         db.query(`SELECT id, phone, body->>'text' AS text, created_at FROM outbound_messages WHERE status='NEEDS_TEMPLATE' AND created_at > now() - interval '3 days' ORDER BY id DESC LIMIT 20`),
         db.query(`SELECT id, source, event_key, attempts, last_error, received_at FROM webhook_events WHERE processed_at IS NULL AND attempts >= 3 ORDER BY id DESC LIMIT 20`),
         db.query(`SELECT item_key FROM inbox_dismissals`),
-        db.query(`SELECT id, phone, display_name, business_name, kyc_review_reason, kyc_review_at FROM users WHERE kyc_status='REVIEW' ORDER BY kyc_review_at LIMIT 50`),
+        db.query(`SELECT id, phone, display_name, business_name, kyc_review_reason, kyc_review_at, kyc_flag FROM users WHERE kyc_status='REVIEW' ORDER BY kyc_review_at LIMIT 50`),
       ]);
       const gone = new Set(dismissed.rows.map((r) => r.item_key));
       const money = (m: number, c: string) => msg.moneyText({ minor: Number(m), currency: c as 'NGN' });
@@ -172,7 +172,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       for (const r of unhappy.rows) items.push({ key: `rating:${r.deal_id}`, kind: 'rating', severity: 'low', title: `👎 on ${r.code}${r.seller ? ' (' + r.seller.split(' ')[0] + ')' : ''}`, detail: r.comment ? `“${String(r.comment).slice(0, 110)}”` : 'No comment', at: r.created_at, link: `/deals/${r.code}`, cta: 'Look', dismissible: true });
       for (const r of expiring.rows) items.push({ key: `expiring:${r.code}`, kind: 'expiring', severity: 'low', title: `${r.code} closes soon`, detail: `${r.item} · seller hasn't accepted · closes ${until(r.accept_by)}`, at: r.accept_by, link: `/deals/${r.code}`, cta: 'Extend', dismissible: true });
       for (const r of templates.rows) items.push({ key: `template:${r.id}`, kind: 'template', severity: 'low', title: `Message not delivered (24-hour rule)`, detail: `To …${String(r.phone).slice(-4)}: ${String(r.text ?? '').slice(0, 90)}`, at: r.created_at, link: `/support?tab=messages`, cta: 'See', dismissible: true });
-      for (const r of kycReview.rows) items.push({ key: `kyc:${r.id}:${new Date(r.kyc_review_at ?? 0).getTime()}`, kind: 'kyc', severity: 'medium', title: `ID check needs review: ${r.business_name ?? r.display_name ?? r.phone}`, detail: String(r.kyc_review_reason ?? ''), at: r.kyc_review_at, link: `/people/${r.id}`, cta: 'Review' });
+      for (const r of kycReview.rows) items.push({ key: `kyc:${r.id}:${new Date(r.kyc_review_at ?? 0).getTime()}`, kind: 'kyc', severity: r.kyc_flag ? 'high' : 'medium', title: `${r.kyc_flag ? 'ID flagged' : 'ID check needs review'}: ${r.business_name ?? r.display_name ?? r.phone}`, detail: String(r.kyc_review_reason ?? ''), at: r.kyc_review_at, link: `/people/${r.id}`, cta: 'Review' });
       for (const r of stuck.rows) items.push({ key: `webhook:${r.id}`, kind: 'system', severity: 'medium', title: `A ${r.source} update keeps failing`, detail: `${r.attempts} tries · ${String(r.last_error ?? '').slice(0, 100)}`, at: r.received_at, link: `/audit`, cta: 'Details', dismissible: true });
       const order = { high: 0, medium: 1, low: 2 };
       const open = items.filter((i) => !gone.has(i.key)).sort((a, b) => order[a.severity] - order[b.severity] || +new Date(a.at) - +new Date(b.at));
@@ -514,7 +514,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       need(req, 'user.kyc');
       if (!d.kyc) throw new HttpError(400, 'ID checks are not set up');
       const id = (req.params as { id: string }).id;
-      const b = req.body as { action?: 'approve' | 'remove' | 'clear'; name?: string };
+      const b = req.body as { action?: 'approve' | 'remove' | 'clear' | 'decline'; name?: string };
       const reason = reasonOf(req.body);
       const before = await d.kyc.status(id);
       if (b.action === 'approve') {
@@ -523,14 +523,29 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         await act(req, { action: 'user.kyc.approve', targetType: 'user', targetId: id, reason, details: { name, before: before.status } },
           () => d.kyc!.approve(id, name, `staff:${req.staff!.email}`));
         await d.deals.releaseHeldPayouts(id).catch((e) => d.log(`release after approval: ${(e as Error).message}`));
+        // tell them (a support message: it reaches them even outside WhatsApp's 24 hours if they have an order)
+        if (!before.verified) await tellAboutId(id, msg.kycApprovedText(titleName(name), { minor: d.deals.maxDealVerifiedMinor, currency: d.config.CURRENCY }));
       } else if (b.action === 'remove') {
         await act(req, { action: 'user.kyc.remove', targetType: 'user', targetId: id, reason, details: { name: before.name, method: before.method, last4: before.last4 } },
           () => d.kyc!.remove(id));
+      } else if (b.action === 'decline') {
+        // a flagged ID (watchlist, suspension): they stay at the limit without ID, and no more checks run for them
+        if (!before.flag || before.declined) throw new HttpError(400, 'Only a flagged ID waiting for the team can be declined.');
+        await act(req, { action: 'user.kyc.decline', targetType: 'user', targetId: id, reason, details: { flag: before.flag } }, () => d.kyc!.decline(id));
+        await tellAboutId(id, msg.kycDeclinedText({ minor: d.deals.maxDealMinor, currency: d.config.CURRENCY }));
       } else if (b.action === 'clear') {
+        if (before.flag) throw new HttpError(400, 'This ID was flagged: approve it or decline it.');
         await act(req, { action: 'user.kyc.clear', targetType: 'user', targetId: id, reason, details: { was: before.reviewReason } }, () => d.kyc!.clearReview(id));
       } else throw new HttpError(400, 'Unknown action');
       return { ok: true };
     });
+    /** The approval or decline, to the person. Best effort: the team action stands even if WhatsApp can't deliver it. */
+    async function tellAboutId(userId: string, text: string) {
+      const u = (await db.query('SELECT phone FROM users WHERE id=$1', [userId])).rows[0];
+      if (!u) return;
+      const r = await d.deals.sendSupportMessage(u.phone, text, null).catch((e) => { d.log(`ID decision message: ${(e as Error).message}`); return null; });
+      if (r && r.status !== 'SENT' && r.status !== 'DRY_RUN') d.log(`ID decision message not delivered (${r.status})`);
+    }
     api.post('/people/:id/cap', async (req) => {
       need(req, 'user.cap');
       const id = (req.params as { id: string }).id;

@@ -1007,6 +1007,31 @@ export const msg = {
         : [{ id: 'kyc:retry', title: 'Try again' }, { id: 'kyc:rep', title: 'Talk to a rep' }],
     };
   },
+  /**
+   * The ID was flagged by its issuer (or the team is still looking at it): no more checks, the team decides.
+   * `fresh`: it was flagged just now. Never says why (watchlist, suspension): that's for the team only.
+   */
+  kycInReview: (fresh: boolean, why: KycWhy, noId: Money, draft: boolean): Outbound => ({
+    kind: 'buttons',
+    text: (fresh ? '🕵️ *We couldn\'t confirm your ID right away.* Our team will check it and message you.'
+      : '🕵️ *Your ID is with our team for checking.* We\'ll message you once it\'s done.')
+      + (why === 'seller' || why === 'payout' ? '\n\nYour payouts wait until then. Your money stays safe with Hoolam.' : '')
+      + `\n\nMeanwhile, you can do orders up to *${m(noId)}*.${draft ? ' Type a smaller price to carry on.' : ''}`,
+    buttons: [{ id: 'menu:human', title: 'Talk to a rep' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  /** The team declined a flagged ID: they stay at the limit without ID. */
+  kycDeclined: (why: KycWhy, noId: Money, draft: boolean): Outbound => ({
+    kind: 'buttons',
+    text: `😕 *We couldn't confirm your ID.* You can keep using Hoolam for orders up to *${m(noId)}*.${draft ? ' Type a smaller price to carry on.' : ''}`
+      + (why === 'seller' || why === 'payout' ? '\n\nFor your payouts, please talk to a rep.' : ''),
+    buttons: [{ id: 'menu:human', title: 'Talk to a rep' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
+  /** Sent from the console when the team approves an ID (a support message, so it arrives even outside 24 hours). */
+  kycApprovedText: (name: string, verifiedMax: Money): string =>
+    `✅ Your ID is confirmed, ${name}. You can now do orders up to ${m(verifiedMax)}.`,
+  /** Sent from the console when the team declines a flagged ID. */
+  kycDeclinedText: (noId: Money): string =>
+    `We couldn't confirm your ID. You can keep using Hoolam for orders up to ${m(noId)}.`,
   /** ID checks aren't switched on: the limit without ID is the most for now. */
   kycOff: (noId: Money): Outbound => ({
     kind: 'buttons',

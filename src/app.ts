@@ -48,7 +48,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   for (const t of ALL_TEMPLATES) if (t.headerImage) messenger.setTemplateImageHeader(t.name);
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider.sandbox;
-  const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
+  // real ID checks with pretend money: the pretend bank's account names can't match a real ID, so that match waits for real payments
+  const skipAccountMatch = c.KYC === 'prembly' && c.PAYMENT_PROVIDER === 'fake';
+  const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS, skipAccountMatch);
   const settings = new Settings(db, c);
   // messages mention reply times and use Hoolam's number as the example: always the console's current values
   configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
@@ -58,7 +60,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const checker: KycChecker = c.KYC === 'prembly'
     ? new PremblyChecker({ apiKey: c.PREMBLY_X_API_KEY, appId: c.PREMBLY_APP_ID || undefined, baseUrl: c.PREMBLY_BASE_URL, bvnPath: c.PREMBLY_BVN_PATH, ninPath: c.PREMBLY_NIN_PATH, log })
     : c.KYC === 'fake' ? new FakeKycChecker() : new NoKycChecker();
-  const kyc = new KycService(db, checker, log);
+  const kyc = new KycService(db, checker, log, { skipAccountMatch });
+  if (skipAccountMatch) log('ID checks are real but money is pretend: payout account names are not matched to the ID until real payments are on');
   const deals = new DealService({
     db, provider, messenger, media, trust, settings, kyc, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, log,

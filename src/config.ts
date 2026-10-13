@@ -43,8 +43,8 @@ const schema = z.object({
   PREMBLY_X_API_KEY: z.string().default(''),          // Prembly → API keys: the secret key (sent as x-api-key)
   PREMBLY_APP_ID: z.string().default(''),             // Prembly → API keys: the app ID (sent as app-id)
   PREMBLY_BASE_URL: z.string().default('https://api.prembly.com'),
-  PREMBLY_BVN_PATH: z.string().default('/identitypass/verification/bvn'), // from the Prembly dashboard (API integrations)
-  PREMBLY_NIN_PATH: z.string().default('/identitypass/verification/nin'), // the same pattern (the dashboard shows no NIN example)
+  PREMBLY_BVN_PATH: z.string().default('/verification/bvn_validation'), // BVN Basic (Prembly API docs)
+  PREMBLY_NIN_PATH: z.string().default('/verification/vnin-basic'),     // NIN Basic (Prembly API docs)
 
   // Testing: lets one phone play both seller and buyer. Only allowed with the fake payment provider.
   ALLOW_SELF_DEAL: bool.default(false),

@@ -5,7 +5,7 @@ import { PRICING, quote, type FeeBand } from '../pricing.js';
 import { FakeProvider } from '../payments/fake.js';
 import type { PaymentProvider } from '../payments/provider.js';
 import { DealError, isVerified, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
-import { namesMatch, readDob, type KycMethod, type KycService } from '../kyc.js';
+import { readDob, type KycMethod, type KycService } from '../kyc.js';
 import { CATEGORIES, categoryTitle, isCategory } from '../deals/categories.js';
 import type { ContactCard, Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
@@ -693,6 +693,9 @@ export class Conversation {
     const k = this.o.kyc;
     if (isVerified(user)) return this.afterKyc(phone, user, next);
     if (!k?.available) { await this.save(phone, 'IDLE'); return this.send(phone, msg.kycOff(this.limits().noId)); }
+    // flagged and with the team (or declined): no more checks, BVN or NIN
+    const blocked = await k.blocked(user.id);
+    if (blocked) return this.kycBlocked(phone, blocked, false, why, next);
     await this.save(phone, 'KYC_METHOD', { kycNext: next, why });
     if ((await k.triesLeft(user.id)) <= 0) return this.send(phone, msg.kycFailed('NO_TRIES', 'BVN', 0));
     const form = this.o.kycForm?.() ?? null;
@@ -704,6 +707,15 @@ export class Conversation {
     return this.send(phone, msg.kycIntro(why, this.limits(), k.testMode));
   }
 
+  /** No more checks for them: the team has a flagged ID to look at, or declined it. A typed price comes back as before. */
+  private async kycBlocked(phone: string, b: 'REVIEW' | 'DECLINED', fresh: boolean, why: KycWhy, next: KycNext): Promise<unknown> {
+    const noId = this.limits().noId;
+    const draft = next.kind === 'draft';
+    if (draft) { const { priceMinor, ...d } = next.draft; await this.save(phone, 'BUY_PRICE', { ...d, kycPrice: priceMinor }); }
+    else await this.save(phone, 'IDLE');
+    return this.send(phone, b === 'DECLINED' ? msg.kycDeclined(why, noId, draft) : msg.kycInReview(fresh, why, noId, draft));
+  }
+
   /** Use BVN / Use NIN / Not now / Try again / Talk to a rep / Check my ID (payout). */
   private async kycButton(phone: string, s: Session, user: User, what: string): Promise<unknown> {
     const inKyc = s.state.startsWith('KYC_');
@@ -712,6 +724,12 @@ export class Conversation {
     if (what === 'payout') return this.startKyc(phone, user, 'payout', { kind: 'payout' });
     if (what === 'bvn' || what === 'nin') {
       if (isVerified(user)) return this.afterKyc(phone, user, next);
+      const blocked = await this.o.kyc?.blocked(user.id);
+      if (blocked) {
+        // a price waiting after "Not now" stays waiting
+        if (s.state === 'BUY_PRICE' && s.data.kycPrice) { const { kycPrice, ...d } = s.data; return this.kycBlocked(phone, blocked, false, 'order', { kind: 'draft', draft: { ...d, priceMinor: kycPrice } }); }
+        return this.kycBlocked(phone, blocked, false, why, next);
+      }
       await this.save(phone, 'KYC_DOB', { kycNext: next, why, method: what.toUpperCase() });
       return this.send(phone, msg.kycAskDob(what === 'bvn' ? 'BVN' : 'NIN'));
     }
@@ -754,12 +772,16 @@ export class Conversation {
     if (!this.o.kyc) return this.send(phone, msg.kycOff(this.limits().noId));
     const r = await this.o.kyc.verify(user.id, method, number, dob);
     if (!r.ok) {
+      // flagged just now (or earlier): the team decides
+      if (r.reason === 'IN_REVIEW' || r.reason === 'DECLINED') {
+        return this.kycBlocked(phone, r.reason === 'DECLINED' ? 'DECLINED' : 'REVIEW', !!r.fresh, data.why ?? 'order', data.kycNext ?? { kind: 'none' });
+      }
       await this.save(phone, 'KYC_METHOD', { kycNext: data.kycNext ?? { kind: 'none' }, why: data.why ?? 'order' }); // "Try again" starts over
       return this.send(phone, msg.kycFailed(r.reason, method, r.triesLeft));
     }
     const fresh = (await this.userByPhone(phone)) ?? user;
     const acct = await this.o.deals.defaultBankAccount(fresh.id);
-    const seller = !!fresh.seller_since && (!acct || namesMatch(r.name, acct.account_name));
+    const seller = !!fresh.seller_since && (!acct || this.o.deals.accountMatches(r.name, acct.account_name));
     await this.send(phone, msg.kycDone(r.name, this.limits().verified, seller));
     return this.afterKyc(phone, fresh, data.kycNext ?? { kind: 'none' });
   }
@@ -1332,7 +1354,7 @@ export class Conversation {
         const { bankNumber: _n, ...data } = s.data;
         return this.startKyc(phone, user, 'seller', { kind: 'ask', state: s.state, data, message: s.state === 'SELLER_BANK' ? msg.askSellerBank() : s.state === 'ACCOUNT_BANK' ? msg.askNewAccount() : msg.askBank() });
       }
-      if (isVerified(user) && !namesMatch(user.kyc_name, name)) {
+      if (isVerified(user) && !this.o.deals.accountMatches(user.kyc_name, name)) {
         const { bankNumber: _n, ...data } = s.data;
         await this.save(phone, s.state as State, data);
         return this.send(phone, this.fix(phone, msg.accountNotTheirs(name, user.kyc_name ?? '', refund)));
