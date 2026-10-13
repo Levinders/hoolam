@@ -123,7 +123,7 @@ describe('landing page ↔ server', () => {
     }
     for (const [name, html] of [['about', about], ['contact', contact]] as const) {
       // the same top bar as the home page; About and Contact us live only in the footer
-      const header = html.slice(html.indexOf('<header class="top"'), html.indexOf('</aside>'));
+      const header = html.slice(html.indexOf('<header class="top"'), html.indexOf('</header>'));
       expect(header, name).toContain('<a href="/#journey">How it works</a><a href="/#pricing">Pricing</a><a href="/#trust">Why trust us</a>');
       expect(header, name).not.toMatch(/href="\/(about|contact)\/"/);
     }
