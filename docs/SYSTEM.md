@@ -56,7 +56,7 @@ Secrets and platform IDs live only in Render (service `hoolam` → Environment);
 | `WHATSAPP_PUBLIC_NUMBER` | Fallback number for links if the console has none | Digits only. |
 | `WHATSAPP_GRAPH_VERSION` | Graph API version | v26.0 |
 | `WHATSAPP_DRY_RUN` | true = log messages instead of sending | false in production |
-| `WHATSAPP_FORM_MODE` | Forms as `draft` or `published` | published once Meta verified the business |
+| `WHATSAPP_FORM_MODE` | Whether new or draft forms are **published** on Meta when the server starts (`published`) or left as drafts (`draft`) | Forms are always sent in the state Meta reports, so this can't make them fail. `published` once Meta verified the business. |
 | `WHATSAPP_BUY_FORM`, `WHATSAPP_ORDERS_FORM`, `WHATSAPP_SYNC_MENU` | Switch the buyer form, the live order forms and the menu sync on or off | default on |
 | `FLOWS_PRIVATE_KEY` | Optional key for the encrypted forms endpoint | If unset, the server makes one and keeps it in the database (`app_secrets`). Secret. |
 | `PAYMENT_PROVIDER` | `monnify` or `fake` (pretend money) | currently `fake` |
@@ -376,6 +376,10 @@ Once the buyer has paid, the seller says how the item travels, the buyer gets a 
 
 The server creates every form on Meta when it starts; a changed form gets a new name (a hash of its contents), because published forms can't be edited. If a form can't be sent, the chat asks the same questions instead.
 
+- **Sent as Meta has it:** each form goes out as draft or published according to Meta's own state for that form (read at start), never from `WHATSAPP_FORM_MODE`. (Until 13 Oct 2026 the setting decided, and published forms sent as drafts were refused: "The flow is not in a draft state, but the mode is set to 'draft'.")
+- **A refused form rests:** if WhatsApp refuses to send a form, only that form rests for 30 minutes (Meta's reason is kept), then it's tried again by itself. The other forms carry on. Blocked or deprecated forms aren't sent.
+- **Console → Settings → WhatsApp → WhatsApp forms:** one card per form (Buy something, its edit form, Sell something, its edit form, ID check, My orders, One order): **Ready · published/draft**, **Resting** (with "WhatsApp refused it: …" and when it's tried again), **Failed** (couldn't be set up on Meta, with the reason) or **Not set up** (dry run, no `WHATSAPP_WABA_ID`, switched off on Render). **Try again now** wakes resting forms and runs the Meta setup again (audited).
+
 | Form (name on Meta) | Kind | What it does |
 | --- | --- | --- |
 | Buyer form (`hoolam_buy_…`) | Static | Item, delivery, photos; answers arrive in the webhook |
@@ -447,7 +451,7 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 | Buyers & sellers | Each person's record, orders, bank accounts, trust card, who they said "Not me" to, order limit, pause, **Message them**. Filters: Everyone, Sellers, Buyers, Paused, **Needs review**, **ID verified**. **ID check** panel: status (Verified / Needs review / Not verified), name on ID, BVN or NIN with last 4 digits (or "Approved by the team"), date, reference, recent tries and tries left today, payouts waiting for it; **Approve ID** (with the full name on their ID), **Remove verification**, **Clear review**, each with a reason in the audit trail. The Limits panel shows the limit without ID and once verified. |
 | Support | The inbox of "Talk to a rep" and problem messages, with replies |
 | Insights | Trends: orders, value, fees, conversion |
-| Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, template statuses), Contact, Brand, Website content (home page versions and their images), History |
+| Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, the state of each form with Try again now, template statuses), Contact, Brand, Website content (home page versions and their images), History |
 | Team, Audit | Staff and roles; the full audit trail |
 
 **Roles:** Owner (everything, including fees, limits and Hoolam's number), Admin (orders, money moves, people incl. approving or removing ID checks, most settings), Finance (payouts, exports, audit), Support (messages, notes, support inbox).
@@ -527,6 +531,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 13 Oct 2026 | WhatsApp forms are sent as Meta has them (draft or published), not from `WHATSAPP_FORM_MODE`; a refused form rests 30 minutes instead of switching every form off until a restart; console WhatsApp forms panel with Meta's reasons and Try again now | 412a05d |
 | 12 Oct 2026 | Prembly: the dashboard's BVN address and the same pattern for NIN as defaults; NIN sends both number fields; a wrong address or refused request says "try again" without using a try; Prembly's reference is kept | 7e34fe3 |
 | 12 Oct 2026 | ID checks (KYC) with Prembly: BVN or NIN once, above the limit without ID (either side) and for every seller before payouts; two console limits; Verified seller; payout and refund names must match; console ID panel and Needs review; privacy and terms sections | e3c13f0 |
 | 12 Oct 2026 | 1.2.0 why trust us: "Deposits insured by NDIC" card replaces Live reps | ca8e855 |
