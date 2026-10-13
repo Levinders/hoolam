@@ -120,6 +120,8 @@ Everything passes through the one server: messages come in from Meta, money move
 | `/:code`, `/v/:code`, `/chat` | Short links that open the WhatsApp chat at the right step |
 | `/site.json` | Live fees, limits, timings, contact details, the live home page version (`homeVersion`) and the images for every version (`versions`) for the website |
 | `/media/<slot>` | Uploaded images: `logo`, `mark`, or `<spot>@<version>` for website images |
+| `/livechat/...` | The website chat's API (open to any page, CORS): `config` (content and hours), `start`, `resume`, `me`, `threads/:id` (messages, files, seen, typing, close, rate), `files/:id`, `events` (live updates). Visitors use the key the server gave their browser |
+| `/console/api/support/events` | Live updates for the console's support widget (new live chat and WhatsApp messages, typing, seen, who's looking) |
 | `/health` | Health check for Render |
 
 ### Database (Postgres, migrations in `db/migrations`, run on every start)
@@ -131,7 +133,8 @@ Everything passes through the one server: messages come in from Meta, money move
 | Money | `payment_intents`, `payouts` (status `WAITING_KYC`: a seller payout waiting for their ID check or an account in their ID name), `ledger_entries` |
 | WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages` (incl. `wa_id`, WhatsApp's id, to match read receipts), `contact_cards` (who got Hoolam's contact card). Deals also keep `alert_wa_id` and `seen_at` (seen), `delivery_pin` and `courier_pin` (shared locations, "lat,lng"); support requests keep `wa_message_id` (for quoting). Migration 019. |
 | Website | `media` (logo, logo icon, and each version's website images as `<spot>@<version>`; migration 017 moved the existing ones to 1.0.0) |
-| Team | `staff`, `staff_invites`, `staff_sessions`, `audit_log`, `support_requests`, `inbox_dismissals` |
+| Team | `staff` (incl. `access_whatsapp`, `access_live`: support access per person, null = the role's default), `staff_invites`, `staff_sessions`, `audit_log`, `support_requests`, `support_reads` (who has read which WhatsApp support message), `inbox_dismissals` |
+| Live chat | `chat_visitors` (name, WhatsApp number, linked user), `chat_visitor_keys` (hashes of browser keys), `chat_threads` (ref LC-…, status, handler, rating, the WhatsApp nudge), `chat_messages` (VISITOR, STAFF, NOTE for the team only, SYSTEM), `chat_files` (photos and PDFs), `chat_reads` (what each teammate has read), `chat_content` (welcome, Home cards, Questions, News, quick replies, saved replies). Migration 021. |
 | System | `settings` (console values, incl. `home_version`), `app_secrets` (forms key), `contact_optouts` (old, now empty) |
 
 ### Ledger accounts
@@ -375,7 +378,7 @@ Once the buyer has paid, the seller says how the item travels, the buyer gets a 
 
 - **Problem** (from a message, My orders, or Report a problem): the money is frozen at once and the seller is told (📨 if needed). The buyer is asked what's wrong (text or a photo), then for a refund account if there isn't one. "Case C-XXXXXX is open… A real person will reply within" the console's problem reply time. A rep decides in the console: release or refund.
 - **Refunds** (seller can't fulfil, buyer taps Refund me, or a rep decides): the buyer gets back everything still held, fees included; a rider's fee already paid can't come back; no transaction fee for the seller. The buyer is told when it lands (📨 if needed).
-- **Talk to a rep:** the message goes to the console's Support inbox; "A live rep replies right here within" the console's reply time.
+- **Talk to a rep:** the message goes to the WhatsApp tab of the console's support widget; "A live rep replies right here within" the console's reply time.
 
 ### 12. My orders and the private order page
 
@@ -427,6 +430,7 @@ WhatsApp only lets Hoolam message someone who hasn't written in 24 hours with a 
 | --- | --- | --- | --- |
 | `hoolam_new_order_request_v3` (picture at the top) | `hoolam_new_order_request_v2` | Seller: a buyer typed their number | View order · Not me |
 | `hoolam_new_order_for_buyer_v2` (picture at the top) | `hoolam_new_order_for_buyer` | Buyer: a seller's new order (seller, item, total, what they pay) | View order · Not me |
+| `hoolam_live_chat_reply` | (new) | A website chat visitor who left before a rep replied: the start of the reply and a link back to the chat | none |
 | `hoolam_order_accepted_pay` | `hoolam_order_accepted` | Buyer: the seller accepted, pay now | Pay now · Cancel order |
 | `hoolam_order_new_price_breakdown` | `hoolam_order_new_price` | Buyer: new price, reason, Hoolam fee, total | Accept new price · Cancel order |
 | `hoolam_order_paid_v2` | `hoolam_order_paid` | Seller (seller-started): the buyer paid | I have sent it |
@@ -458,17 +462,28 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 
 | Page | What it's for |
 | --- | --- |
-| Home | Needs action (stuck orders, waiting messages, open problems, support, ID checks that need review), today's numbers, fees earned |
+| Home | Needs action (stuck orders, waiting messages, open problems, support (opens the support widget), ID checks that need review), today's numbers, fees earned |
 | Orders | Every order with filters; an order shows its timeline, photos, people, money (both fees), dispatch details (incl. whether the rider/driver was sent the delivery message, and who entered the code), notes and messages |
 | Problems | Open disputes with the buyer's evidence; release or refund |
 | Money | Ledger balances (held, owed, fees earned), payouts, retries, OTP approvals, export |
 | Buyers & sellers | Each person's record, orders, bank accounts, trust card, who they said "Not me" to, order limit, pause, **Message them**. Filters: Everyone, Sellers, Buyers, Paused, **Needs review**, **ID verified**. **ID check** panel: status (Verified / Needs review / Not verified), name on ID, BVN or NIN with last 4 digits (or "Approved by the team"), date, reference, recent tries and tries left today, payouts waiting for it; **Approve ID** (with the full name on their ID; tells them), **Remove verification**, **Clear review**, and for a flagged ID **Decline ID** instead of Clear review (tells them; shows Flagged / Declined with the issuer's reason), each with a reason in the audit trail. The Limits panel shows the limit without ID and once verified. |
-| Support | The inbox of "Talk to a rep" and problem messages, with replies |
 | Insights | Trends: orders, value, fees, conversion |
 | Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, the state of each form with Try again now, template statuses), Contact, Brand, Website content (home page versions and their images), History |
 | Team, Audit | Staff and roles; the full audit trail |
 
-**Roles:** Owner (everything, including fees, limits and Hoolam's number), Admin (orders, money moves, people incl. approving or removing ID checks, most settings), Finance (payouts, exports, audit), Support (messages, notes, support inbox).
+**Roles:** Owner (everything, including fees, limits and Hoolam's number), Admin (orders, money moves, people incl. approving or removing ID checks, most settings), Finance (payouts, exports, audit), Support (messages, notes, support).
+
+**Support access** is set per person, on top of the role: **WhatsApp support** and **Live chat**, as two switches when inviting someone and on Team. Owners always have both; Admin and Support start with both, Finance with neither. Team also shows each person's live chat ratings (helpful / not helpful, last 90 days) for performance reviews.
+
+### The support widget
+
+Support isn't in the sidebar any more: it's a round button at the bottom right of every console page, for anyone with support access (old /support links open it).
+
+- **Launcher:** the number of unread messages (live chats that are yours or waiting for a rep, plus new WhatsApp support messages). New messages slide out as **ribbons** (name, Live chat or WhatsApp, the message); tap one to open it. A soft chime plays (switch it off in the panel), the browser tab shows the count, and once pop-ups are allowed the browser shows a notification, even on another tab, while the console is open.
+- **Panel:** a tall side panel over the page, or full screen. Tabs: **Live chat**, **WhatsApp** and **Chat content**, each shown only to people with that access.
+- **Live chat:** Open, Mine, Waiting (no rep yet) and Closed, with search (name, number, message). A chat shows the visitor's name and WhatsApp number (tap to open WhatsApp), whether they're on the page now, the ref (LC-…), who is handling it and which teammates are looking at it now. **The first rep to reply takes the chat** (or **Take it**); others can read along and add notes, or **Take over** (confirm; audited; the visitor sees "Emeka joined the chat"). Replies, **Internal notes** (only the team sees them), photos and PDFs up to 10 MB, **saved replies** (type / and the shortcut, like /fees), typing dots and **Seen**, **Close** and **Reopen** (audited). Full screen adds the visitor's details: their Hoolam record and orders (when the number already uses Hoolam), past chats, the page they started on.
+- **WhatsApp:** the same "Talk to a rep" inbox as before (Open, Closed, reply on WhatsApp, Send and close), with unread marks per teammate, plus the **Message log**.
+- **Chat content:** what visitors see (**Welcome**, **Home cards**, **Questions**, **News**, **Quick replies**) and, kept apart, **Saved replies** for reps. Add, edit, show or hide, move up and down, delete (audited). Questions and saved replies can use live values ({fee_rate}, {fee_min}, {fee_max}, {txn_min}, {max_deal}, {max_deal_verified}, {whatsapp}) that always show the console's current numbers. Questions started as the home page's questions and answers, published.
 
 ### Messages from Hoolam support
 
@@ -476,7 +491,18 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 - The box takes up to 600 characters with a live count, as one paragraph (line breaks become spaces).
 - It goes as "🙋 **Hoolam support:** an update about your order **HL-X**. … Reply here if you have any questions.", using the order you're on or the person's latest order. This works at any time, even outside 24 hours, once Meta approves `hoolam_support_update`.
 - Someone with no orders gets a chat message instead (only possible within 24 hours of their last message); the console says so if it can't send.
-- Their next message goes straight to the Support inbox, tagged with the order.
+- Their next message goes straight to the support widget's WhatsApp tab, tagged with the order.
+
+### Live chat on the website
+
+- **Where:** About, Contact us, the legal pages, home version 1.2.0 and the draft (`"liveChat": true` in `versions.json`), not home versions 1.0.0 or 1.1.0. `site/assets/chat.js`, drawn in its own shadow root so it never clashes with the page; the page passes the server address, Hoolam's logo for that version (or the drawing) and the WhatsApp link. Contact us's **Chat with a rep** opens it (`HoolamChat.message()`).
+- **Tabs:** **Home** ("Hi there." or "Hi Ivana.", the welcome line, whether reps are online and the usual reply time or "Reps are back at 9am", Send us a message / Continue your chat, the Home cards, the latest news, and "Prefer WhatsApp?"), **Messages** (their chats), **Questions** (search, tap to read, "Still need help? Message us"), **News**.
+- **Starting:** they type first; on send, "Before we send it" asks for their **name** and **WhatsApp number** (required, a Nigerian mobile number), with "We only use it for this chat…". The message shows as "Not sent yet" meanwhile. No email. Quick replies sit above the box at the start.
+- **In the chat:** the rep shows by **first name** with Hoolam's logo (never their own photo), "Chioma joined the chat", typing dots, **Seen**, photos and PDFs up to 10 MB (checked by their bytes), links tappable. Outside 9am–5pm: "Our reps are back at 9am. Leave a message and we'll reply here and on WhatsApp."
+- **Closed:** "This chat is closed. Was this helpful? Yes / No" (the rating goes to the rep who handled it), and sending a message reopens it.
+- **If they left:** 2 minutes after a rep's reply that they haven't seen and with the page closed, one WhatsApp message (`hoolam_live_chat_reply`) with the start of the reply and a link (`/contact/?chat=…`) that reopens the chat on any phone. Only once until they come back.
+- **Keys:** the browser keeps a random key (`hoolam:chat:key`); the server stores only its hash. Closed chats and their files are deleted 12 months after closing.
+- **Legal:** privacy "Live chat on our website" (and its row in How long we keep it), cookies lists the chat key; effective date 13 October 2026.
 
 ### Settings worth knowing
 
@@ -550,6 +576,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 13 Oct 2026 | Live chat on the website (About, Contact us, legal pages, home 1.2.0): name and WhatsApp number, files, typing and seen, ratings, WhatsApp nudge when away; console support widget replaces the Support page (Live chat, WhatsApp, Chat content with questions from the home page, saved replies), ribbons, pop-ups and chime; per-person support access in Team; privacy and cookies updated | e147e04 |
 | 13 Oct 2026 | About: "Mama Bella paid", the held-money card without "Nobody can touch it…", digital pay on delivery in one line, the SCUML line shown only once its number is set | e87274d |
 | 13 Oct 2026 | About: Buyer/Seller tags, "(DPOD)", "social commerce platform", EFCC SCUML line (in progress); Contact us wording and hours bars fixed; About and Contact us in the phone menu (also home 1.2.0) | fcc3eb8, 6afa708 |
 | 13 Oct 2026 | About and Contact us use the home page's top bar (About and Contact us only in the footer); About tells the digital pay on delivery story with Ivana and Mama Bella in a real chat; Contact us wording and gold number; home 1.2.0 closing "From now / Your next order can be a safe one." | 9c720e2 |
