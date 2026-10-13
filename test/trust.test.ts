@@ -129,7 +129,7 @@ describe('where buyers see it', () => {
     expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/Seller's WhatsApp: \*0807\d{7}\*/);
     await h.tap(buyer, 'buy:send');
-    expect((await lastBody(seller)).text).toMatch(/\[template hoolam_new_order_request_v2\]/);
+    expect((await lastBody(seller)).text).toMatch(/\[template hoolam_new_order_request_v3\]/);
   });
 });
 

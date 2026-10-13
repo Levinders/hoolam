@@ -4,12 +4,13 @@ export interface Inbound {
   id: string;            // WhatsApp message id, used to ignore duplicates
   phone: string;         // E.164 with +
   name: string | null;
-  type: 'text' | 'button' | 'audio' | 'image' | 'welcome' | 'form' | 'other'; // welcome = they opened the chat for the first time; form = a WhatsApp form was submitted
+  type: 'text' | 'button' | 'audio' | 'image' | 'welcome' | 'form' | 'location' | 'other'; // welcome = they opened the chat for the first time; form = a WhatsApp form was submitted
   text: string;          // typed text, or the button title
   buttonId: string | null;
   mediaId: string | null;
   mimeType?: string | null;              // for images
   form?: Record<string, unknown> | null; // the answers from a submitted form (includes flow_token)
+  location?: { latitude: number; longitude: number; name: string | null; address: string | null } | null; // a shared location (📎 → Location)
 }
 
 /** Checks X-Hub-Signature-256 against the raw request body. */
@@ -45,8 +46,27 @@ export function parseInbound(body: unknown): Inbound[] {
         else if (m.type === 'request_welcome') out.push({ ...base, type: 'welcome', text: '' });
         else if (m.type === 'button') out.push({ ...base, type: 'button', text: String(m.button?.text ?? ''), buttonId: String(m.button?.payload ?? m.button?.text ?? '') });
         else if (m.type === 'audio') out.push({ ...base, type: 'audio', text: '', mediaId: String(m.audio?.id ?? '') });
+        else if (m.type === 'location' && Number.isFinite(Number(m.location?.latitude)) && Number.isFinite(Number(m.location?.longitude))) {
+          const l = m.location;
+          const name = typeof l.name === 'string' && l.name.trim() ? l.name.trim() : null;
+          const address = typeof l.address === 'string' && l.address.trim() ? l.address.trim() : null;
+          out.push({ ...base, type: 'location', text: [name, address].filter(Boolean).join(', '), location: { latitude: Number(l.latitude), longitude: Number(l.longitude), name, address } });
+        }
         else if (m.type === 'image') out.push({ ...base, type: 'image', text: String(m.image?.caption ?? ''), mediaId: String(m.image?.id ?? ''), mimeType: m.image?.mime_type ?? null });
         else out.push({ ...base, type: 'other', text: '' });
+      }
+    }
+  }
+  return out;
+}
+
+/** Delivery updates for messages we sent: we use "read" (the other side has seen an order). */
+export function parseStatuses(body: unknown): { id: string; status: string; phone: string }[] {
+  const out: { id: string; status: string; phone: string }[] = [];
+  for (const entry of ((body as { entry?: unknown[] })?.entry ?? []) as { changes?: { value?: Record<string, unknown> }[] }[]) {
+    for (const change of entry.changes ?? []) {
+      for (const st of ((change.value?.statuses as Record<string, any>[] | undefined) ?? [])) {
+        if (st?.id && st?.status) out.push({ id: String(st.id), status: String(st.status), phone: '+' + String(st.recipient_id ?? '').replace(/^\+/, '') });
       }
     }
   }

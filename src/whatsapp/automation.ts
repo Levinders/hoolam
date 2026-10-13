@@ -1,3 +1,4 @@
+import { renderBrandCard } from '../receipt.js';
 import { kycFlowJson, kycFlowName } from './kyc-flow.js';
 import { createHash } from 'node:crypto';
 import { buyEditFlowJson, buyEditFlowName, buyFlowJson, buyFlowName, sellEditFlowJson, sellEditFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
@@ -102,8 +103,9 @@ export interface MetaSetupOptions extends AutomationOptions {
  * `replaces`: the earlier version's name. Until Meta approves the new one, the old one is used if it was approved,
  * so alerts never stop while wording changes are reviewed. Variables and buttons must stay in the same places.
  */
-export const SELLER_ALERT = {
-  name: 'hoolam_new_order_request_v2', replaces: 'hoolam_new_order_request',
+export const SELLER_ALERT: TemplateDef = {
+  // v3: the item's first photo at the top (or the Hoolam card when there's none). Until approved, v2 (no picture) is used.
+  name: 'hoolam_new_order_request_v3', replaces: 'hoolam_new_order_request_v2', headerImage: true,
   body:
     '🛒 *New order request* on *Hoolam*\n\n👤 Buyer: *{{1}}*\n📦 Item: *{{2}}*\n💰 Total price: *{{3}}*\n\n' +
     'They pay Hoolam first. You dispatch once the money is held, and you get paid when they are happy.\n\n' +
@@ -118,7 +120,8 @@ export const SELLER_ALERT = {
  * While Meta reviews it, the older approved version is used with the values it takes (seller, item, what they pay, order).
  */
 export const BUYER_ALERT: TemplateDef = {
-  name: 'hoolam_new_order_for_buyer', replaces: 'hoolam_order_payment_request', replacesParams: [0, 1, 3, 4],
+  // v2: the item's first photo at the top (or the Hoolam card). Until approved, v1 (no picture) is used.
+  name: 'hoolam_new_order_for_buyer_v2', replaces: 'hoolam_new_order_for_buyer', headerImage: true,
   body:
     '🛍️ *New order for you* on *Hoolam*\n\n🏷️ Seller: *{{1}}*\n📦 Item: *{{2}}*\n💰 Total price: *{{3}}*\n💳 You pay: *{{4}}*\n\n' +
     'You pay Hoolam, not the seller. We hold your money until you have your item and are happy.\n\n' +
@@ -134,6 +137,8 @@ export interface TemplateDef {
   replacesParams?: number[];
   /** When the replaced version has fewer buttons: how many it has. */
   replacesButtons?: number;
+  /** A picture at the top (the item's photo). The replaced version has none. */
+  headerImage?: boolean;
 }
 
 /**
@@ -305,9 +310,16 @@ export async function ensureTemplate(o: MetaSetupOptions, t: TemplateDef, label:
     o.log?.(`${label} template: ${existing.status}${existing.status === 'APPROVED' ? '' : ' (alerts start once Meta approves it)'}`);
     return existing.status;
   }
+  // a picture at the top needs a sample picture uploaded to Meta first (the Hoolam card)
+  let headerHandle: string | null = null;
+  if (t.headerImage) {
+    headerHandle = await uploadSample(o, await renderBrandCard(), 'image/jpeg');
+    if (!headerHandle) { o.log?.(`${label} template: couldn't upload its sample picture; trying again on the next start`); return null; }
+  }
   const created = await graph(o, 'POST', `${o.wabaId}/message_templates`, {
     name: t.name, language: 'en', category: 'UTILITY', parameter_format: 'positional',
     components: [
+      ...(headerHandle ? [{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [headerHandle] } }] : []),
       { type: 'BODY', text: t.body, example: { body_text: [t.example] } },
       ...(t.footer ? [{ type: 'FOOTER', text: t.footer }] : []),
       ...(t.buttons?.length ? [{ type: 'BUTTONS', buttons: t.buttons.map((text) => ({ type: 'QUICK_REPLY', text })) }] : []),
@@ -319,6 +331,29 @@ export async function ensureTemplate(o: MetaSetupOptions, t: TemplateDef, label:
   }
   o.log?.(`${label} template submitted to Meta: ${created.json?.status ?? 'PENDING'} (category ${created.json?.category ?? '?'})`);
   return created.json?.status ?? 'PENDING';
+}
+
+/**
+ * Uploads a sample file to Meta (needed for templates with a picture). Returns the handle, or null.
+ * Meta's resumable upload: find the app from the token, open an upload session, send the bytes.
+ */
+async function uploadSample(o: MetaSetupOptions, bytes: Buffer, type: string): Promise<string | null> {
+  try {
+    const app = await graph(o, 'GET', 'app');
+    const appId = app.json?.id;
+    if (!appId) { o.log?.(`sample upload: can't find the Meta app (HTTP ${app.status}): ${app.text}`); return null; }
+    const session = await graph(o, 'POST', `${appId}/uploads?file_name=hoolam-sample.jpg&file_length=${bytes.length}&file_type=${encodeURIComponent(type)}`);
+    const sid = session.json?.id;
+    if (!sid) { o.log?.(`sample upload: no session (HTTP ${session.status}): ${session.text}`); return null; }
+    const f = o.fetchImpl ?? fetch;
+    const res = await f(`https://graph.facebook.com/${o.graphVersion}/${sid}`, { method: 'POST', headers: { Authorization: `OAuth ${o.token}`, file_offset: '0' }, body: new Uint8Array(bytes) });
+    const j = (await res.json().catch(() => null)) as { h?: string } | null;
+    if (!res.ok || !j?.h) { o.log?.(`sample upload failed (HTTP ${res.status})`); return null; }
+    return j.h;
+  } catch (e) {
+    o.log?.(`sample upload failed: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 /** Makes sure the buyer's form exists on Meta. Returns its id, or null (then the chat questions are used). */

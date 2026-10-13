@@ -112,6 +112,15 @@ export function expiryText(at: Date, now = new Date()): string {
   if (day(at) === day(new Date(now.getTime() + 86400_000))) return `${time} tomorrow`;
   return `${time}, ${at.toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric', month: 'short' })}`;
 }
+/** Under every address question in the chat: a pin is welcome, typing stays the main way. */
+const PIN_HINT = '\n\n📍 Or share your location: tap 📎 → *Location*.';
+/** A map link anyone can open: the exact pin when one was shared, else a search for the typed address. */
+export function mapsLink(address: string | null | undefined, pin?: string | null): string | null {
+  if (pin && /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(pin)) return `https://www.google.com/maps/search/?api=1&query=${pin}`;
+  const a = (address ?? '').trim();
+  return a.length >= 5 ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a)}` : null;
+}
+
 const withMenu = (text: string): Outbound => ({ kind: 'buttons', text, buttons: [{ id: 'menu:open', title: 'Main menu' }] });
 
 /** What someone was doing when the ID check came up. */
@@ -444,7 +453,7 @@ export const msg = {
     text: `🤔 That's Hoolam's number. Please type the *${who}'s* WhatsApp number.`,
     buttons: [{ id: 'menu:open', title: 'Main menu' }],
   }),
-  askDeliveryAddress: (): Outbound => ({ kind: 'text', text: '📍 What\'s the delivery address?\n\nStreet, area and city. For example: _12 Woji Road, Port Harcourt_' }),
+  askDeliveryAddress: (): Outbound => ({ kind: 'text', text: '📍 What\'s the delivery address?\n\nStreet, area and city. For example: _12 Woji Road, Port Harcourt_' + PIN_HINT }),
 
   buyDealReady: (code: string, link: string, alert: 'sent' | 'none' | 'own-number' | 'opted-out' | 'failed', hours: number, page: string | null = null, sellerLabel?: string | null): Outbound => ({
     kind: 'buttons',
@@ -588,7 +597,7 @@ export const msg = {
   }),
   askSellAddress: (): Outbound => ({
     kind: 'buttons',
-    text: '📍 Where is it going? Send the *buyer\'s delivery address*, if you know it.\n\nStreet, area and city. Or tap below and the buyer adds it when they accept.',
+    text: '📍 Where is it going? Send the *buyer\'s delivery address*, if you know it.\n\nStreet, area and city. Or tap below and the buyer adds it when they accept.' + PIN_HINT,
     buttons: [{ id: 'sell:noaddress', title: 'Buyer will add it' }],
   }),
   askReadyBy: (): Outbound => ({
@@ -666,8 +675,8 @@ export const msg = {
   }),
   /** Accepting: confirm, change or add where it goes. */
   askBuyerAddress: (code: string, current: string | null): Outbound => current
-    ? { kind: 'buttons', text: `📍 Deliver to:\n*${current}*\n\nIs that right? Tap below, or type another address.`, buttons: [{ id: `baddr:${code}`, title: 'Yes, deliver here' }] }
-    : { kind: 'text', text: '📍 Where should it be delivered?\n\nStreet, area and city. For example: _12 Woji Road, Port Harcourt_' },
+    ? { kind: 'buttons', text: `📍 Deliver to:\n*${current}*\n\nIs that right? Tap below, or type another address.` + PIN_HINT, buttons: [{ id: `baddr:${code}`, title: 'Yes, deliver here' }] }
+    : { kind: 'text', text: '📍 Where should it be delivered?\n\nStreet, area and city. For example: _12 Woji Road, Port Harcourt_' + PIN_HINT },
   askBuyerDeclineReason: (code: string): Outbound => ({
     kind: 'buttons',
     text: 'No problem. Which is it?',
@@ -758,10 +767,11 @@ export const msg = {
 
   // ===== DISPATCH (buyer orders) =====
   /** The buyer paid: the seller dispatches (or says they can't fulfil it). */
-  sellerFundedDispatch: (code: string, yours: Money, page: string | null = null, buyerName = 'The buyer', sum?: SellerSum): Outbound => ({
+  sellerFundedDispatch: (code: string, yours: Money, page: string | null = null, buyerName = 'The buyer', sum?: SellerSum, deliver?: { address: string; map: string | null } | null): Outbound => ({
     kind: 'buttons',
     text: `💰 *${buyerName}* has paid for order *${code}*. Your *${m(yours)}* is held safely by Hoolam.\n\n` +
       (sum ? `${sellerSum(sum)}\n_Minus the rider's fee, if you send one._\n\n` : '') +
+      (deliver ? `📍 Deliver to: ${deliver.address}${deliver.map ? `\n🗺️ Map: ${deliver.map}` : ''}\n\n` : '') +
       `Dispatch it now: tell us if it's a pickup, a rider or a waybill.` + (page ? `\n\n🔗 Order details: ${page}` : ''),
     buttons: [{ id: `dispatch:${code}`, title: '🚚 Dispatch now' }, { id: `srefund:${code}`, title: '❌ Can\'t fulfil' }],
   }),
@@ -775,8 +785,8 @@ export const msg = {
   askCourierPhone: (role: 'rider' | 'driver'): Outbound => ({ kind: 'text', text: `📞 What's the ${role}'s phone number?\n\nWe show it to the buyer so they can reach the ${role}.` }),
   askCourierFee: (role: 'rider' | 'driver'): Outbound => ({ kind: 'text', text: `💸 How much is the ${role}'s delivery fee? (in naira)\n\nWe pay it to the ${role} from the order money once the handover code is right. It comes out of what you receive.\n\nFor example: _2000_` }),
   askCourierLocation: (role: 'rider' | 'driver', buyerAddress: string | null): Outbound => buyerAddress
-    ? { kind: 'buttons', text: `📍 Where is the ${role} delivering to?\n\nThe buyer gave: _${buyerAddress.slice(0, 200)}_\n\nTap below to use it, or type another place${role === 'driver' ? ' (e.g. the park)' : ''}.`, buttons: [{ id: 'dloc:buyer', title: 'Use this address' }] }
-    : { kind: 'text', text: `📍 Where is the ${role} delivering to?` },
+    ? { kind: 'buttons', text: `📍 Where is the ${role} delivering to?\n\nThe buyer gave: _${buyerAddress.slice(0, 200)}_\n\nTap below to use it, or type another place${role === 'driver' ? ' (e.g. the park)' : ''}.` + PIN_HINT, buttons: [{ id: 'dloc:buyer', title: 'Use this address' }] }
+    : { kind: 'text', text: `📍 Where is the ${role} delivering to?` + PIN_HINT },
   askCourierAccount: (role: 'rider' | 'driver'): Outbound => ({
     kind: 'text',
     text: `🏦 The ${role}'s account number, for their delivery fee. We'll show you the banks to pick from.\n\nFor example: _0123456789_\n\n⚠️ Please check it carefully. We pay exactly the account you give, and Hoolam can't recover money sent to a wrong account.`,
@@ -827,11 +837,11 @@ export const msg = {
     text: `🔑 Handover code for order ${code}: *${handover}*\n\nGive it to the ${method === 'PICKUP' ? 'seller' : method === 'WAYBILL' ? 'driver' : 'rider'} when you have the item. Not before.`,
   }),
   /** To the rider or driver, at dispatch (their number is on WhatsApp). The template version has no code in it. */
-  courierJob: (d: { code: string; role: 'rider' | 'driver'; sellerName: string; buyerName: string; buyerPhone: string; address: string | null; fee: Money | null; account: { name: string; bank: string; number: string } | null }): Outbound => ({
+  courierJob: (d: { code: string; role: 'rider' | 'driver'; sellerName: string; buyerName: string; buyerPhone: string; address: string | null; fee: Money | null; account: { name: string; bank: string; number: string } | null; map?: string | null }): Outbound => ({
     kind: 'buttons',
     text:
       `${d.role === 'rider' ? '🛵' : '🚌'} *Delivery on Hoolam* from *${d.sellerName}*\n\n` +
-      `👤 Receiver: *${d.buyerName}*\n📞 ${localPhone(d.buyerPhone)}\n` + (d.address ? `📍 Deliver to: ${d.address}\n` : '') +
+      `👤 Receiver: *${d.buyerName}*\n📞 ${localPhone(d.buyerPhone)}\n` + (d.address ? `📍 Deliver to: ${d.address}\n` : '') + (d.map ? `🗺️ Map: ${d.map}\n` : '') +
       (d.fee && d.fee.minor > 0
         ? `\n💸 Your delivery fee: *${m(d.fee)}*\n🏦 Paid to: *${d.account?.name ?? ''}*, ${d.account?.bank ?? ''} ${d.account?.number ?? ''}\n`
         : '') +
@@ -941,6 +951,19 @@ export const msg = {
   }),
   buyerRefunded: (code: string, amount: Money, bankName: string, sellerName?: string | null): Outbound => withMenu(`💸 ${ref(code, sellerName)}: your refund of *${m(amount)}* has been sent to your ${bankName} account.`),
   sellerRefunded: (code: string, buyerName?: string | null): Outbound => ({ kind: 'text', text: `💸 ${ref(code, buyerName)} has been refunded to the buyer.` }),
+
+  // ===== FEELING LIVE =====
+  /** The other side opened the order (read the alert, or tapped View order). Once, to the person waiting. */
+  orderSeen: (code: string, name: string, who: 'seller' | 'buyer'): Outbound => withMenu(
+    `👀 *${name}* has seen your order *${code}*.\n\nWe'll tell you as soon as ${who === 'seller' ? 'they accept, update the price or decline' : 'they accept or decline'}.`),
+  /** After a shared location: a landmark helps the rider (optional). */
+  askPinNote: (place: string | null): Outbound => ({
+    kind: 'buttons',
+    text: `📍 Got your location${place ? `: _${place.slice(0, 120)}_` : ''}.\n\nAdd a short landmark so the rider finds you easily. For example: _Blue gate, opposite First Bank_`,
+    buttons: [{ id: 'pin:skip', title: 'Skip' }],
+  }),
+  /** First arrival: why save Hoolam's number (the contact card follows). */
+  saveHoolam: (): Outbound => ({ kind: 'text', noMenu: true, text: '📇 Save Hoolam so you always know it\'s really us. Our messages only ever come from this number, and we never ask for your PIN or OTP.' }),
 
   // ===== ID CHECK (KYC): once per person =====
   /** Why we're asking, then BVN or NIN. `why`: what they were doing when the check came up. */

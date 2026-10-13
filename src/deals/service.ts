@@ -10,10 +10,11 @@ import type { Media } from '../whatsapp/media.js';
 import type { Trust } from '../trust.js';
 import type { Settings } from '../settings.js';
 import { namesMatch, type KycService } from '../kyc.js';
+import { renderBrandCard, renderReceipt, type ReceiptData } from '../receipt.js';
 import type { PricingRules } from '../pricing.js';
 import { BUYER_ALERT, DEAL_TEMPLATES, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
 import { categoryTitle } from './categories.js';
-import { msg, type BuyerSum, type SellerSum } from '../whatsapp/messages.js';
+import { mapsLink, msg, type BuyerSum, type SellerSum } from '../whatsapp/messages.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
 
 export interface Deal {
@@ -29,6 +30,7 @@ export interface Deal {
   dispatched_at: Date | null; handover_code: string | null; handover_tries: number; handed_over_at: Date | null; courier_paid_at: Date | null;
   handover_by?: 'seller' | 'courier' | null; courier_alert?: string | null;
   view_token: string | null; legacy_ship?: boolean;
+  alert_wa_id?: string | null; seen_at?: Date | null; delivery_pin?: string | null; courier_pin?: string | null;
 }
 
 /** What a seller gives us to start an order (the mirror of BuyerDealInput). */
@@ -41,6 +43,7 @@ export interface SellerDealInput {
   description?: string | null;
   category?: string | null;
   address?: string | null;                          // the buyer's address, if the seller knows it (the buyer confirms or adds it)
+  addressPin?: string | null;                       // "lat,lng" when a location was shared for it
   accountId: string;                                // the seller's payout account
 }
 
@@ -54,6 +57,7 @@ export interface BuyerDealInput {
   description?: string | null;
   category?: string | null;
   address?: string | null;                          // where to deliver
+  addressPin?: string | null;                       // "lat,lng" when a location was shared for it
 }
 
 /** What happened to the alert we tried to send the seller. */
@@ -88,7 +92,9 @@ export function isVerified(u: Pick<User, 'kyc_status' | 'kyc_verified_at'> | nul
 export interface BankAccount { id: string; user_id: string; bank_code: string; bank_name: string; account_number: string; account_name: string }
 
 /** Messages to send after the transaction commits. `fallback` is the approved template used if they're outside WhatsApp's 24-hour window. */
-type Outbox = { phone: string; message: Outbound; fallback?: Template }[];
+/** A branded receipt picture, sent just before the message it belongs to (see sendReceipt). */
+export type ReceiptKind = 'payment' | 'payment-seller' | 'payout' | 'refund' | 'courier' | 'courier-seller';
+type Outbox = ({ phone: string; message: Outbound; fallback?: Template; receipt?: undefined } | { phone: string; receipt: { dealId: string; kind: ReceiptKind; payoutId?: string } })[];
 
 export class DealError extends Error {
   constructor(public readonly reason: 'NOT_FOUND' | 'NOT_ALLOWED' | 'OWN_DEAL' | 'TAKEN' | 'CLOSED' | 'TOO_BIG' | 'NEEDS_KYC', message?: string) {
@@ -130,6 +136,7 @@ export interface DispatchInput {
   courierName?: string | null;     // rider only
   courierPhone?: string | null;    // rider or waybill driver
   location?: string | null;        // drop-off (rider) or delivery location (waybill)
+  pin?: string | null;             // "lat,lng" when the seller shared the drop-off as a location
   feeMinor?: number;               // paid to the rider/driver from the held money once the code is right
   account?: { bank_code: string; bank_name: string; account_number: string; account_name: string } | null;
 }
@@ -182,6 +189,7 @@ export class DealService {
     const out: Outbox = [];
     const result = await withTx(this.o.db, (tx) => fn(tx, out));
     for (const o of out) {
+      if (o.receipt) { await this.sendReceipt(o.phone, o.receipt.dealId, o.receipt.kind, o.receipt.payoutId); continue; }
       try { await this.o.messenger.send(o.phone, o.message, o.fallback); } catch (e) { this.log(`send failed: ${(e as Error).message}`); }
     }
     return result;
@@ -396,6 +404,7 @@ export class DealService {
         );
         if (!r.rows[0]) continue;
         const d: Deal = r.rows[0];
+        if (input.addressPin && input.address) await tx.query('UPDATE deals SET delivery_pin=$2 WHERE id=$1', [d.id, input.addressPin]);
         await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [d.id, d.status, 'seller']);
         await this.savePhotos(tx, d.id, seller.id, photos, 'ITEM');
         return d;
@@ -454,13 +463,14 @@ export class DealService {
     const price = msg.moneyText(this.money(deal.price_minor));
     const total = msg.moneyText(this.money(deal.buyer_pays_minor));
     const status = await this.o.messenger.sendTemplate(phone, {
-      name: BUYER_ALERT.name, language: 'en',
+      name: BUYER_ALERT.name, language: 'en', headerImage: await this.alertPicture(deal.id),
       params: [name, deal.item, price, total, deal.code],
       buttonPayloads: [`bview:${deal.code}`, `bnotme:${deal.code}`],
       buttonTitles: BUYER_ALERT.buttons,
       preview: `🛍️ *New order for you* on *Hoolam*\n\n🏷️ Seller: *${name}*\n📦 Item: *${deal.item}*\n💰 Total price: *${price}*\n💳 You pay: *${total}*\n\nOrder *${deal.code}*.`,
     });
     if (status === 'FAILED') { this.log(`buyer alert for ${deal.code} failed; the seller still has the link`); return 'failed'; }
+    await this.rememberAlert(deal, phone);
     return 'sent';
   }
 
@@ -523,6 +533,7 @@ export class DealService {
         );
         if (!r.rows[0]) continue;
         const d: Deal = r.rows[0];
+        if (input.addressPin && input.address) await tx.query('UPDATE deals SET delivery_pin=$2 WHERE id=$1', [d.id, input.addressPin]);
         await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [d.id, d.status, 'buyer']);
         await this.savePhotos(tx, d.id, buyer.id, photos, 'ITEM');
         return d;
@@ -546,13 +557,14 @@ export class DealService {
     const name = firstName(buyer.display_name) ?? 'A buyer';
     const price = msg.moneyText(this.money(deal.price_minor));
     const status = await this.o.messenger.sendTemplate(phone, {
-      name: SELLER_ALERT_TEMPLATE, language: 'en',
+      name: SELLER_ALERT_TEMPLATE, language: 'en', headerImage: await this.alertPicture(deal.id),
       params: [name, deal.item, price, deal.code],
       buttonPayloads: [`sview:${deal.code}`, `snotme:${deal.code}`],
       buttonTitles: SELLER_ALERT.buttons,
       preview: `🛒 New order request on Hoolam\n\n${name} wants to buy ${deal.item} from you for ${price}. Order ${deal.code}.`,
     });
     if (status === 'FAILED') { this.log(`seller alert for ${deal.code} failed; the buyer still has the link`); return 'failed'; }
+    await this.rememberAlert(deal, phone);
     return 'sent';
   }
 
@@ -574,6 +586,7 @@ export class DealService {
       return;
     }
     const buyer = await this.userById(this.o.db, deal.buyer_id!);
+    await this.markSeen(deal.code, viewer);
     for (const mediaId of await this.photoIdsForSending(deal.id)) {
       await this.o.messenger.send(viewer.phone, { kind: 'image', mediaId });
     }
@@ -744,7 +757,7 @@ export class DealService {
    * The buyer accepts a seller's order, with the delivery address (the seller's, confirmed or changed, or their own).
    * The seller is told, and the buyer gets the payment details straight away.
    */
-  async acceptAsBuyer(code: string, buyer: User, address: string | null): Promise<'ok' | 'need-address' | 'closed'> {
+  async acceptAsBuyer(code: string, buyer: User, address: string | null, pin: string | null = null): Promise<'ok' | 'need-address' | 'closed'> {
     let sellerName = 'the seller';
     const buyerLine = await this.buyerLineFor(buyer.id); // the seller sees who accepted, as on a buyer's order
     const r = await this.run(async (tx, out): Promise<'ok' | 'need-address' | 'closed'> => {
@@ -758,7 +771,8 @@ export class DealService {
       this.assertLimit(buyer, deal.price_minor); // above their limit: they check their ID before paying
       const where = (address ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || deal.delivery_address;
       if (!where || where.length < 5) return 'need-address';
-      await tx.query('UPDATE deals SET buyer_id=$2, delivery_address=$3 WHERE id=$1', [deal.id, buyer.id, where]);
+      // a new address drops the seller's pin (unless the buyer shared their own)
+      await tx.query('UPDATE deals SET buyer_id=$2, delivery_address=$3, delivery_pin=$4 WHERE id=$1', [deal.id, buyer.id, where, pin ?? (where === deal.delivery_address ? deal.delivery_pin ?? null : null)]);
       await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer', where !== deal.delivery_address ? `Buyer accepted; delivery address: ${where}` : 'Buyer accepted the seller\'s order');
       const seller = await this.userById(tx, deal.seller_id!);
       sellerName = await this.shownSellerName(seller);
@@ -911,10 +925,13 @@ export class DealService {
         ],
       });
       await this.move(tx, deal, 'FUNDED', 'provider', extra > 0 ? `NEEDS_ATTENTION: overpaid by ${extra}` : undefined);
+      if (buyer) out.push({ phone: buyer.phone, receipt: { dealId: deal.id, kind: 'payment' } });
+      out.push({ phone: seller.phone, receipt: { dealId: deal.id, kind: 'payment-seller' } }); // a copy of the buyer's payment, for the seller to trust
       if (buyer) out.push({ phone: buyer.phone, message: msg.buyerFunded(this.money(deal.buyer_pays_minor), deal.code, firstName(seller.display_name) ?? 'the seller', this.buyerSum(deal)) });
       const buyerName = firstName(buyer?.display_name ?? null) ?? 'The buyer';
       if (!deal.legacy_ship) {
-        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal, 'seller'), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
+        const deliver = deal.delivery_address ? { address: deal.delivery_address, map: mapsLink(deal.delivery_address, deal.delivery_pin) } : null;
+        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal, 'seller'), buyerName, this.sellerSum(deal), deliver), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
       } else {
         out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
       }
@@ -993,6 +1010,9 @@ export class DealService {
          WHERE id=$1`,
         [deal.id, d.method, d.method === 'PICKUP' ? d.pickupAddress?.slice(0, 300) ?? null : null, d.method === 'RIDER' ? d.courierName?.slice(0, 80) ?? null : null,
           courier ? d.courierPhone ?? null : null, courier ? d.location?.slice(0, 300) ?? null : null, fee, accountId, handover]);
+      // the drop-off pin: the seller's shared location, or the buyer's when the rider goes to the buyer's address
+      const pin = courier ? (d.pin ?? ((d.location ?? deal.delivery_address) === deal.delivery_address ? deal.delivery_pin ?? null : null)) : null;
+      if (pin) await tx.query('UPDATE deals SET courier_pin=$2 WHERE id=$1', [deal.id, pin]);
       await this.move(tx, deal, 'SHIPPED', 'seller', `Dispatched: ${d.method}${fee ? `, delivery fee ${fee}` : ''}`);
       const buyer = await this.userById(tx, deal.buyer_id!);
       const buyerName = firstName(buyer.display_name) ?? 'Buyer';
@@ -1011,14 +1031,21 @@ export class DealService {
         const role = d.method === 'WAYBILL' ? 'driver' : 'rider';
         const account = d.account && fee ? { name: d.account.account_name, bank: d.account.bank_name, number: d.account.account_number } : null;
         const address = d.location ?? deal.delivery_address ?? null;
+        const map = mapsLink(address, pin);
         out.push({
           phone: courierPhone,
-          message: msg.courierJob({ code: deal.code, role, sellerName, buyerName, buyerPhone: buyer.phone, address, fee: fee ? this.money(fee) : null, account }),
+          message: msg.courierJob({ code: deal.code, role, sellerName, buyerName, buyerPhone: buyer.phone, address, fee: fee ? this.money(fee) : null, account, map }),
           fallback: dealTemplate('courierJob', [
             sellerName, buyerName, localPhone(buyer.phone), address ?? 'ask the seller',
             fee ? this.text(fee) : 'none through Hoolam', account ? `${account.name}, ${account.bank} ${account.number}` : 'not needed',
           ], [`hcode:${deal.code}`]),
         });
+        // a real map pin (one tap for directions), when there is one and the rider is in the chat with Hoolam
+        const mm = this.o.messenger as Partial<Messenger>;
+        if (pin && typeof mm.windowOpen === 'function' && (await mm.windowOpen(courierPhone))) {
+          const [lat, lng] = pin.split(',').map(Number);
+          out.push({ phone: courierPhone, message: { kind: 'location', latitude: lat!, longitude: lng!, name: `Deliver to ${buyerName}`, ...(address ? { address: address.slice(0, 200) } : {}) } });
+        }
       }
       out.push({ phone: seller.phone, message: msg.sellerDispatched({ ...info, page: this.orderPageUrl(deal, 'seller'), fee: fee ? this.money(fee) : null, buyerName, courierAlerted: alert === 'sent', sum: this.sellerSum(deal) }) });
       out.push({ phone: buyer.phone, message: msg.buyerDispatched({ ...info, page: this.orderPageUrl(deal, 'buyer'), handover, sellerName }), fallback: dealTemplate('orderDispatched', [deal.code], [`hcodeshow:${deal.code}`, `problem:${deal.code}`]) });
@@ -1199,7 +1226,7 @@ export class DealService {
    * haven't messaged in 24 hours. Before Meta approves it, or for someone with no orders, it goes as a normal chat
    * message (only possible inside their 24-hour window). Their next message goes to the support inbox.
    */
-  async sendSupportMessage(phone: string, rawText: string, code?: string | null): Promise<{ status: SendStatus; via: 'template' | 'chat'; code: string | null }> {
+  async sendSupportMessage(phone: string, rawText: string, code?: string | null, replyTo?: string | null): Promise<{ status: SendStatus; via: 'template' | 'chat'; code: string | null }> {
     const text = rawText.replace(/\s+/g, ' ').trim().slice(0, SUPPORT_MESSAGE_MAX);
     if (text.length < 2) throw new DealError('NOT_ALLOWED', 'Write a message first.');
     let orderCode = code ?? null;
@@ -1211,10 +1238,10 @@ export class DealService {
     const tpl = DEAL_TEMPLATES.supportMessage;
     let status: SendStatus; let via: 'template' | 'chat';
     if (orderCode && this.o.messenger.canUseTemplate(tpl.name)) {
-      status = await this.o.messenger.sendTemplate(phone, { ...dealTemplate('supportMessage', [orderCode, text]), maxParam: SUPPORT_MESSAGE_MAX });
+      status = await this.o.messenger.sendTemplate(phone, { ...dealTemplate('supportMessage', [orderCode, text]), maxParam: SUPPORT_MESSAGE_MAX, ...(replyTo ? { replyTo } : {}) });
       via = 'template';
     } else {
-      status = await this.o.messenger.send(phone, msg.fromSupport(text, orderCode));
+      status = await this.o.messenger.send(phone, { ...msg.fromSupport(text, orderCode), ...(replyTo ? { replyTo } : {}) });
       via = 'chat';
     }
     // their reply goes to the support inbox (unless they're in the middle of something)
@@ -1404,6 +1431,171 @@ export class DealService {
     await this.applyPayoutResult(p.reference, result);
   }
 
+  /** The picture at the top of an order alert: the item's first photo, else the Hoolam card. Never throws. */
+  private brandCardId: { id: string; at: number } | null = null;
+  private async alertPicture(dealId: string): Promise<string | undefined> {
+    try {
+      const first = (await this.photoIdsForSending(dealId))[0];
+      if (first) return first;
+      if (!this.o.media) return undefined;
+      // our uploads last 30 days on WhatsApp: reuse the card for 20
+      if (!this.brandCardId || Date.now() - this.brandCardId.at > 20 * 86_400_000) this.brandCardId = { id: await this.o.media.upload(await renderBrandCard(), 'image/jpeg'), at: Date.now() };
+      return this.brandCardId.id;
+    } catch (e) { this.log(`alert picture: ${(e as Error).message}`); return undefined; }
+  }
+
+  // ---------- "seen": the other side has opened the order ----------
+  /** Keeps WhatsApp's id of the order alert, so its "read" receipt can tell the person waiting. */
+  private async rememberAlert(deal: Deal, phone: string): Promise<void> {
+    const m = this.o.messenger as Partial<Messenger>;
+    const id = typeof m.lastSentId === 'function' ? await m.lastSentId(phone).catch(() => null) : null;
+    if (id) await this.o.db.query('UPDATE deals SET alert_wa_id=$2 WHERE id=$1', [deal.id, id]);
+  }
+
+  /** WhatsApp says a message we sent was read: if it was an order alert, the order has been seen. */
+  async seenByMessage(waId: string): Promise<void> {
+    const r = await this.o.db.query(`SELECT code FROM deals WHERE alert_wa_id=$1 AND seen_at IS NULL`, [waId]);
+    if (r.rows[0]) await this.markSeen(r.rows[0].code, null);
+  }
+
+  /**
+   * The other side has seen a new order (read the alert, or opened the order). The person waiting is told once:
+   * "👀 Mama Bella has seen your order HL-X." Only while it waits for an answer, and only inside their 24 hours.
+   */
+  async markSeen(code: string, viewer: User | null): Promise<void> {
+    const peek = await this.findByCode(code);
+    if (!peek || peek.seen_at || !['AWAITING_SELLER', 'AWAITING_BUYER'].includes(peek.status)) return;
+    const starterId = peek.status === 'AWAITING_SELLER' ? peek.buyer_id : peek.seller_id;
+    if (viewer && viewer.id === starterId) return; // the person who started it, looking at their own order
+    const r = await this.o.db.query(`UPDATE deals SET seen_at=now() WHERE id=$1 AND seen_at IS NULL RETURNING *`, [peek.id]);
+    const deal = r.rows[0] as Deal | undefined;
+    if (!deal || !starterId) return;
+    const starter = await this.userById(this.o.db, starterId);
+    const other = viewer ?? (deal.invited_phone ? (await this.o.db.query(`SELECT ${USER_COLS} FROM users WHERE phone=$1`, [deal.invited_phone])).rows[0] as User | undefined : undefined) ?? null;
+    const name = deal.status === 'AWAITING_SELLER'
+      ? (other ? await this.shownSellerName(other) : null) ?? 'The seller'
+      : (other ? firstName(other.display_name) : null) ?? 'The buyer';
+    const m = this.o.messenger as Partial<Messenger>;
+    if (typeof m.windowOpen === 'function' && !(await m.windowOpen(starter.phone))) return; // no template for a "seen" note
+    await this.o.messenger.send(starter.phone, msg.orderSeen(deal.code, name, deal.status === 'AWAITING_SELLER' ? 'seller' : 'buyer'));
+  }
+
+  // ---------- receipts ----------
+  private when(d: Date | string | null | undefined): string {
+    return new Date(d ?? Date.now()).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
+  /** What a receipt says. Null when there's nothing to show yet (e.g. not paid). */
+  async receiptData(dealId: string, kind: ReceiptKind, payoutId?: string): Promise<ReceiptData | null> {
+    const deal = (await this.o.db.query('SELECT * FROM deals WHERE id=$1', [dealId])).rows[0] as Deal | undefined;
+    if (!deal) return null;
+    const t = (minor: number) => this.text(Number(minor));
+    const seller = deal.seller_id ? await this.userById(this.o.db, deal.seller_id) : null;
+    const buyer = deal.buyer_id ? await this.userById(this.o.db, deal.buyer_id) : null;
+    const sellerName = seller ? await this.shownSellerName(seller) : 'The seller';
+    const buyerName = firstName(buyer?.display_name ?? null) ?? 'The buyer';
+    const order = { label: 'Order', value: `${deal.code} · ${deal.item}` };
+    if (kind === 'payment' || kind === 'payment-seller') {
+      if (!deal.funded_at) return null;
+      const pi = (await this.o.db.query(`SELECT payment_reference FROM payment_intents WHERE deal_id=$1 AND status='PAID' ORDER BY updated_at DESC LIMIT 1`, [deal.id])).rows[0];
+      const ref = { label: 'Reference', value: pi?.payment_reference ?? deal.code };
+      const paidAt = { label: 'Paid', value: this.when(deal.funded_at) };
+      if (kind === 'payment') {
+        const b = this.buyerSum(deal);
+        return {
+          title: 'Payment received', amount: t(deal.buyer_pays_minor), tone: 'teal', status: 'Held safely by Hoolam until you’re happy',
+          rows: [{ label: 'Total price', value: msg.moneyText(b.price) }, { label: b.feeLabel, value: msg.moneyText(b.fee) }, { label: 'You paid', value: msg.moneyText(b.pay), strong: true }],
+          details: [order, { label: 'Seller', value: sellerName }, paidAt, ref],
+        };
+      }
+      const sum = this.sellerSum(deal);
+      return {
+        title: 'Payment confirmed by Hoolam', amount: t(deal.buyer_pays_minor), tone: 'teal', status: `Held safely by Hoolam. Paid to you when ${buyerName} is happy.`,
+        intro: `${buyerName} has paid Hoolam for your order. Send it now.`,
+        rows: [{ label: 'Total price', value: msg.moneyText(sum.price) }, { label: sum.feeLabel, value: `−${msg.moneyText(sum.fee)}` }, { label: 'You receive', value: msg.moneyText(sum.gets), strong: true }],
+        details: [order, { label: 'Buyer', value: buyerName }, paidAt, ref],
+        note: 'This is Hoolam’s own record of the payment. Only trust payments confirmed here, not a buyer’s screenshot.',
+      };
+    }
+    const p = payoutId
+      ? (await this.o.db.query(`SELECT p.*, b.bank_name, b.account_number, b.account_name FROM payouts p JOIN bank_accounts b ON b.id=p.bank_account_id WHERE p.id=$1 AND p.status='SUCCESS'`, [payoutId])).rows[0]
+      : null;
+    if (!p) return null;
+    const to = `${p.bank_name} ••••${String(p.account_number).slice(-4)}`;
+    const sent = { label: 'Sent', value: this.when(p.updated_at) };
+    const ref = { label: 'Reference', value: p.reference };
+    const acct = { label: 'Account name', value: p.account_name };
+    if (kind === 'payout') {
+      const sum = this.sellerSum(deal);
+      const delivery = Number(deal.delivery_fee_minor ?? 0) && deal.courier_paid_at ? Number(deal.delivery_fee_minor) : 0;
+      return {
+        title: 'Payout sent', amount: t(p.amount_minor), status: `Sent to ${to}`,
+        rows: [
+          { label: 'Total price', value: msg.moneyText(sum.price) }, { label: sum.feeLabel, value: `−${msg.moneyText(sum.fee)}` },
+          ...(delivery ? [{ label: deal.dispatch_method === 'WAYBILL' ? 'Driver’s fee (paid)' : 'Rider’s fee (paid)', value: `−${t(delivery)}` }] : []),
+          { label: 'Paid to you', value: t(p.amount_minor), strong: true },
+        ],
+        details: [order, { label: 'Buyer', value: buyerName }, acct, sent, ref],
+      };
+    }
+    if (kind === 'refund') {
+      return {
+        title: 'Refund sent', amount: t(p.amount_minor), status: `Sent to ${to}`,
+        rows: [{ label: 'You paid', value: t(deal.buyer_pays_minor) }, { label: 'Refunded to you', value: t(p.amount_minor), strong: true }],
+        details: [order, { label: 'Seller', value: sellerName }, acct, sent, ref],
+      };
+    }
+    const role = deal.dispatch_method === 'WAYBILL' ? 'driver' : 'rider';
+    return {
+      title: 'Delivery fee sent', amount: t(p.amount_minor), status: `Sent to ${to}`,
+      intro: kind === 'courier-seller' ? `Your ${role} was paid from the money held for this order, once the handover code was right.` : `For delivering ${sellerName}’s order to ${buyerName}.`,
+      rows: [{ label: kind === 'courier-seller' ? `${role[0]!.toUpperCase()}${role.slice(1)}’s fee` : 'Delivery fee', value: t(p.amount_minor), strong: true }],
+      details: [kind === 'courier' ? { label: 'Order', value: deal.code } : order, { label: kind === 'courier' ? 'From' : 'Buyer', value: kind === 'courier' ? sellerName : buyerName }, acct, sent, ref],
+    };
+  }
+
+  /** The receipt picture (null when there's nothing to show). `small`: a lighter copy for the My orders form. */
+  async receiptImage(dealId: string, kind: ReceiptKind, payoutId?: string, small = false): Promise<Buffer | null> {
+    const d = await this.receiptData(dealId, kind, payoutId);
+    return d ? renderReceipt(d, small ? 0.6 : 1) : null;
+  }
+
+  /** The receipts one side of an order can see, newest last. */
+  async receiptsFor(dealId: string, side: 'buyer' | 'seller'): Promise<{ kind: ReceiptKind; payoutId?: string; label: string }[]> {
+    const d = (await this.o.db.query('SELECT funded_at FROM deals WHERE id=$1', [dealId])).rows[0];
+    if (!d) return [];
+    const out: { kind: ReceiptKind; payoutId?: string; label: string }[] = [];
+    if (d.funded_at) out.push({ kind: side === 'buyer' ? 'payment' : 'payment-seller', label: side === 'buyer' ? 'Payment received' : 'Payment confirmed' });
+    const ps = await this.o.db.query(`SELECT id, kind FROM payouts WHERE deal_id=$1 AND status='SUCCESS' ORDER BY updated_at`, [dealId]);
+    for (const p of ps.rows) {
+      if (side === 'seller' && p.kind === 'SELLER') out.push({ kind: 'payout', payoutId: p.id, label: 'Payout sent' });
+      if (side === 'seller' && p.kind === 'DELIVERY') out.push({ kind: 'courier-seller', payoutId: p.id, label: 'Delivery fee sent' });
+      if (side === 'buyer' && p.kind === 'REFUND') out.push({ kind: 'refund', payoutId: p.id, label: 'Refund sent' });
+    }
+    return out;
+  }
+
+  /**
+   * Sends a receipt picture into the chat. Only inside the person's 24 hours (a picture can't go as a template);
+   * outside it, or if the picture can't be made, nothing is lost: the receipt stays in My orders.
+   */
+  async sendReceipt(phone: string, dealId: string, kind: ReceiptKind, payoutId?: string): Promise<boolean> {
+    try {
+      const m = this.o.messenger as Partial<Messenger>;
+      if (typeof m.windowOpen === 'function' && !(await m.windowOpen(phone))) return false;
+      if (!this.o.media) return false;
+      const img = await this.receiptImage(dealId, kind, payoutId);
+      if (!img) return false;
+      const code = (await this.o.db.query('SELECT code FROM deals WHERE id=$1', [dealId])).rows[0]?.code ?? '';
+      const mediaId = await this.o.media.upload(img, 'image/jpeg');
+      const status = await this.o.messenger.send(phone, { kind: 'image', mediaId, caption: `🧾 Receipt · Order ${code}` });
+      return status !== 'FAILED' && status !== 'NEEDS_TEMPLATE';
+    } catch (e) {
+      this.log(`receipt (${kind}) for …${phone.slice(-4)} not sent: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
   /** A seller's payout waits for their ID check (or for an account in their own name). They're told what to do. */
   private async holdForKyc(p: any, seller: User): Promise<void> {
     const held = await this.o.db.query(`UPDATE payouts SET status='WAITING_KYC', provider_message=$2, updated_at=now() WHERE id=$1 AND status='CREATED' RETURNING id`,
@@ -1503,6 +1695,7 @@ export class DealService {
         const bankName = acct.rows[0]?.bank_name ?? 'bank';
         if (p.kind === 'SELLER') {
           const seller = await this.sellerOf(tx, deal);
+          out.push({ phone: seller.phone, receipt: { dealId: deal.id, kind: 'payout', payoutId: p.id } });
           const buyerName = deal.buyer_id ? firstName((await this.userById(tx, deal.buyer_id)).display_name) : null;
           const delivery = Number(deal.delivery_fee_minor ?? 0) && deal.courier_paid_at ? this.money(Number(deal.delivery_fee_minor)) : null;
           const sum = { ...this.sellerSum(deal), delivery, role: deal.dispatch_method === 'WAYBILL' ? 'driver' as const : 'rider' as const };
@@ -1511,6 +1704,7 @@ export class DealService {
         } else {
           const buyer = await this.userById(tx, deal.buyer_id!);
           const seller = await this.sellerOf(tx, deal);
+          out.push({ phone: buyer.phone, receipt: { dealId: deal.id, kind: 'refund', payoutId: p.id } });
           out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName, firstName(seller.display_name)), fallback: dealTemplate('refundSent', [deal.code, this.text(p.amount_minor), bankName]) });
           out.push({ phone: seller.phone, message: msg.sellerRefunded(deal.code, firstName(buyer.display_name)) });
         }
@@ -1543,10 +1737,12 @@ export class DealService {
       const acct = await tx.query('SELECT account_name, bank_name, account_number FROM bank_accounts WHERE id=$1', [p.bank_account_id]);
       const a = acct.rows[0];
       const buyerName = deal.buyer_id ? firstName((await this.userById(tx, deal.buyer_id)).display_name) : null;
+      out.push({ phone: seller.phone, receipt: { dealId: deal.id, kind: 'courier-seller', payoutId: p.id } });
       out.push({ phone: seller.phone, message: msg.courierPaid(deal.code, this.money(Number(p.amount_minor)), a?.account_name ?? 'the rider', a?.bank_name ?? 'bank', buyerName) });
       // the rider/driver too, if they're in the chat with Hoolam (no template for this one: it's a bonus, not a must)
       const m = this.o.messenger as Partial<Messenger>;
       if (a && deal.courier_phone && deal.courier_alert === 'sent' && typeof m.windowOpen === 'function' && (await m.windowOpen(deal.courier_phone))) {
+        out.push({ phone: deal.courier_phone, receipt: { dealId: deal.id, kind: 'courier', payoutId: p.id } });
         out.push({ phone: deal.courier_phone, message: msg.courierFeeSent(buyerName ?? 'the buyer', this.money(Number(p.amount_minor)), { name: a.account_name, bank: a.bank_name, number: a.account_number }) });
       }
       return;

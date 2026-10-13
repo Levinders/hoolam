@@ -159,7 +159,7 @@ function fullOrdersFlowJson(example = '08012345678') {
             { type: 'TextSubheading', text: '${data.heading}' },
             { type: 'Image', src: '${data.photo1}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo1}', 'alt-text': 'Photo of the item' },
             { type: 'Image', src: '${data.photo2}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo2}', 'alt-text': 'Photo of the item' },
-            { type: 'Image', src: '${data.photo3}', height: 180, 'scale-type': 'contain', visible: '${data.has_photo3}', 'alt-text': 'Photo of the item' },
+            { type: 'Image', src: '${data.photo3}', height: 420, 'scale-type': 'contain', visible: '${data.has_photo3}', 'alt-text': 'Photo of the item, or the receipt' },
             { type: 'TextBody', text: '${data.item}', 'font-weight': 'bold' },
             { type: 'TextBody', text: '${data.about}', visible: '${data.has_about}' },
             { type: 'TextBody', text: '${data.key}', 'font-weight': 'bold' },
@@ -595,6 +595,18 @@ export class OrdersFlow {
 
   private async orderScreen(user: User, d: Deal, override?: { primary: string; label: string; note: string; showPrice?: boolean; warn?: string }): Promise<Res> {
     const mode = this.role(d, user);
+    // the other side opening a new order counts as seen (the person waiting is told once)
+    if ((d.status === 'AWAITING_SELLER' && mode === 'seller') || (d.status === 'AWAITING_BUYER' && mode === 'buyer')) {
+      await this.o.deals.markSeen(d.code, user).catch(() => {});
+      d = (await this.o.deals.findByCode(d.code)) ?? d;
+    }
+    // the newest receipt, in the form (all of them go to the chat with one tap)
+    const receipts = await this.o.deals.receiptsFor(d.id, mode).catch(() => []);
+    const last = receipts[receipts.length - 1];
+    let receipt: string | null = null;
+    if (last) {
+      try { const img = await this.o.deals.receiptImage(d.id, last.kind, last.payoutId, true); receipt = img ? img.toString('base64') : null; } catch { receipt = null; }
+    }
     const nx = this.next(d, mode, user);
     // a seller's new order, for its buyer: they confirm or type the delivery address right here, then Accept
     const accepting = mode === 'buyer' && d.status === 'AWAITING_BUYER' && !d.legacy_ship;
@@ -616,13 +628,21 @@ export class OrdersFlow {
       mode === 'buyer' && d.handover_code && !d.handed_over_at && d.status === 'SHIPPED' ? `🔑 Your handover code: ${d.handover_code}` : '',
       d.handed_over_at ? '✅ Handed over' : '',
     ].filter(Boolean).join('\n');
+    const waitingOn = (d.status === 'AWAITING_SELLER' && mode === 'buyer') || (d.status === 'AWAITING_BUYER' && mode === 'seller');
+    const seen = waitingOn && d.seen_at ? `👀 Seen ${new Date(d.seen_at).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).replace(',', ' ·')}` : '';
     const info = [
+      seen,
       countered && d.counter_reason ? `💬 Reason: ${d.counter_reason}` : '',
       d.dispatch_method === 'RIDER' ? `🛵 Rider: ${d.courier_name ?? ''} ${localPhone(d.courier_phone)}`.trim() : '',
       d.dispatch_method === 'WAYBILL' ? `🚌 Waybill driver: ${localPhone(d.courier_phone)}`.trim() : '',
     ].filter(Boolean).join('\n');
     const about = [d.description ?? '', d.category ? `🏷️ ${categoryTitle(d.category)}` : ''].filter(Boolean).join('\n');
     const p = override ?? { primary: nx.primary, label: nx.label, note: '' };
+    // "Send my receipts to the chat" takes a free link slot (WhatsApp allows two links per screen)
+    if (receipt && !override) {
+      if (!nx.tertiary) { nx.tertiary = 'receipts'; nx.tertiaryLabel = '🧾 Receipts to chat'; }
+      else if (!nx.secondary) { nx.secondary = 'receipts'; nx.secondaryLabel = '🧾 Receipts to chat'; }
+    }
     // the other person's name comes first: buyer's name, order ID, then everything else
     const otherId = mode === 'seller' ? d.buyer_id : d.seller_id ?? d.counter_seller_id;
     const otherName = otherId ? (await this.o.db.query('SELECT display_name FROM users WHERE id=$1', [otherId])).rows[0]?.display_name : null;
@@ -644,8 +664,9 @@ export class OrdersFlow {
         hint: plain(override ? override.note : (nx.needsYou ? '👉 ' : '') + nx.hint).slice(0, 400) || ' ',
         warn: plain(override?.warn ?? (accepting ? (d.delivery_address ? 'Is the address right? Leave the box empty to use it, or type another.' : 'Type your delivery address in the box below, then accept.') : '')),
         has_warn: !!override?.warn || accepting,
-        photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: photos[2] ?? PIXEL,
-        has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!photos[2],
+        // WhatsApp allows 3 pictures here: once money has moved, the newest receipt takes the third
+        photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: receipt ?? photos[2] ?? PIXEL,
+        has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!(receipt ?? photos[2]),
         primary: p.primary, primary_label: p.label.slice(0, 35),
         secondary: nx.secondary ?? 'none', secondary_label: (nx.secondaryLabel ?? ' ').slice(0, 25), has_secondary: !override && !!nx.secondary,
         tertiary: nx.tertiary ?? 'none', tertiary_label: (nx.tertiaryLabel ?? ' ').slice(0, 25), has_tertiary: !override && !!nx.tertiary,
@@ -767,6 +788,16 @@ export class OrdersFlow {
         }
         await this.o.deals.acceptAsSeller(code, user, acct.id);
         return this.done('✅ Order accepted', 'We\'ve asked the buyer to pay. We\'ll tell you the moment the money is held.', 'Don\'t send anything before then.');
+      }
+      case 'receipts': {
+        const side = this.role(deal, user);
+        const list = await this.o.deals.receiptsFor(deal.id, side);
+        if (!list.length) return this.done('🧾 No receipts yet', 'Receipts appear here once money moves on this order.');
+        let sent = 0;
+        for (const r of list) if (await this.o.deals.sendReceipt(user.phone, deal.id, r.kind, r.payoutId)) sent++;
+        return sent
+          ? this.done('🧾 Receipts sent', `${sent === 1 ? 'Your receipt is' : `Your ${sent} receipts are`} in the chat now. Keep them or forward them.`)
+          : this.done('🧾 Not sent', 'We couldn\'t send them just now. Please try again in a moment.');
       }
       case 'decline':
         await this.o.deals.declineAsSeller(code, user);

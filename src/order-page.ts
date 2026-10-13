@@ -3,7 +3,7 @@ import { categoryTitle } from './deals/categories.js';
 import { dayText, type Deal } from './deals/service.js';
 import { ICON } from './icons.js';
 import { formatMoney } from './money.js';
-import { STATUS_WORDS } from './whatsapp/messages.js';
+import { mapsLink, STATUS_WORDS } from './whatsapp/messages.js';
 
 /**
  * THE PRIVATE ORDER PAGE: /o/HL-XXXXX?k=<key>. The key is only ever sent to the buyer and the seller.
@@ -16,6 +16,8 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 export interface OrderPageOptions {
   photoIds: number[];
   photoUrl: (id: number) => string;
+  /** This side's receipts (pictures), newest last. */
+  receipts?: { label: string; url: string }[];
   chatUrl: string;
   markUrl: string | null;
   sellerName: string | null;
@@ -66,7 +68,7 @@ export function orderPage(d: Deal, o: OrderPageOptions): string {
       ? [total, ...(sellerFee > 0 ? [[sellerFeeLabel, `−${m(sellerFee)}`] as [string, string]] : []), ...deliveryRow, ['You receive', `<b>${m(d.seller_gets_minor - deliveryFee)}</b>`]]
       : [total, ['Buyer pays', `<b>${m(d.buyer_pays_minor)}</b>`], ...deliveryRow, ['Seller receives', `<b>${m(d.seller_gets_minor - deliveryFee)}</b>`]];
   const delivery: string[] = [
-    d.delivery_address ? `${ICON.mapPin}<span><b>Deliver to</b>${esc(d.delivery_address)}</span>` : '',
+    d.delivery_address ? `${ICON.mapPin}<span><b>Deliver to</b>${esc(d.delivery_address)}${mapsLink(d.delivery_address, d.delivery_pin) ? ` · <a href="${esc(mapsLink(d.delivery_address, d.delivery_pin)!)}" target="_blank" rel="noopener">Open in Maps</a>` : ''}</span>` : '',
     d.arrive_by ? `${ICON.calendar}<span><b>${d.started_by === 'SELLER' ? 'Ready by' : 'Expected by'}</b>${esc(dayText(String(d.arrive_by)))}</span>` : '',
     d.dispatch_method === 'PICKUP' ? `${ICON.mapPin}<span><b>Pickup at</b>${esc(d.pickup_address ?? '')}</span>` : '',
     d.dispatch_method === 'RIDER' ? `${ICON.truck}<span><b>Rider</b>${esc([d.courier_name, localPhone(d.courier_phone)].filter(Boolean).join(' · '))}</span>` : '',
@@ -149,6 +151,8 @@ ${delivery.length || o.sellerName || o.buyerName ? `<section class="card"><h2>Pe
   ${o.buyerName ? `<div>${ICON.users}<span><b>Buyer</b>${esc(o.buyerName)}</span></div>` : ''}
   ${delivery.map((x) => `<div>${x}</div>`).join('')}
 </div></section>` : ''}
+
+${o.receipts?.length ? `<section class="card"><h2>Receipts</h2><div class="photos">${o.receipts.map((r) => `<a href="${esc(r.url)}" target="_blank" rel="noopener" style="aspect-ratio:auto;background:#fff"><img src="${esc(r.url)}" alt="${esc(r.label)}" loading="lazy" style="object-fit:contain;height:auto"></a>`).join('')}</div></section>` : ''}
 
 <a class="cta" href="${esc(o.chatUrl)}">Continue on WhatsApp</a>
 <footer>Only the buyer and the seller have this link. Please don't share it.</footer>

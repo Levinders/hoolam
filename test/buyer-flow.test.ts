@@ -371,8 +371,12 @@ describe('Meta setup', () => {
     const calls: { method: string; url: string; body: any }[] = [];
     const f = (async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? 'GET';
-      const body = init.body ? JSON.parse(String(init.body)) : null;
+      let body: any = null;
+      try { body = init.body ? JSON.parse(String(init.body)) : null; } catch { body = '(bytes)'; }
       calls.push({ method, url, body });
+      if (/\/app$/.test(url)) return Response.json({ id: 'app1' });
+      if (url.includes('/app1/uploads')) return Response.json({ id: 'upload:1' });
+      if (/\/upload:1$/.test(url)) return Response.json({ h: '4::sample' });
       if (url.includes('/flows') && method === 'GET') return Response.json({ data: state.flows });
       if (url.includes('/flows')) return Response.json({ id: 'flow-1', success: true, validation_errors: [] });
       if (url.includes('message_templates') && method === 'GET') return Response.json({ data: state.templates });
@@ -393,9 +397,10 @@ describe('Meta setup', () => {
     expect(JSON.parse(flowPost.body.flow_json).version).toBe('7.3');
     const tplPost = calls.find((c) => c.method === 'POST' && c.url.endsWith('/waba/message_templates'))!;
     expect(tplPost.body.category).toBe('UTILITY');
-    expect(tplPost.body.components[0].text).toBe(SELLER_ALERT.body);
-    expect(tplPost.body.components[0].text).not.toMatch(/^\{\{|\}\}$/); // can't start or end with a variable
-    expect(tplPost.body.components[2].buttons.map((b: any) => b.text)).toEqual(['View order', 'Not me']);
+    expect(tplPost.body.components[0]).toEqual({ type: 'HEADER', format: 'IMAGE', example: { header_handle: ['4::sample'] } }); // the item's first photo
+    expect(tplPost.body.components[1].text).toBe(SELLER_ALERT.body);
+    expect(tplPost.body.components[1].text).not.toMatch(/^\{\{|\}\}$/); // can't start or end with a variable
+    expect(tplPost.body.components[3].buttons.map((b: any) => b.text)).toEqual(['View order', 'Not me']);
   });
 
   it('never uses a form Meta found problems with', async () => {

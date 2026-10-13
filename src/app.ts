@@ -11,6 +11,7 @@ import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureO
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { FormRegistry, type FormKey, type FormUse } from './whatsapp/forms.js';
+import { COMPANY } from './receipt.js';
 import { Media } from './whatsapp/media.js';
 import { Trust } from './trust.js';
 import { Settings } from './settings.js';
@@ -32,7 +33,7 @@ import { Messenger } from './whatsapp/client.js';
 import { configureMessages, msg } from './whatsapp/messages.js';
 import { localPhone } from './phone.js';
 import { Conversation } from './whatsapp/flow.js';
-import { parseInbound, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
+import { parseInbound, parseStatuses, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
 
 declare module 'fastify' { interface FastifyRequest { rawBody?: string } }
 
@@ -44,6 +45,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, log,
   });
   for (const t of ALL_TEMPLATES) if (t.replaces) messenger.setTemplateReplaces(t.name, t.replaces, { params: t.replacesParams, buttons: t.replacesButtons });
+  for (const t of ALL_TEMPLATES) if (t.headerImage) messenger.setTemplateImageHeader(t.name);
   const media = new Media({ dryRun: c.WHATSAPP_DRY_RUN, token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION });
   const testMode = c.ALLOW_SELF_DEAL && provider.sandbox;
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS);
@@ -128,6 +130,12 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     onFormRefused: (key, phone) => formRefused(key, phone), // only that form rests, then it's tried again
     ordersForm: { open: openOrders },
     kyc, kycForm: () => formFor('kyc'),
+    // Hoolam's contact card, once on someone's first message (so they know it's really us)
+    contactCard: () => {
+      const phone = settings.waNumber();
+      if (!/^\d{8,15}$/.test(phone)) return null;
+      return { name: 'Hoolam', phone, org: COMPANY.legalName, email: settings.contact().email || undefined, url: (c.SITE_URL || 'https://hoolam.com').replace(/\/$/, '') };
+    },
     hoolamNumber: () => settings.waNumber(),
   });
 
@@ -246,7 +254,19 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.type('text/html').header('cache-control', 'private, no-store').header('x-robots-tag', 'noindex').send(orderPage(d, {
       photoIds: photos.rows.map((r) => r.id), photoUrl: (id) => `/o/${d.code}/p/${id}.jpg?k=${encodeURIComponent(String(k))}`,
       chatUrl: toChat('menu'), markUrl: siteMedia.url(base, 'mark'), sellerName: await name(d.seller_id), buyerName: await name(d.buyer_id), viewer: v.viewer,
+      receipts: v.viewer ? (await deals.receiptsFor(d.id, v.viewer)).map((r, i) => ({ label: r.label, url: `/o/${d.code}/r/${i}.jpg?k=${encodeURIComponent(String(k))}` })) : [],
     }));
+  });
+  // a receipt picture for one side of the order (the link's key says which side)
+  app.get('/o/:code/r/:n', async (req, reply) => {
+    const { code, n } = req.params as { code: string; n: string };
+    const v = await orderView(code, (req.query as { k?: string }).k);
+    const i = Number(String(n).replace(/\.jpg$/, ''));
+    if (!v?.viewer || !Number.isInteger(i)) return reply.code(404).type('text/plain').send('Not found');
+    const r = (await deals.receiptsFor(v.d.id, v.viewer))[i];
+    const img = r ? await deals.receiptImage(v.d.id, r.kind, r.payoutId) : null;
+    if (!img) return reply.code(404).type('text/plain').send('Not found');
+    return reply.type('image/jpeg').header('cache-control', 'private, max-age=300').header('x-robots-tag', 'noindex').header('x-content-type-options', 'nosniff').send(img);
   });
   app.get('/o/:code/p/:id', async (req, reply) => {
     const { code, id } = req.params as { code: string; id: string };
@@ -319,10 +339,15 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return reply.code(401).send('bad signature');
     }
     const inbound = parseInbound(req.body);
-    if (!inbound.length) log('whatsapp webhook: delivery/read update (no new message)');
+    if (!inbound.length) {
+      // "read" receipts: the other side has seen an order alert → tell the person waiting (once)
+      for (const st of parseStatuses(req.body)) if (st.status === 'read') await deals.seenByMessage(st.id).catch((e) => log(`seen: ${(e as Error).message}`));
+    }
     for (const m of inbound) {
       log(`whatsapp in: …${m.phone.slice(-4)} ${m.type}${m.buttonId ? ' ' + m.buttonId : ''}`);
       const id = await storeEvent(db, 'whatsapp', m.id, m);
+      // blue ticks and "typing…" straight away, while the reply is prepared
+      if (id && m.type !== 'welcome') void messenger.markReadTyping(m.id);
       if (id) runSoon('whatsapp', id);
     }
     return reply.code(200).send('ok'); // answer fast; work happens after

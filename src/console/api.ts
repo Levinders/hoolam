@@ -576,11 +576,11 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const id = (req.params as { id: string }).id;
       const text = String((req.body as { text?: string }).text ?? '').trim();
       if (text.length < 2) throw new HttpError(400, 'Write a reply first.');
-      const s = (await db.query('SELECT phone, message FROM support_requests WHERE id=$1', [id])).rows[0];
+      const s = (await db.query('SELECT phone, message, wa_message_id FROM support_requests WHERE id=$1', [id])).rows[0];
       if (!s) throw new HttpError(404, 'No such request');
       const code = String(s.message ?? '').match(/\[Order (HL-[A-Z0-9]+)\]/)?.[1] ?? null;
       const status = await act(req, { action: 'support.reply', targetType: 'support', targetId: id, details: { text: text.slice(0, 200) } },
-        () => supportSend(s.phone, text, code));
+        () => supportSend(s.phone, text, code, s.wa_message_id ?? null));
       if ((req.body as { close?: boolean }).close) {
         await db.query(`UPDATE support_requests SET status='CLOSED', closed_at=now(), closed_by=$2 WHERE id=$1`, [id, req.staff!.id]);
         await audit(db, actorOf(req), { action: 'support.close', targetType: 'support', targetId: id });
@@ -590,9 +590,9 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
     /** A message from Hoolam support, at any time: the approved template about an order (or a chat message if it can't be). */
     const oneParagraph = (t: string) => t.replace(/\s+/g, ' ').trim().slice(0, SUPPORT_MESSAGE_MAX);
-    async function supportSend(phone: string, text: string, code: string | null) {
+    async function supportSend(phone: string, text: string, code: string | null, replyTo: string | null = null) {
       if (text.replace(/\s+/g, ' ').trim().length > SUPPORT_MESSAGE_MAX) throw new HttpError(400, `Keep it to ${SUPPORT_MESSAGE_MAX} characters.`);
-      const r = await d.deals.sendSupportMessage(phone, text, code);
+      const r = await d.deals.sendSupportMessage(phone, text, code, replyTo);
       if (r.status === 'NEEDS_TEMPLATE') {
         throw new HttpError(409, r.code
           ? 'Not delivered yet: Meta hasn\'t approved the support message, and they haven\'t messaged Hoolam in 24 hours. It\'s waiting in Needs action.'

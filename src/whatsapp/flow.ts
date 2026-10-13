@@ -7,7 +7,7 @@ import type { PaymentProvider } from '../payments/provider.js';
 import { DealError, isVerified, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
 import { namesMatch, readDob, type KycMethod, type KycService } from '../kyc.js';
 import { CATEGORIES, categoryTitle, isCategory } from '../deals/categories.js';
-import type { Messenger, Outbound } from './client.js';
+import type { ContactCard, Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
 import { COMMANDS, ICE_BREAKER_STEPS, type MenuItem } from './automation.js';
 import { localPhone, msg, STATUS_WORDS, type KycWhy } from './messages.js';
@@ -33,7 +33,7 @@ type State =
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SELLER_COUNTER_REASON' | 'SHIP_PROOF'
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
   | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE' | 'BUYER_ADDRESS'
-  | 'KYC_METHOD' | 'KYC_DOB' | 'KYC_NUMBER';
+  | 'KYC_METHOD' | 'KYC_DOB' | 'KYC_NUMBER' | 'PIN_NOTE';
 
 /**
  * Where to pick up after an ID check: tap the same button again, carry on with the new order, ask the next
@@ -72,6 +72,8 @@ export interface FlowOptions {
   publicBaseUrl?: string;
   /** Hoolam's WhatsApp number (console), so nobody can use it as the other person's number. */
   hoolamNumber?: () => string;
+  /** Hoolam's contact card, sent once on someone's first message. Null = don't send. */
+  contactCard?: () => ContactCard | null;
   /** ID checks (BVN/NIN). */
   kyc?: KycService;
   /** The ID check form, once it exists on Meta. Null = ask in the chat instead. */
@@ -89,6 +91,7 @@ interface BuyDraft {
   side?: Side;                                         // 'buy' (default) or 'sell'
   item?: string; description?: string; category?: string; priceMinor?: number; // price = the total, delivery included
   address?: string | null;                             // seller: null = the buyer adds it
+  addressPin?: string | null;                          // "lat,lng" when the address came from a shared location
   arriveBy?: string | null;                            // buyer: expected by; seller: ready by
   photos?: { mediaId: string; mimeType?: string | null }[]; photosDone?: boolean;
   otherPhone?: string;                                 // the seller's number (buyer's order) or the buyer's (seller's order)
@@ -139,9 +142,27 @@ export class Conversation {
   /** Hoolam's own number, typed as the other person's? */
   private isHoolam(phone: string): boolean { const h = (this.o.hoolamNumber?.() ?? '').replace(/\D/g, ''); return !!h && phone.replace(/\D/g, '') === h; }
 
+  /** The message we're answering, per person: corrections quote it (see fix). */
+  private readonly lastIn = new Map<string, string>();
+  /** A correction or an acknowledgement shows the message it's about, quoted above it. */
+  private fix(phone: string, o: Outbound): Outbound { const id = this.lastIn.get(phone); return id ? { ...o, replyTo: id } : o; }
+
+  /** Once, on someone's first message (buyer, seller, rider, anyone): why save Hoolam, then the contact card. */
+  private async contactCardOnce(phone: string): Promise<void> {
+    const card = this.o.contactCard?.() ?? null;
+    if (!card) return;
+    const r = await this.o.db.query('INSERT INTO contact_cards (phone) VALUES ($1) ON CONFLICT DO NOTHING RETURNING phone', [phone]).catch(() => null);
+    if (!r?.rowCount) return;
+    await this.send(phone, msg.saveHoolam());
+    await this.send(phone, { kind: 'contact', contact: card });
+  }
+
   async handle(m: Inbound): Promise<void> {
     const s = await this.session(m.phone);
     const user = await this.o.deals.upsertUser(m.phone, m.name);
+    if (!m.id.startsWith('kyc-') && !m.id.startsWith('form-')) this.lastIn.set(m.phone, m.id);
+    if (this.lastIn.size > 5000) this.lastIn.delete(this.lastIn.keys().next().value!);
+    if (s.isNew) await this.contactCardOnce(m.phone).catch((e) => this.o.log?.(`contact card: ${(e as Error).message}`));
     try {
       await this.route(m, s, user);
     } catch (e) {
@@ -201,7 +222,7 @@ export class Conversation {
         case 'dm': return this.dispatchMethod(m.phone, user, s, code as 'pickup' | 'rider' | 'waybill');
         case 'dloc':
           if (s.state !== 'DISPATCH') return this.send(m.phone, msg.didntUnderstand());
-          return this.dispatchStep(m.phone, user, { ...s.data, location: s.data.buyerAddress ?? '' });
+          return this.dispatchStep(m.phone, user, { ...s.data, location: s.data.buyerAddress ?? '', pin: s.data.buyerPin ?? null });
         case 'bpick': return this.bankPicked(m.phone, user, s, code!);
         case 'dacct': {
           if (s.state !== 'DISPATCH' || !s.data.pendingAccount) return this.send(m.phone, msg.didntUnderstand());
@@ -241,8 +262,10 @@ export class Conversation {
           return this.continueBuying(m.phone, { ...s.data, category: code });
 
         // ----- the seller's side of a buyer's deal -----
+        case 'pin': return this.pinNote(m.phone, user, s, null);
         case 'sview': {
           await this.save(m.phone, 'IDLE');
+          await this.o.deals.markSeen(code!, user);
           // a new order for a seller opens in the form (photos, details, Accept / Update price / Decline); the chat is the fallback
           const d = await this.o.deals.findByCode(code!);
           if (d?.status === 'AWAITING_SELLER' && d.buyer_id !== user.id && !d.seller_id && this.o.ordersForm
@@ -270,7 +293,7 @@ export class Conversation {
         case 'buyfrom': return this.buyFrom(m.phone, user, code!);
         case 'card': return this.cardAction(m.phone, user, code!);
         // ----- the buyer's side of a seller's order -----
-        case 'bview': await this.save(m.phone, 'IDLE'); await this.o.deals.setMenuMode(user, 'buyer'); return this.viewAsBuyer(m.phone, user, code!);
+        case 'bview': await this.save(m.phone, 'IDLE'); await this.o.deals.setMenuMode(user, 'buyer'); await this.o.deals.markSeen(code!, user); return this.viewAsBuyer(m.phone, user, code!);
         case 'baccept': await this.o.deals.setMenuMode(user, 'buyer'); return this.buyerAccepts(m.phone, user, code!);
         case 'baddr': {
           if (s.state !== 'BUYER_ADDRESS' || s.data.code !== code) return this.buyerAccepts(m.phone, user, code!);
@@ -352,8 +375,23 @@ export class Conversation {
     }
     if (s.state === 'IDLE' && PHRASES[words]) return this.openMenuItem(m.phone, user, PHRASES[words]!);
 
+    // ----- a shared location (📎 → Location): for an address question, or the rider's drop-off -----
+    if (m.type === 'location' && m.location) {
+      const pin = `${m.location.latitude.toFixed(6)},${m.location.longitude.toFixed(6)}`;
+      const place = [m.location.name, m.location.address].filter(Boolean).join(', ') || null;
+      if (s.state === 'BUY_ADDRESS' || s.state === 'BUYER_ADDRESS') {
+        await this.save(m.phone, 'PIN_NOTE', { back: s.state, prev: s.data, pin, place });
+        return this.send(m.phone, this.fix(m.phone, msg.askPinNote(place)));
+      }
+      if (s.state === 'DISPATCH' && s.data.method && s.data.method !== 'pickup' && s.data.phone && s.data.fee !== undefined && !s.data.location) {
+        return this.dispatchStep(m.phone, user, { ...s.data, location: place ?? 'Shared location (see the map)', pin });
+      }
+      return this.send(m.phone, s.state === 'IDLE' ? msg.menu(user.display_name, modeOf(user)) : msg.didntUnderstand());
+    }
+
     // ----- typed answers, depending on what we asked -----
     switch (s.state) {
+      case 'PIN_NOTE': return this.pinNote(m.phone, user, s, text);
       case 'SELL_FORM': // (older sessions) typed instead of opening the form: carry on in the chat
       case 'SELL_ITEM': {
         if (text.length < 2) return this.send(m.phone, msg.askItem());
@@ -376,7 +414,7 @@ export class Conversation {
       case 'KYC_DOB': {
         if (/^\d[\d\s]{9,}$/.test(text)) await this.forgetMessage(m.id);
         const dob = readDob(text);
-        if (!dob) return this.send(m.phone, msg.kycBadDob());
+        if (!dob) return this.send(m.phone, this.fix(m.phone, msg.kycBadDob()));
         await this.save(m.phone, 'KYC_NUMBER', { ...s.data, dob });
         return this.send(m.phone, msg.kycAskNumber(s.data.method ?? 'BVN'));
       }
@@ -384,22 +422,22 @@ export class Conversation {
         await this.forgetMessage(m.id); // we never keep the BVN or NIN, not even the message that carried it
         const digits = text.replace(/\D/g, '');
         const method: KycMethod = s.data.method === 'NIN' ? 'NIN' : 'BVN';
-        if (digits.length !== 11) return this.send(m.phone, msg.kycBadNumber(method));
+        if (digits.length !== 11) return this.send(m.phone, this.fix(m.phone, msg.kycBadNumber(method)));
         return this.runKyc(m.phone, user, method, digits, s.data.dob, s.data);
       }
       case 'SELLER_COUNTER_PRICE': {
         const major = parseAmount(text);
-        if (!major) return this.send(m.phone, msg.badPrice());
+        if (!major) return this.send(m.phone, this.fix(m.phone, msg.badPrice()));
         const counterMinor = toMinor(major, this.o.currency);
         const lim = this.o.deals.limitFor(user, counterMinor);
-        if (lim === 'too-big') return this.send(m.phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency }));
+        if (lim === 'too-big') return this.send(m.phone, this.fix(m.phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency })));
         if (lim === 'kyc') return this.startKyc(m.phone, user, 'accept', { kind: 'ask', state: 'SELLER_COUNTER_REASON', data: { code: s.data.code, counterMinor }, message: msg.askCounterReason({ minor: counterMinor, currency: this.o.currency }) });
         await this.save(m.phone, 'SELLER_COUNTER_REASON', { code: s.data.code, counterMinor });
         return this.send(m.phone, msg.askCounterReason({ minor: counterMinor, currency: this.o.currency }));
       }
       case 'SELLER_COUNTER_REASON': {
         const reason = text.replace(/\s+/g, ' ').trim();
-        if (reason.length < 3 || reason.length > 150) return this.send(m.phone, msg.badCounterReason());
+        if (reason.length < 3 || reason.length > 150) return this.send(m.phone, this.fix(m.phone, msg.badCounterReason()));
         const acct = await this.o.deals.defaultBankAccount(user.id);
         if (acct) {
           await this.save(m.phone, 'IDLE');
@@ -423,7 +461,7 @@ export class Conversation {
       case 'SELLER_BANK':
         return this.bankTyped(m.phone, s, text, undefined, user);
       case 'BUY_CODE':
-        return this.send(m.phone, msg.badDealCode());
+        return this.send(m.phone, this.fix(m.phone, msg.badDealCode()));
       case 'BUY_FORM': // they typed instead of opening the form: that's fine, carry on in the chat
       case 'BUY_ITEM': {
         if (text.length < 2) return this.send(m.phone, s.data.side === 'sell' ? msg.askItem() : msg.askBuyItem());
@@ -440,21 +478,21 @@ export class Conversation {
       case 'BUY_PRICE': {
         const major = parseAmount(text);
         if (!major && s.data.side === 'sell') return this.send(m.phone, msg.askPrice());
-        if (!major) return this.send(m.phone, msg.badPrice());
+        if (!major) return this.send(m.phone, this.fix(m.phone, msg.badPrice()));
         const priceMinor = toMinor(major, this.o.currency);
-        if (this.o.deals.limitFor(user, priceMinor) === 'too-big') return this.send(m.phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency }));
+        if (this.o.deals.limitFor(user, priceMinor) === 'too-big') return this.send(m.phone, this.fix(m.phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency })));
         const { kycPrice: _k, ...rest } = s.data;
         return this.continueBuying(m.phone, { ...rest, priceMinor }); // above the no-ID limit: the ID check comes next
       }
       case 'BUY_ADDRESS': {
         const sell = s.data.side === 'sell';
-        if (sell && /^(skip|no|none|later|buyer)$/i.test(text)) return this.continueBuying(m.phone, { ...s.data, address: null });
-        if (text.length < 5) return this.send(m.phone, sell ? msg.askSellAddress() : msg.askDeliveryAddress());
-        return this.continueBuying(m.phone, { ...s.data, address: text.slice(0, 300) });
+        if (sell && /^(skip|no|none|later|buyer)$/i.test(text)) return this.continueBuying(m.phone, { ...s.data, address: null, addressPin: null });
+        if (text.length < 5) return this.send(m.phone, this.fix(m.phone, sell ? msg.askSellAddress() : msg.askDeliveryAddress()));
+        return this.continueBuying(m.phone, { ...s.data, address: text.slice(0, 300), addressPin: null });
       }
       case 'BUY_DATE': {
         const day = parseDay(text);
-        if (!day) return this.send(m.phone, s.data.side === 'sell' ? msg.badReadyBy() : msg.badArriveBy());
+        if (!day) return this.send(m.phone, this.fix(m.phone, s.data.side === 'sell' ? msg.badReadyBy() : msg.badArriveBy()));
         return this.continueBuying(m.phone, { ...s.data, arriveBy: day });
       }
       case 'BUY_PHOTOS': {
@@ -462,20 +500,20 @@ export class Conversation {
           const photos = [...(s.data.photos ?? []), { mediaId: m.mediaId, mimeType: m.mimeType ?? null }].slice(0, MAX_PHOTOS);
           const side: Side = s.data.side === 'sell' ? 'sell' : 'buy';
           if (photos.length >= MAX_PHOTOS) {
-            await this.send(m.phone, msg.photoAdded(photos.length, MAX_PHOTOS, side));
+            await this.send(m.phone, this.fix(m.phone, msg.photoAdded(photos.length, MAX_PHOTOS, side)));
             return this.continueBuying(m.phone, { ...s.data, photos, photosDone: true });
           }
           await this.save(m.phone, 'BUY_PHOTOS', { ...s.data, photos });
-          return this.send(m.phone, msg.photoAdded(photos.length, MAX_PHOTOS, side));
+          return this.send(m.phone, this.fix(m.phone, msg.photoAdded(photos.length, MAX_PHOTOS, side)));
         }
         return this.continueBuying(m.phone, { ...s.data, photosDone: true }); // "no", "done", anything typed: move on
       }
       case 'BUY_SELLER': { // the other person's WhatsApp: the seller's (buyer's order) or the buyer's (seller's order)
         const sell = s.data.side === 'sell';
         const phone = normalizePhone(text);
-        if (!phone) return this.send(m.phone, sell ? msg.badBuyerPhone() : msg.badSellerPhone());
+        if (!phone) return this.send(m.phone, this.fix(m.phone, sell ? msg.badBuyerPhone() : msg.badSellerPhone()));
         const wrong = this.wrongNumber(phone, m.phone, sell ? 'buyer' : 'seller');
-        if (wrong) return this.send(m.phone, wrong);
+        if (wrong) return this.send(m.phone, this.fix(m.phone, wrong));
         return this.continueBuying(m.phone, { ...s.data, otherPhone: phone });
       }
       case 'CHECK_SELLER': return this.checkSeller(m.phone, user, text);
@@ -487,7 +525,7 @@ export class Conversation {
       case 'DISPATCH': return this.dispatchTyped(m.phone, user, s, text);
       case 'HANDOVER_CODE': {
         const digits = text.replace(/\D/g, '');
-        if (digits.length !== 4) return this.send(m.phone, msg.askHandoverCode(s.data.code));
+        if (digits.length !== 4) return this.send(m.phone, this.fix(m.phone, msg.askHandoverCode(s.data.code)));
         const r = await this.o.deals.enterHandoverCode(s.data.code, user, digits);
         if (r !== 'wrong') await this.save(m.phone, 'IDLE');
         return;
@@ -512,7 +550,7 @@ export class Conversation {
       case 'PROFILE_PHOTO': {
         if (m.type !== 'image' || !m.mediaId) {
           if (/^(cancel|stop|no)$/i.test(text)) { await this.save(m.phone, 'IDLE'); return this.showMyCard(m.phone, user); }
-          return this.send(m.phone, msg.photoNeeded());
+          return this.send(m.phone, this.fix(m.phone, msg.photoNeeded()));
         }
         try {
           const file = this.o.media ? await this.o.media.download(m.mediaId) : null;
@@ -544,7 +582,7 @@ export class Conversation {
         if (!body) return this.send(m.phone, msg.askHumanMessage());
         const about = s.data.code ? `[Order ${s.data.code}] ` : '';
         const r = await this.o.db.query(
-          'INSERT INTO support_requests (user_id, phone, message) VALUES ($1,$2,$3) RETURNING id', [user.id, m.phone, (about + body).slice(0, 2000)]);
+          'INSERT INTO support_requests (user_id, phone, message, wa_message_id) VALUES ($1,$2,$3,$4) RETURNING id', [user.id, m.phone, (about + body).slice(0, 2000), m.id]);
         await this.save(m.phone, 'IDLE');
         this.o.log?.(`support request #${r.rows[0].id} from …${m.phone.slice(-4)}`);
         return this.send(m.phone, msg.humanLogged('S-' + r.rows[0].id));
@@ -707,8 +745,8 @@ export class Conversation {
     const rawDob = String(f.dob ?? '');
     const dob = /^\d{12,13}$/.test(rawDob) ? new Date(Number(rawDob)).toISOString().slice(0, 10) : readDob(rawDob);
     const data = s.state.startsWith('KYC_') ? s.data : { kycNext: { kind: 'none' }, why: 'order' };
-    if (!dob) { await this.save(m.phone, 'KYC_DOB', { ...data, method }); return this.send(m.phone, msg.kycBadDob()); }
-    if (digits.length !== 11) { await this.save(m.phone, 'KYC_NUMBER', { ...data, method, dob }); return this.send(m.phone, msg.kycBadNumber(method)); }
+    if (!dob) { await this.save(m.phone, 'KYC_DOB', { ...data, method }); return this.send(m.phone, this.fix(m.phone, msg.kycBadDob())); }
+    if (digits.length !== 11) { await this.save(m.phone, 'KYC_NUMBER', { ...data, method, dob }); return this.send(m.phone, this.fix(m.phone, msg.kycBadNumber(method))); }
     return this.runKyc(m.phone, user, method, digits, dob, data);
   }
 
@@ -751,6 +789,20 @@ export class Conversation {
     const action = (next.kind === 'button' ? next.id : '').split(':')[0] ?? '';
     const why: KycWhy = ['saccept', 'scounter', 'bank'].includes(action) || s.state.startsWith('SELLER_') ? 'accept' : ['baccept', 'baddr', 'pay', 'cyes', 'bview'].includes(action) || s.state === 'BUYER_ADDRESS' ? 'pay' : 'order';
     return this.startKyc(m.phone, user, why, next);
+  }
+
+  // ===== A SHARED LOCATION =====
+  /** After a pin: an optional landmark, then the address question carries on. `note` null = Skip. */
+  private async pinNote(phone: string, user: User, s: Session, note: string | null): Promise<unknown> {
+    if (s.state !== 'PIN_NOTE' || !s.data.pin) return this.send(phone, msg.didntUnderstand());
+    const { back, prev, pin, place } = s.data as { back: State; prev: Record<string, any>; pin: string; place: string | null };
+    const typed = (note ?? '').replace(/\s+/g, ' ').trim();
+    const address = (typed.length >= 2 ? (place ? `${typed} · ${place}` : typed) : place ?? 'Shared location (see the map)').slice(0, 300);
+    if (back === 'BUYER_ADDRESS') {
+      await this.save(phone, 'IDLE');
+      return this.acceptWithAddress(phone, user, prev.code, address, pin);
+    }
+    return this.continueBuying(phone, { ...(prev as BuyDraft), address, addressPin: pin });
   }
 
   // ===== BECOMING A SELLER (once) =====
@@ -879,6 +931,7 @@ export class Conversation {
   // ===== THE BUYER'S SIDE OF A SELLER'S ORDER =====
   /** A seller's new order opens in the form for the buyer (photos, details, Accept / Decline); the chat is the fallback. */
   private async viewAsBuyer(phone: string, user: User, code: string) {
+    await this.o.deals.markSeen(code, user);
     const d = await this.o.deals.findByCode(code);
     if (d?.status === 'AWAITING_BUYER' && !d.legacy_ship && d.seller_id !== user.id && this.o.ordersForm
       && (await this.o.ordersForm.open(phone, user, { screen: 'order', code: d.code, mode: 'buyer', fresh: true }))) return;
@@ -896,8 +949,8 @@ export class Conversation {
     return this.send(phone, msg.askBuyerAddress(d.code, d.delivery_address));
   }
 
-  private async acceptWithAddress(phone: string, user: User, code: string, address: string | null) {
-    const r = await this.o.deals.acceptAsBuyer(code, user, address);
+  private async acceptWithAddress(phone: string, user: User, code: string, address: string | null, pin: string | null = null) {
+    const r = await this.o.deals.acceptAsBuyer(code, user, address, pin);
     if (r === 'need-address') { await this.save(phone, 'BUYER_ADDRESS', { code }); return this.send(phone, msg.askBuyerAddress(code, null)); }
   }
 
@@ -936,7 +989,7 @@ export class Conversation {
       sellerId = deal?.seller_id ?? null;
     } else {
       const p = normalizePhone(text);
-      if (!p) return this.send(phone, msg.badSellerPhone());
+      if (!p) return this.send(phone, this.fix(phone, msg.badSellerPhone()));
       sellerId = (await this.o.trust?.findSeller({ phone: p })) ?? null;
     }
     await this.save(phone, 'IDLE');
@@ -1061,12 +1114,12 @@ export class Conversation {
       const p = normalizePhone(f.otherPhone);
       const who = side === 'sell' ? 'buyer' : 'seller';
       const wrong = p ? this.wrongNumber(p, phone, who) : null;
-      if (!p || wrong) { await this.save(phone, 'BUY_SELLER', d as Record<string, any>); return this.send(phone, wrong ?? (side === 'sell' ? msg.badBuyerPhone() : msg.badSellerPhone())); }
+      if (!p || wrong) { await this.save(phone, 'BUY_SELLER', d as Record<string, any>); return this.send(phone, this.fix(phone, wrong ?? (side === 'sell' ? msg.badBuyerPhone() : msg.badSellerPhone()))); }
       d.otherPhone = p;
     }
     if (tooBig) {
       await this.save(phone, 'BUY_PRICE', d as Record<string, any>);
-      return this.send(phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency }));
+      return this.send(phone, this.fix(phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(user), currency: this.o.currency })));
     }
     return this.continueBuying(phone, d);
   }
@@ -1208,7 +1261,7 @@ export class Conversation {
     await this.save(phone, 'IDLE');
     const common = {
       item: d.item, priceMinor: d.priceMinor, photos: d.photos ?? [],
-      description: d.description ?? null, category: d.category ?? null, address: d.address ?? null,
+      description: d.description ?? null, category: d.category ?? null, address: d.address ?? null, addressPin: d.address ? d.addressPin ?? null : null,
     };
     if (sell) {
       await this.o.deals.setMenuMode(user, 'seller');
@@ -1267,11 +1320,11 @@ export class Conversation {
     const text = picked ? typed : await this.withBank(phone, s, s.state as State, typed);
     if (text === null) return;
     const parsed = parseBankInput(text);
-    if (!parsed) return this.send(phone, msg.badBank());
+    if (!parsed) return this.send(phone, this.fix(phone, msg.badBank()));
     const bank = picked ?? matchBank(parsed.bankText, await this.o.provider.listBanks());
-    if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
+    if (!bank) return this.send(phone, this.fix(phone, msg.bankNotFound(parsed.bankText)));
     const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
-    if (!name) return this.send(phone, msg.accountNotFound());
+    if (!name) return this.send(phone, this.fix(phone, msg.accountNotFound()));
     // payouts (and a verified buyer's refunds) go only to an account in the name on their ID
     const refund = s.state === 'REFUND_BANK';
     if (user) {
@@ -1282,7 +1335,7 @@ export class Conversation {
       if (isVerified(user) && !namesMatch(user.kyc_name, name)) {
         const { bankNumber: _n, ...data } = s.data;
         await this.save(phone, s.state as State, data);
-        return this.send(phone, msg.accountNotTheirs(name, user.kyc_name ?? '', refund));
+        return this.send(phone, this.fix(phone, msg.accountNotTheirs(name, user.kyc_name ?? '', refund)));
       }
     }
     const next: State = s.state === 'SELL_BANK' ? 'SELL_BANK_CONFIRM' : s.state === 'ACCOUNT_BANK' ? 'ACCOUNT_BANK_CONFIRM'
@@ -1329,13 +1382,13 @@ export class Conversation {
       if (sent) return;
     }
     const buyerName = await this.o.deals.nameOf(deal.buyer_id);
-    await this.save(phone, 'DISPATCH', { code: deal.code, buyerAddress: deal.delivery_address, buyerName });
+    await this.save(phone, 'DISPATCH', { code: deal.code, buyerAddress: deal.delivery_address, buyerPin: deal.delivery_pin ?? null, buyerName });
     return this.send(phone, msg.askDispatchMethod(deal.code, buyerName));
   }
 
   private async dispatchMethod(phone: string, user: User, s: Session, method: 'pickup' | 'rider' | 'waybill') {
     if (s.state !== 'DISPATCH' || !s.data.code) return this.send(phone, msg.didntUnderstand());
-    return this.dispatchStep(phone, user, { code: s.data.code, buyerAddress: s.data.buyerAddress, buyerName: s.data.buyerName, method });
+    return this.dispatchStep(phone, user, { code: s.data.code, buyerAddress: s.data.buyerAddress, buyerPin: s.data.buyerPin ?? null, buyerName: s.data.buyerName, method });
   }
 
   /** Asks for the next missing dispatch detail; when there's nothing left, dispatches. */
@@ -1356,7 +1409,7 @@ export class Conversation {
     return this.o.deals.dispatch(d.code, user, {
       method: d.method === 'pickup' ? 'PICKUP' : d.method === 'rider' ? 'RIDER' : 'WAYBILL',
       pickupAddress: d.pickupAddress ?? null, courierName: d.name ?? null, courierPhone: d.phone ?? null,
-      location: d.location ?? null, feeMinor: d.fee ?? 0, account: d.account ?? null,
+      location: d.location ?? null, feeMinor: d.fee ?? 0, account: d.account ?? null, pin: d.pin ?? null,
     });
   }
 
@@ -1369,27 +1422,27 @@ export class Conversation {
     if (!d.phone) {
       const p = normalizePhone(text);
       if (!p) return this.send(phone, msg.askCourierPhone(role));
-      if (this.isHoolam(p)) return this.send(phone, msg.hoolamNumberTyped(role));
+      if (this.isHoolam(p)) return this.send(phone, this.fix(phone, msg.hoolamNumberTyped(role)));
       return this.dispatchStep(phone, user, { ...d, phone: p });
     }
     if (d.fee === undefined) {
       const major = /^(0|free|none|no)$/i.test(text) ? 0 : parseAmount(text);
-      if (major === null || major === undefined) return this.send(phone, msg.badPrice());
+      if (major === null || major === undefined) return this.send(phone, this.fix(phone, msg.badPrice()));
       const deal = await this.o.deals.findByCode(d.code);
       const fee = toMinor(major, this.o.currency);
-      if (deal && fee >= deal.seller_gets_minor) return this.send(phone, msg.feeTooHigh({ minor: deal.seller_gets_minor, currency: this.o.currency }));
+      if (deal && fee >= deal.seller_gets_minor) return this.send(phone, this.fix(phone, msg.feeTooHigh({ minor: deal.seller_gets_minor, currency: this.o.currency })));
       return this.dispatchStep(phone, user, { ...d, fee });
     }
-    if (!d.location) return this.dispatchStep(phone, user, { ...d, location: text.length >= 3 ? text.slice(0, 300) : undefined });
+    if (!d.location) return this.dispatchStep(phone, user, { ...d, location: text.length >= 3 ? text.slice(0, 300) : undefined, pin: null });
     if (d.fee > 0 && !d.account) {
       const full = picked ? text : await this.withBank(phone, s, 'DISPATCH', text);
       if (full === null) return;
       const parsed = parseBankInput(full);
-      if (!parsed) return this.send(phone, msg.badBank());
+      if (!parsed) return this.send(phone, this.fix(phone, msg.badBank()));
       const bank = picked ?? matchBank(parsed.bankText, await this.o.provider.listBanks());
-      if (!bank) return this.send(phone, msg.bankNotFound(parsed.bankText));
+      if (!bank) return this.send(phone, this.fix(phone, msg.bankNotFound(parsed.bankText)));
       const name = await this.o.provider.resolveAccount(bank.code, parsed.accountNumber);
-      if (!name) return this.send(phone, msg.accountNotFound());
+      if (!name) return this.send(phone, this.fix(phone, msg.accountNotFound()));
       const pendingAccount = { bank_code: bank.code, bank_name: bank.name, account_number: parsed.accountNumber, account_name: name };
       await this.save(phone, 'DISPATCH', { ...d, pendingAccount });
       return this.send(phone, msg.confirmCourierAccount(role, name, bank.name, parsed.accountNumber));

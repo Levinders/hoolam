@@ -3,12 +3,17 @@ import type { Queryable } from '../db.js';
 export interface Button { id: string; title: string } // WhatsApp: max 3 buttons, title max 20 chars
 export interface ListRow { id: string; title: string; description?: string } // title max 24, description max 72
 export interface ListSection { title: string; rows: ListRow[] }              // section title max 24
-export type Outbound =
+/** Hoolam's contact card: "Save contact" opens the phone's new-contact screen, filled in. */
+export interface ContactCard { name: string; phone: string; org?: string; email?: string; url?: string }
+export type Outbound = (
   | { kind: 'text'; text: string; noMenu?: boolean }   // noMenu: keep it plain (e.g. a message meant to be forwarded)
+  | { kind: 'location'; latitude: number; longitude: number; name?: string; address?: string } // a map pin (tap for directions)
+  | { kind: 'contact'; contact: ContactCard }
   | { kind: 'buttons'; text: string; buttons: Button[] }
   | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string } // max 10 rows; header/footer max 60
   | { kind: 'image'; mediaId: string; caption?: string }                                                      // caption max 1024
-  | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string; live?: boolean; data?: Record<string, unknown> }; // live: the form asks our endpoint for its first screen; data: fills in a form's first screen
+  | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string; live?: boolean; data?: Record<string, unknown> } // live: the form asks our endpoint for its first screen; data: fills in a form's first screen
+) & { replyTo?: string }; // replyTo: the person's message this answers (WhatsApp shows it quoted above our reply)
 
 /** A pre-approved template: the only way to message someone who hasn't written to us in the last 24 hours. */
 export interface Template {
@@ -19,6 +24,8 @@ export interface Template {
   buttonTitles?: string[];   // the button labels as approved in the template (for logs and the terminal chat)
   preview: string;           // readable version for logs and the outbound_messages table
   maxParam?: number;         // longest value allowed (default 120; the support message allows 600)
+  replyTo?: string;          // the person's message this answers (shown quoted)
+  headerImage?: string;      // a media id for templates with a picture at the top
 }
 
 export type SendStatus = 'SENT' | 'DRY_RUN' | 'FAILED' | 'NEEDS_TEMPLATE';
@@ -36,7 +43,7 @@ export const MENU_BUTTON: Button = { id: 'menu:open', title: 'Main menu' };
 export function withMenuOption(msg: Outbound): Outbound {
   if (msg.kind === 'text') {
     if (msg.noMenu || msg.text.length > 1024) return msg;
-    return { kind: 'buttons', text: msg.text, buttons: [MENU_BUTTON] };
+    return { kind: 'buttons', text: msg.text, buttons: [MENU_BUTTON], ...(msg.replyTo ? { replyTo: msg.replyTo } : {}) };
   }
   if (msg.kind === 'buttons') {
     if (msg.buttons.length >= 3 || msg.buttons.some((b) => b.id === 'menu:open')) return msg;
@@ -109,6 +116,9 @@ export class Messenger {
     this.previous.set(name, previousName);
     if (shape && (shape.params || shape.buttons !== undefined)) this.previousShape.set(previousName, shape);
   }
+  /** Templates with a picture at the top (their older versions have none). */
+  private readonly imageHeaders = new Set<string>();
+  setTemplateImageHeader(name: string) { this.imageHeaders.add(name); }
   /** The approved name to send under (the template itself, or the version it replaces), or null if neither is approved. */
   usableTemplate(name: string): string | null {
     if (this.templateStatus(name) === 'APPROVED') return name;
@@ -162,9 +172,11 @@ export class Messenger {
     const to = phone.replace(/^\+/, '');
     const payload = {
       messaging_product: 'whatsapp', to, type: 'template',
+      ...(t.replyTo ? { context: { message_id: t.replyTo } } : {}),
       template: {
         name: t.name, language: { code: t.language },
         components: [
+          ...(t.headerImage && this.imageHeaders.has(t.name) ? [{ type: 'header', parameters: [{ type: 'image', image: { id: t.headerImage } }] }] : []),
           ...(t.params.length ? [{ type: 'body', parameters: t.params.map((p) => ({ type: 'text', text: templateText(p, t.maxParam ?? 120) })) }] : []),
           ...(t.buttonPayloads ?? []).map((p, i) => ({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: p }] })),
         ],
@@ -189,8 +201,10 @@ export class Messenger {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      let waId: string | null = null;
+      try { waId = ((await res.json()) as { messages?: { id?: string }[] }).messages?.[0]?.id ?? null; } catch { /* no id: fine */ }
       this.o.log?.(`whatsapp sent to …${phone.slice(-4)}${kind ? ' (' + kind + ')' : ''}`);
-      await this.record(phone, msg, 'SENT', undefined, kind);
+      await this.record(phone, msg, 'SENT', undefined, kind, waId);
       return 'SENT';
     } catch (err) {
       this.o.log?.(`whatsapp send FAILED to …${phone.slice(-4)}${kind ? ' (' + kind + ')' : ''}: ${(err as Error).message}`);
@@ -199,13 +213,52 @@ export class Messenger {
     }
   }
 
-  private async record(phone: string, msg: Outbound, status: string, error?: string, kind?: string) {
-    await this.db.query('INSERT INTO outbound_messages (phone, kind, body, status, error) VALUES ($1,$2,$3,$4,$5)', [phone, kind ?? msg.kind, JSON.stringify(msg), status, error ?? null]);
+  private async record(phone: string, msg: Outbound, status: string, error?: string, kind?: string, waId: string | null = null) {
+    // dry run: a made-up id, so "seen" can be tried out in tests and on the test number
+    const id = waId ?? (status === 'DRY_RUN' ? `dry.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}` : null);
+    await this.db.query('INSERT INTO outbound_messages (phone, kind, body, status, error, wa_id) VALUES ($1,$2,$3,$4,$5,$6)', [phone, kind ?? msg.kind, JSON.stringify(msg), status, error ?? null, id]);
+  }
+
+  /** WhatsApp's id of the last message we sent this person (to match a "read" receipt later). */
+  async lastSentId(phone: string): Promise<string | null> {
+    const r = await this.db.query(`SELECT wa_id FROM outbound_messages WHERE phone=$1 AND status IN ('SENT','DRY_RUN') ORDER BY id DESC LIMIT 1`, [phone]);
+    return r.rows[0]?.wa_id ?? null;
+  }
+
+  /**
+   * Their message turns blue-ticked and "typing…" shows until our reply (WhatsApp shows it for up to 25 seconds).
+   * Never throws: if WhatsApp refuses, the reply still goes as normal.
+   */
+  async markReadTyping(messageId: string): Promise<void> {
+    if (this.o.dryRun || !messageId || !messageId.startsWith('wamid.')) return;
+    try {
+      const res = await this.fetch(`https://graph.facebook.com/${this.o.graphVersion}/${this.o.phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.o.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: messageId, typing_indicator: { type: 'text' } }),
+      });
+      if (!res.ok) this.o.log?.(`typing indicator refused (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
+    } catch (e) { this.o.log?.(`typing indicator failed: ${(e as Error).message}`); }
   }
 }
 
 export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
-  const base = { messaging_product: 'whatsapp', to };
+  const base = { messaging_product: 'whatsapp', to, ...(msg.replyTo ? { context: { message_id: msg.replyTo } } : {}) };
+  if (msg.kind === 'location') return { ...base, type: 'location', location: { latitude: msg.latitude, longitude: msg.longitude, ...(msg.name ? { name: msg.name } : {}), ...(msg.address ? { address: msg.address } : {}) } };
+  if (msg.kind === 'contact') {
+    const c = msg.contact;
+    const digits = c.phone.replace(/\D/g, '');
+    return {
+      ...base, type: 'contacts',
+      contacts: [{
+        name: { formatted_name: c.name, first_name: c.name },
+        phones: [{ phone: '+' + digits, type: 'WORK', wa_id: digits }],
+        ...(c.org ? { org: { company: c.org } } : {}),
+        ...(c.email ? { emails: [{ email: c.email, type: 'WORK' }] } : {}),
+        ...(c.url ? { urls: [{ url: c.url, type: 'WORK' }] } : {}),
+      }],
+    };
+  }
   if (msg.kind === 'text') return { ...base, type: 'text', text: { body: msg.text, preview_url: false } };
   if (msg.kind === 'image') return { ...base, type: 'image', image: { id: msg.mediaId, ...(msg.caption ? { caption: msg.caption } : {}) } };
   if (msg.kind === 'form') {
@@ -249,6 +302,8 @@ export function render(msg: Outbound): string {
   if (msg.kind === 'text') return msg.text;
   if (msg.kind === 'buttons') return `${msg.text}  ${msg.buttons.map((b) => `[${b.title}]`).join(' ')}`;
   if (msg.kind === 'image') return `[photo]${msg.caption ? ' ' + msg.caption : ''}`;
+  if (msg.kind === 'location') return `[📍 ${msg.name ?? 'location'} ${msg.latitude},${msg.longitude}]`;
+  if (msg.kind === 'contact') return `[📇 contact card: ${msg.contact.name} +${msg.contact.phone.replace(/\D/g, '')}]`;
   if (msg.kind === 'form') return `${msg.text}  [📝 ${msg.cta}]`;
   return `${msg.header ? msg.header + '\n' : ''}${msg.text}${msg.footer ? '\n' + msg.footer : ''}  [${msg.button} ▾: ${msg.sections.flatMap((s) => s.rows.map((r) => r.title)).join(' | ')}]`;
 }

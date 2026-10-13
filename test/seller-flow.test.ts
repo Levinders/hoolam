@@ -342,13 +342,17 @@ describe('pieces', () => {
   it('the buyer alert template is transactional and well-formed', async () => {
     expect(BUYER_ALERT.body).not.toMatch(/^\{\{|\}\}$/);
     const posted: any[] = [];
-    const f = (async (_u: string, init: RequestInit = {}) => {
+    const f = (async (u: string, init: RequestInit = {}) => {
+      if (/\/app$/.test(u)) return Response.json({ id: 'app1' });
+      if (/\/app1\/uploads/.test(u)) return Response.json({ id: 'upload:1' });
+      if (/\/upload:1$/.test(u)) return Response.json({ h: '4::sample' });
       if (init.method === 'POST') { posted.push(JSON.parse(String(init.body))); return Response.json({ id: 't', status: 'PENDING', category: 'UTILITY' }); }
       return Response.json({ data: [] });
     }) as unknown as typeof fetch;
-    expect(await ensureTemplate({ token: 't', phoneNumberId: 'p', graphVersion: 'v26.0', wabaId: 'w', formMode: 'draft', fetchImpl: f }, BUYER_ALERT, 'buyer alert')).toBe('PENDING');
-    expect(posted[0].name).toBe('hoolam_new_order_for_buyer');
-    expect(BUYER_ALERT.replaces).toBe('hoolam_order_payment_request'); // used until Meta approves the new one
+    expect(await ensureTemplate({ token: 't', phoneNumberId: 'p', graphVersion: 'v26.0', wabaId: 'w', fetchImpl: f }, BUYER_ALERT, 'buyer alert')).toBe('PENDING');
+    expect(posted[0].name).toBe('hoolam_new_order_for_buyer_v2');
+    expect(posted[0].components[0]).toEqual({ type: 'HEADER', format: 'IMAGE', example: { header_handle: ['4::sample'] } }); // the item's first photo goes here
+    expect(BUYER_ALERT.replaces).toBe('hoolam_new_order_for_buyer'); // used until Meta approves the new one
     expect(posted[0].category).toBe('UTILITY');
   });
 });

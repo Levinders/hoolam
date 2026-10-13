@@ -159,7 +159,8 @@ describe('my orders, in the form', () => {
 
     const order = await call(t, 'data_exchange', { action: 'open', code });
     expect(order.screen).toBe('ORDER');
-    expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, has_tertiary: false });
+    expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, tertiary: 'receipts', has_tertiary: true }); // paid: the receipt link takes the free slot
+    expect(order.data.has_photo3).toBe(true); // the receipt, in the third picture slot
     expect(order.data.key).toMatch(/💰 Total price ₦20,000\n🧾 Transaction fee −₦500\n💸 You receive ₦19,500/);
 
     expect((await call(t, 'data_exchange', { action: 'dispatch', code })).screen).toBe('DISPATCH');
