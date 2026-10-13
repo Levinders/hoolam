@@ -299,8 +299,8 @@ for (const p of INFO_PAGES) {
   const canonical = site ? `${site}${path}` : '';
   const vars = {
     ...shared, WA_HREF: esc(waLink), REP_HREF: esc(repLink), BANK_SHORT: String(COMPANY.bankPartner).replace(/\s*Microfinance Bank$/, ' MFB'),
-    // shown once the registration number is set in COMPANY.scuml
-    SCUML_ROW: COMPANY.scuml ? `<div><dt>Anti-money laundering</dt><dd>Registered with the EFCC’s Special Control Unit against Money Laundering (SCUML), no. ${esc(COMPANY.scuml)}</dd></div>\n        ` : '',
+    // the registration number is added once it's set in COMPANY.scuml
+    SCUML_ROW: `<div><dt>Anti-money laundering</dt><dd>Registration with the EFCC’s Special Control Unit against Money Laundering (SCUML)${COMPANY.scuml ? `, no. ${esc(COMPANY.scuml)}` : ''}</dd></div>\n        `,
     HERE_ABOUT: p.slug === 'about' ? ' class="here" aria-current="page"' : '', HERE_CONTACT: p.slug === 'contact' ? ' class="here" aria-current="page"' : '',
     WA_BIG: wa ? `<a class="big" data-wa href="${esc(waLink)}" target="_blank" rel="noopener">${esc(phoneText(wa))}</a>` : '',
     PHONE_CARD: contact.phone && contact.phone !== wa

@@ -113,7 +113,8 @@ describe('landing page ↔ server', () => {
     expect(about).toContain('Pay on delivery, made digital (DPOD)</h2>');
     expect(about).toContain('Hoolam is a social commerce platform for buying and selling');
     expect(about).not.toContain('cash to count');
-    expect(about).not.toContain('Special Control Unit'); // the SCUML line shows only once its number is set
+    expect(about).toContain('<dt>Anti-money laundering</dt><dd>Registration with the EFCC’s Special Control Unit against Money Laundering (SCUML)</dd>');
+    expect(about).toContain('<dd>Moniepoint Microfinance Bank (Monnify)</dd>');
     expect(about).not.toContain('in progress');
     expect(about).toContain('Mama Bella paid<span class="tag seller">');
     expect(about).toContain('The money is safely held in the middle until both sides are happy.');
