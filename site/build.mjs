@@ -276,6 +276,8 @@ const organization = {
   }],
   ...(socials.length ? { sameAs: socials.map((x) => x.url) } : {}),
 };
+// the logo, its mark and the WhatsApp icon set in Console → Settings → Brand, as on the home page's top bar
+const pageImagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => ['mark', 'logo', 'whatsapp'].includes(k)).map(([k, v]) => [k, v.src])));
 const INFO_PAGES = [
   { slug: 'about', type: 'AboutPage', title: 'About Hoolam: safe buying and selling on WhatsApp',
     description: 'Hoolam holds the buyer’s money until the item arrives, then pays the seller. Who we are, why we built it, and what keeps your money safe.' },
@@ -299,9 +301,8 @@ for (const p of INFO_PAGES) {
   const html = fill(pageLayout, {
     ...vars, TITLE: esc(p.title), DESCRIPTION: esc(p.description), BODY: body, SPRITE: sprite, FOOTER: footer, FOOTER_CSS: footerCss,
     CANONICAL: canonical ? `<link rel="canonical" href="${esc(canonical)}">\n<meta property="og:url" content="${esc(canonical)}">` : '',
-    OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: imagesJson.replace(/</g, '\\u003c'),
+    OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: pageImagesJson.replace(/</g, '\\u003c'),
     JSONLD: JSON.stringify(jsonld).replace(/</g, '\\u003c'),
-    NAV_ABOUT: p.slug === 'about' ? ' aria-current="page"' : '', NAV_CONTACT: p.slug === 'contact' ? ' aria-current="page"' : '',
   });
   mkdirSync(join(out, p.slug), { recursive: true });
   writeFileSync(join(out, p.slug, 'index.html'), html);

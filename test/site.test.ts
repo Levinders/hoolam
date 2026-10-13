@@ -106,6 +106,16 @@ describe('landing page ↔ server', () => {
       expect(html, name).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u); // no emojis on the site
     }
     expect(about).toContain('Buy and sell on WhatsApp without the fear');
+    expect(about).toContain('<b>digital pay on delivery</b>');
+    expect(about).toContain('Ivana · buyer');
+    expect(about).toContain('Mama Bella · seller');
+    expect(contact).toContain('When you need assistance, a rep answers.');
+    for (const [name, html] of [['about', about], ['contact', contact]] as const) {
+      // the same top bar as the home page; About and Contact us live only in the footer
+      const header = html.slice(html.indexOf('<header class="top"'), html.indexOf('</aside>'));
+      expect(header, name).toContain('<a href="/#journey">How it works</a><a href="/#pricing">Pricing</a><a href="/#trust">Why trust us</a>');
+      expect(header, name).not.toMatch(/href="\/(about|contact)\/"/);
+    }
     expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
     expect(about).not.toContain('8 October 2026'); // no registration date on About
     expect(contact).toContain('Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.');
@@ -142,6 +152,7 @@ describe('landing page ↔ server', () => {
     expect(v12).not.toContain('all‑in');
     expect(v12).toContain('Deposits insured by NDIC'); // why trust us
     expect(v12).toContain('<h2>We get asked this a lot.</h2>');
+    expect(v12).toContain('>From now</span>\n        <h2>Your next order can be a safe one.</h2>');
     expect(v12).toContain("set('faq', rateTxt() + ' of the price, starting from ' + naira(F.min)"); // the fee answer follows the console
     expect(v12).toContain('<span class="pro-tag">Example</span>'); // the made-up seller stays labelled as an example
     expect(v12).toContain('HOOLAM DIGITAL PLATFORM LTD</b>, RC 9919417');
