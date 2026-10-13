@@ -11,6 +11,7 @@
 //                          Previews are never indexed: a noindex tag here and an X-Robots-Tag header (render.yaml).
 //   /legal/                the list of legal pages
 //   /legal/<page>/         site/legal/<page>.html, wrapped in site/legal/_layout.html
+//   /about/, /contact/     site/pages/<page>.html, wrapped in site/pages/_layout.html
 // The footer (site/partials/footer.*) is shared by all of them.
 //
 // Environment (all optional):
@@ -164,7 +165,12 @@ const shared = {
   FEE_RATE: `${String(fees.rate).replace(/\.0+$/, '')}%`, FEE_MIN: naira(fees.min), FEE_MAX: naira(fees.max), FEE_ROUND: naira(fees.roundTo || 1), MAX_DEAL: naira(maxDeal), MAX_DEAL_VERIFIED: naira(maxDealVerified),
   ACCEPT_HOURS: hours(timing.acceptHours), NUDGE_HOURS: hours(timing.nudgeHours), FLAG_HOURS: hours(timing.flagHours), UNPAID_HOURS: hours(timing.unpaidHours), AUTO_RELEASE: minutesText(timing.autoReleaseMinutes ?? 1440),
 };
-const footer = fill(read('partials/footer.html'), { ...shared, CONTACT_ITEMS: contactItems });
+// About and Contact us sit at the end of the footer's Product list: on every page except the home versions
+// made before they existed (versions.json "footerPages")
+const FOOTER_MORE = '\n          <li><a href="/about/">About</a></li>\n          <li><a href="/contact/">Contact us</a></li>';
+const footerSrc = read('partials/footer.html');
+const footerFor = (more) => fill(footerSrc, { ...shared, CONTACT_ITEMS: contactItems, FOOTER_MORE: more ? FOOTER_MORE : '' });
+const footer = footerFor(true);
 const footerCss = read('partials/footer.css');
 
 // ---------- the home page: the live version at /, every version (and the draft) as a hidden preview ----------
@@ -173,7 +179,8 @@ const iconTags = (prefix, imgs = baked.images) => imgs?.mark?.src
   ? `<link rel="icon" href="${imgs.mark.src}">\n<link rel="apple-touch-icon" href="${imgs.mark.src}">`
   : `<link rel="icon" href="${prefix}assets/favicon.svg" type="image/svg+xml">\n<link rel="apple-touch-icon" href="${prefix}assets/icon-180.png">`;
 const NOINDEX = '<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">\n<meta name="googlebot" content="noindex, nofollow">';
-function homePage(src, version, preview) {
+const footerPages = (v) => !!manifest.versions.find((x) => x.version === v)?.footerPages;
+function homePage(src, version, preview, draft = false) {
   const imgs = versionImages[version] ?? baked.images;
   const pageBaked = { ...baked, images: imgs, version };
   let h = src
@@ -183,7 +190,7 @@ function homePage(src, version, preview) {
     .replaceAll('{{SITE_URL}}/', site ? `${site}/` : '/')
     .replace('/*{{BAKED}}*/{}', JSON.stringify(pageBaked).replace(/</g, '\\u003c'))
     .replace('/*{{FOOTER_CSS}}*/', footerCss)
-    .replace('<!--{{FOOTER}}-->', footer);
+    .replace('<!--{{FOOTER}}-->', footerFor(draft || footerPages(version)));
   h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, BANK_SHORT: String(shared.BANK_PARTNER).replace(/\s*Microfinance Bank$/, ' MFB'), INCORPORATED: shared.INCORPORATED });
   h = h.replace(/<link rel="icon" href="\/?assets\/favicon\.svg" type="image\/svg\+xml">\n<link rel="apple-touch-icon" href="\/?assets\/icon-180\.png">/, iconTags('/', imgs));
   if (preview) {
@@ -201,7 +208,7 @@ for (const v of VERSIONS) {
   writeFileSync(join(out, 'v', v, 'index.html'), homePage(versionSrc(v), v, true));
 }
 mkdirSync(join(out, 'v', 'draft'), { recursive: true });
-writeFileSync(join(out, 'v', 'draft', 'index.html'), homePage(indexSrc, newest, true).replace(/Preview · version [\d.]+ · (live now|not live)/, 'Preview · draft · not live'));
+writeFileSync(join(out, 'v', 'draft', 'index.html'), homePage(indexSrc, newest, true, true).replace(/Preview · version [\d.]+ · (live now|not live)/, 'Preview · draft · not live'));
 
 // ---------- the legal pages ----------
 // The icons and the Hoolam symbol come from the home page, so there is one copy of each.
@@ -249,7 +256,58 @@ mkdirSync(join(out, 'legal'), { recursive: true });
 writeFileSync(join(out, 'legal', 'index.html'), page({ slug: '', title: 'Legal', blurb: 'Every agreement and policy for using Hoolam, written to be read.',
   lede: 'Every agreement and policy for using Hoolam. We’ve written them to be read, not skimmed past. Each page starts with a short version.', body: hub, toc: '', path: '/legal/' }));
 
-const pages = ['/', '/legal/', ...LEGAL_PAGES.map((p) => `/legal/${p.slug}/`)];
+// ---------- About and Contact us ----------
+const pageLayout = read('pages/_layout.html');
+const repLink = wa ? `https://wa.me/${wa}?text=${encodeURIComponent('Hi Hoolam, I’d like to talk to a rep')}` : waLink;
+const socials = (contact.socials ?? []).filter((x) => /^https:\/\//.test(x.url));
+// the company as search engines read it (name, registration, address, how to reach us, hours)
+const organization = {
+  '@type': 'Organization', '@id': `${site || ''}/#organization`, name: 'Hoolam', legalName: COMPANY.legalName, ...(site ? { url: `${site}/` } : {}),
+  ...(site ? { logo: `${site}/assets/icon-180.png` } : {}),
+  description: 'Safe buying and selling on WhatsApp, for Nigeria. The buyer’s money waits with Hoolam until the item arrives, then goes to the seller.',
+  identifier: { '@type': 'PropertyValue', propertyID: 'RC number (Corporate Affairs Commission, Nigeria)', value: COMPANY.rc },
+  email: contact.email || undefined, ...(wa ? { telephone: `+${wa}` } : {}),
+  address: { '@type': 'PostalAddress', streetAddress: '8, Delta Bakery Road', addressLocality: 'Woji', addressRegion: 'Rivers State', addressCountry: 'NG' },
+  areaServed: { '@type': 'Country', name: 'Nigeria' },
+  contactPoint: [{
+    '@type': 'ContactPoint', contactType: 'customer support', areaServed: 'NG', availableLanguage: ['English'],
+    ...(wa ? { telephone: `+${wa}` } : {}), ...(contact.email ? { email: contact.email } : {}),
+    hoursAvailable: { '@type': 'OpeningHoursSpecification', dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'], opens: '09:00', closes: '17:00' },
+  }],
+  ...(socials.length ? { sameAs: socials.map((x) => x.url) } : {}),
+};
+const INFO_PAGES = [
+  { slug: 'about', type: 'AboutPage', title: 'About Hoolam: safe buying and selling on WhatsApp',
+    description: 'Hoolam holds the buyer’s money until the item arrives, then pays the seller. Who we are, why we built it, and what keeps your money safe.' },
+  { slug: 'contact', type: 'ContactPage', title: 'Contact Hoolam: WhatsApp, email and live reps',
+    description: 'Reach Hoolam on WhatsApp any time, or talk to a live rep from 9am to 5pm, every day. Email, phone and our registered office in Nigeria.' },
+];
+for (const p of INFO_PAGES) {
+  const path = `/${p.slug}/`;
+  const canonical = site ? `${site}${path}` : '';
+  const vars = {
+    ...shared, WA_HREF: esc(waLink), REP_HREF: esc(repLink), BANK_SHORT: String(COMPANY.bankPartner).replace(/\s*Microfinance Bank$/, ' MFB'),
+    WA_BIG: wa ? `<a class="big" data-wa href="${esc(waLink)}" target="_blank" rel="noopener">${esc(phoneText(wa))}</a>` : '',
+    PHONE_CARD: contact.phone && contact.phone !== wa
+      ? `<div class="way card"><i><svg class="ic" aria-hidden="true"><use href="#sf-phone"/></svg></i><h2>Call us</h2><a class="big" href="tel:+${esc(contact.phone)}">${esc(phoneText(contact.phone))}</a><p>From 9am to 5pm, every day.</p></div>` : '',
+    SAFETY: wa ? `Hoolam only messages you from <b>${esc(phoneText(wa))}</b>.` : '',
+    MAP_HREF: esc(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(COMPANY.address)}`),
+    SOCIALS: socials.length ? `<div class="socials" aria-label="Hoolam on social media">${socials.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" aria-label="Hoolam on ${esc(x.name)}: ${esc(x.label)}"><svg class="ic" aria-hidden="true"><use href="#sf-${esc(x.kind)}"/></svg>${esc(x.label)}</a>`).join('')}</div>` : '',
+  };
+  const body = fill(read(`pages/${p.slug}.html`), vars);
+  const jsonld = { '@context': 'https://schema.org', '@graph': [organization, { '@type': p.type, name: p.title, description: p.description, ...(canonical ? { url: canonical } : {}), about: { '@id': organization['@id'] }, inLanguage: 'en-NG' }] };
+  const html = fill(pageLayout, {
+    ...vars, TITLE: esc(p.title), DESCRIPTION: esc(p.description), BODY: body, SPRITE: sprite, FOOTER: footer, FOOTER_CSS: footerCss,
+    CANONICAL: canonical ? `<link rel="canonical" href="${esc(canonical)}">\n<meta property="og:url" content="${esc(canonical)}">` : '',
+    OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: imagesJson.replace(/</g, '\\u003c'),
+    JSONLD: JSON.stringify(jsonld).replace(/</g, '\\u003c'),
+    NAV_ABOUT: p.slug === 'about' ? ' aria-current="page"' : '', NAV_CONTACT: p.slug === 'contact' ? ' aria-current="page"' : '',
+  });
+  mkdirSync(join(out, p.slug), { recursive: true });
+  writeFileSync(join(out, p.slug, 'index.html'), html);
+}
+
+const pages = ['/', '/about/', '/contact/', '/legal/', ...LEGAL_PAGES.map((p) => `/legal/${p.slug}/`)];
 writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\n${site ? `Sitemap: ${site}/sitemap.xml\n` : ''}`);
 if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${site}${p}</loc></url>`).join('\n')}\n</urlset>\n`);
 writeFileSync(join(out, '404.html'), page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'This page doesn’t exist, or it has moved.', body: `<p><a class="lg-btn" href="/">Go to the Hoolam home page</a></p>`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">'));

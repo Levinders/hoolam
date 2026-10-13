@@ -1,0 +1,85 @@
+<div class="wrap hero">
+  <h1>Talk to Hoolam</h1>
+  <p class="lede">The fastest way is WhatsApp. When you need a person, a real one answers.</p>
+</div>
+
+<section class="wrap" aria-label="Ways to reach us">
+  <div class="grid ways">
+    <div class="way card main">
+      <div>
+        <i><svg class="ic" aria-hidden="true"><use href="#sf-whatsapp"/></svg></i>
+      </div>
+      <div>
+        <h2>Chat with Hoolam on WhatsApp</h2>
+        {{WA_BIG}}
+        <p style="margin-top:8px">Start an order, pay, check where your money is, or report a problem. It works any time, day or night.</p>
+      </div>
+      <div class="go"><a class="btn light" data-wa href="{{WA_HREF}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg>Open WhatsApp</a></div>      <div class="mini" aria-hidden="true">
+        <div class="bub out">Hi Hoolam<small>09:14</small></div>
+        <div class="bub in">Hi Ada! What would you like to do?<small>09:14</small></div>
+        <div class="opts"><span>Buy something</span><span>Sell something</span><span>My orders</span></div>
+      </div>
+    </div>
+    <div class="way card">
+      <i><svg class="ic" aria-hidden="true"><use href="#i-headset"/></svg></i>
+      <h2>Talk to a live rep</h2>
+      <p>Use the live chat to reach a real person, from 9am to 5pm, every day.</p>
+      <div class="go"><a class="btn" data-live-chat href="{{REP_HREF}}" target="_blank" rel="noopener">Chat with a rep</a></div>
+    </div>
+    <div class="way card">
+      <i><svg class="ic" aria-hidden="true"><use href="#sf-mail"/></svg></i>
+      <h2>Email</h2>
+      <a class="big" href="mailto:{{EMAIL}}">{{EMAIL}}</a>
+      <p>For partnerships, the press, and anything long.</p>
+    </div>
+    {{PHONE_CARD}}
+  </div>
+
+  <div class="card hours">
+    <div>
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>When we’re here</h2>
+      <p><b>Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.</p>
+    </div>
+    <div class="day" role="img" aria-label="WhatsApp works all 24 hours. Reps are available from 9am to 5pm.">
+      <div class="row"><span>WhatsApp</span><div class="bar"><span class="all"></span></div></div>
+      <div class="row"><span>Live reps</span><div class="bar"><span class="reps"></span></div></div>
+      <div class="ticks2" aria-hidden="true"><span></span><div><span style="left:0">12am</span><span style="left:37.5%">9am</span><span style="left:70.83%">5pm</span><span style="left:100%">12am</span></div></div>
+    </div>
+  </div>
+
+  <div class="warn" role="note">
+    <svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg>
+    <p><b>Stay safe.</b> {{SAFETY}} We never ask for your PIN, OTP or password, and we never ask you to pay into a personal account.</p>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="help">
+  <div class="wrap">
+    <h2 class="sec-h" id="help">Looking for something?</h2>
+    <div class="grid quick">
+      <a class="card" href="/legal/disputes/"><i><svg class="ic" aria-hidden="true"><use href="#i-message-circle-question"/></svg></i><span><b>Something wrong with an order</b><small>How to report it, and how we decide</small></span></a>
+      <a class="card" href="/legal/money/"><i><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg></i><span><b>Where is my money?</b><small>Every step your money takes</small></span></a>
+      <a class="card" href="/#journey"><i><svg class="ic" aria-hidden="true"><use href="#i-route"/></svg></i><span><b>How Hoolam works</b><small>From order to payment, in pictures</small></span></a>
+      <a class="card" href="/#pricing"><i><svg class="ic" aria-hidden="true"><use href="#i-hand-coins"/></svg></i><span><b>Pricing</b><small>What an order costs, and who pays</small></span></a>
+      <a class="card" href="/legal/delete-your-data/"><i><svg class="ic" aria-hidden="true"><use href="#i-key-round"/></svg></i><span><b>Delete my data</b><small>How to ask, and what we must keep</small></span></a>
+      <a class="card" href="/about/"><i><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg></i><span><b>About Hoolam</b><small>Who we are and why we built it</small></span></a>
+    </div>
+
+    <div class="office">
+      <div class="card">
+        <h3><svg class="ic" aria-hidden="true"><use href="#sf-pin"/></svg>Registered office</h3>
+        <address>{{ADDRESS}}</address>
+        <a class="link" href="{{MAP_HREF}}" target="_blank" rel="noopener">Open in Google Maps<svg class="ic" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></a>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" aria-hidden="true"><use href="#i-landmark"/></svg>The company</h3>
+        <dl>
+          <div><dt>Registered name</dt><dd>{{LEGAL_NAME}}</dd></div>
+          <div><dt>RC number</dt><dd>{{RC}}</dd></div>
+        </dl>
+        {{SOCIALS}}
+      </div>
+    </div>
+  </div>
+</section>
+<div style="height:clamp(32px,6vw,72px)"></div>

@@ -90,6 +90,35 @@ describe('landing page ↔ server', () => {
     expect(readFileSync('dist-site/index.html', 'utf8')).toContain('<section class="voices" hidden>');
   });
 
+  it('builds About and Contact us: indexed, with the company as search engines read it, linked from the footer (not the older home versions)', () => {
+    execFileSync('node', ['site/build.mjs'], { env: { ...process.env, SITE_OFFLINE: '1', WHATSAPP_PUBLIC_NUMBER: '2348117663890', SITE_URL: 'https://hoolam.example' } });
+    const about = readFileSync('dist-site/about/index.html', 'utf8');
+    const contact = readFileSync('dist-site/contact/index.html', 'utf8');
+    for (const [name, html] of [['about', about], ['contact', contact]] as const) {
+      expect(html, name).not.toMatch(/\{\{[A-Z_]+\}\}/); // every value filled in
+      expect(html, name).toContain(`<link rel="canonical" href="https://hoolam.example/${name}/">`);
+      expect(html, name).not.toContain('noindex');
+      const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)![1]!);
+      const org = ld['@graph'].find((x: any) => x['@type'] === 'Organization');
+      expect(org).toMatchObject({ legalName: 'HOOLAM DIGITAL PLATFORM LTD', telephone: '+2348117663890', identifier: { value: '9919417' } });
+      expect(org.contactPoint[0].hoursAvailable).toMatchObject({ opens: '09:00', closes: '17:00' });
+      expect(html, name).toContain('<li><a href="/about/">About</a></li>');
+      expect(html, name).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u); // no emojis on the site
+    }
+    expect(about).toContain('Buy and sell on WhatsApp without the fear');
+    expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
+    expect(about).not.toContain('8 October 2026'); // no registration date on About
+    expect(contact).toContain('Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.');
+    expect(contact).toContain('Hoolam only messages you from <b>08117663890</b>.');
+    expect(contact).toContain('data-live-chat href="https://wa.me/2348117663890?text=');
+    for (const s of ['/about/', '/contact/']) expect(readFileSync('dist-site/sitemap.xml', 'utf8')).toContain(`https://hoolam.example${s}`);
+    // the footer: About and Contact us at the end of Product, everywhere except home versions 1.0.0 and 1.1.0
+    const has = (f: string) => readFileSync(f, 'utf8').includes('<li><a href="/legal/disputes/">If something goes wrong</a></li>\n          <li><a href="/about/">About</a></li>\n          <li><a href="/contact/">Contact us</a></li>');
+    for (const f of ['dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html', 'dist-site/legal/terms/index.html', 'dist-site/legal/index.html', 'dist-site/about/index.html']) expect(has(f), f).toBe(true);
+    for (const f of ['dist-site/v/1.0.0/index.html', 'dist-site/v/1.1.0/index.html']) expect(has(f), f).toBe(false);
+    expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).not.toContain('{{FOOTER_MORE}}');
+  });
+
   it('builds a preview of every home page version that search engines are told never to list', () => {
     execFileSync('node', ['site/build.mjs'], { env: { ...process.env, SITE_OFFLINE: '1', WHATSAPP_PUBLIC_NUMBER: '2348012345678', SITE_URL: 'https://hoolam.example' } });
     const home = readFileSync('dist-site/index.html', 'utf8');
