@@ -513,7 +513,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   /** Asks Meta again which templates are approved (approval comes hours after the server starts). */
   async function refreshTemplates(): Promise<void> {
     if (c.WHATSAPP_DRY_RUN || !c.WHATSAPP_WABA_ID) return;
-    const st = await fetchTemplateStatuses({ token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log });
+    const st = await fetchTemplateStatuses({ token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, log });
     if (!st) return;
     for (const t of ALL_TEMPLATES) {
       const before = messenger.templateStatus(t.name);
@@ -533,7 +533,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
         return;
       }
-      const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, formMode: c.WHATSAPP_FORM_MODE, log };
+      const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, log };
       /** Meta's answer for one form goes into the registry (ready with its state, or failed with the reason). */
       const into = (key: FormKey, backup = false) => ({ ...o, report: (r: { name: string; id: string | null; status: string | null; error: string | null }) => {
         if (r.id && r.status) forms.ready(key, { flowId: r.id, name: r.name, status: r.status, backup });

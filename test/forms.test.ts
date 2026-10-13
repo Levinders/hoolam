@@ -21,9 +21,19 @@ describe('forms are sent the way Meta has them', () => {
     expect(forms.use('buy')).toEqual({ flowId: 'f1', mode: 'published' });
   });
 
-  it('a draft form is sent as a draft', async () => {
+  it('a draft form is published, and sent as published', async () => {
     const got: any[] = [];
-    await ensureBuyFlow({ ...base, formMode: 'draft', fetchImpl: meta('DRAFT'), report: (r) => got.push(r) });
+    await ensureBuyFlow({ ...base, fetchImpl: meta('DRAFT'), report: (r) => got.push(r) });
+    expect(got[0].status).toBe('PUBLISHED');
+  });
+
+  it('if Meta won\'t publish it yet, it\'s still sent, as a draft', async () => {
+    const got: any[] = [];
+    const noPublish = (async (url: string) => {
+      if (url.includes('/flows?')) return new Response(JSON.stringify({ data: [{ id: 'f1', name: (await import('../src/whatsapp/buy-flow.js')).buyFlowName(), status: 'DRAFT', validation_errors: [] }] }), { status: 200 });
+      return new Response('{"error":{"message":"Business not verified"}}', { status: 400 });
+    }) as unknown as typeof fetch;
+    expect(await ensureBuyFlow({ ...base, fetchImpl: noPublish, report: (r) => got.push(r) })).toBe('f1');
     expect(got[0].status).toBe('DRAFT');
   });
 

@@ -91,8 +91,8 @@ export async function syncAutomation(o: AutomationOptions): Promise<{ ok: boolea
 
 export interface MetaSetupOptions extends AutomationOptions {
   wabaId: string;
-  /** 'published': new or draft forms are published on Meta at start. Forms are always SENT in the state Meta reports. */
-  formMode: 'draft' | 'published';
+  /** No longer used: every form is published on Meta at start and sent in the state Meta reports. (Accepted so older callers still work.) */
+  formMode?: 'draft' | 'published';
   /** Told what happened to each form: its id and Meta's state (PUBLISHED / DRAFT), or why it can't be used. */
   report?: (r: { name: string; id: string | null; status: string | null; error: string | null }) => void;
 }
@@ -400,7 +400,8 @@ async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label
       return fail(`The form is ${String(existing.status).toLowerCase()} on Meta`);
     }
     // switched to published after the form was first made as a draft: publish it now (published forms can't change, so this is one-way)
-    if (o.formMode === 'published' && existing.status === 'DRAFT') {
+    // every form is published, so everyone can open it (published forms can't change: a changed form gets a new name)
+    if (existing.status === 'DRAFT') {
       const pub = await graph(o, 'POST', `${existing.id}/publish`);
       if (!pub.ok) {
         // a draft form only opens for testers, so people answer in the chat instead until it's published
@@ -415,7 +416,7 @@ async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label
     return ok(existing.id, existing.status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT');
   }
   const created = await graph(o, 'POST', `${o.wabaId}/flows`, {
-    name, categories: ['OTHER'], flow_json: JSON.stringify(json), publish: o.formMode === 'published',
+    name, categories: ['OTHER'], flow_json: JSON.stringify(json), publish: true,
     ...(endpointUri ? { endpoint_uri: endpointUri } : {}),
   });
   if (!created.ok || !created.json?.id) {
@@ -432,7 +433,7 @@ async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label
   let status: string = created.json.status ?? '';
   if (!status) {
     const r = await graph(o, 'GET', `${created.json.id}?fields=status`);
-    status = r.ok && r.json?.status ? r.json.status : o.formMode === 'published' ? 'PUBLISHED' : 'DRAFT';
+    status = r.ok && r.json?.status ? r.json.status : 'DRAFT';
   }
   o.log?.(`${label} created: ${name} (${status}, sending as ${status === 'PUBLISHED' ? 'published' : 'draft'})`);
   return ok(created.json.id, status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT');

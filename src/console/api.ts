@@ -684,7 +684,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // ---- WhatsApp forms: which ones are being sent, and Meta's reason when one isn't ----
     const formList = () => ({
       connected: !d.config.WHATSAPP_DRY_RUN && !!d.config.WHATSAPP_WABA_ID, formsOn: d.settings.formsEnabled(),
-      publishNew: d.config.WHATSAPP_FORM_MODE === 'published', forms: d.forms?.list() ?? [],
+      forms: d.forms?.list() ?? [],
     });
     api.get('/whatsapp/forms', async (req) => { need(req, 'settings.view'); return formList(); });
     api.post('/whatsapp/forms/retry', async (req) => {

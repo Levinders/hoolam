@@ -378,7 +378,7 @@ const FORM_WORD: Record<FormRow['state'], string> = { ready: 'Ready', resting: '
 
 /** Each WhatsApp form: being sent (and as draft or published, as Meta says), resting after a refusal, or why not. */
 function FormsPanel() {
-  const q = useData<{ connected: boolean; formsOn: boolean; publishNew: boolean; forms: FormRow[] }>('/whatsapp/forms');
+  const q = useData<{ connected: boolean; formsOn: boolean; forms: FormRow[] }>('/whatsapp/forms');
   const [busy, setBusy] = useState(false);
   const { can } = useAuth();
   const toast = useToast();
@@ -397,7 +397,7 @@ function FormsPanel() {
           {can('settings.update') && q.data.connected && <Button size="sm" variant="ghost" icon={RotateCcw} busy={busy} onClick={retry}>Try again now</Button>}</span>
       </div>
       <div className="panel-body stack" style={{ gap: 12 }}>
-        <p className="small muted">Each form is sent the way Meta has it, draft or published. If WhatsApp refuses one, only that form rests for 30 minutes and is then tried again; meanwhile the chat asks the same questions, so nobody gets stuck. {q.data.publishNew ? 'New forms are published on Meta when the server starts.' : <>New forms stay drafts on Meta (they only open for testers) until <code>WHATSAPP_FORM_MODE</code> is <code>published</code> on Render.</>}</p>
+        <p className="small muted">Each form is sent the way Meta has it, draft or published. If WhatsApp refuses one, only that form rests for 30 minutes and is then tried again; meanwhile the chat asks the same questions, so nobody gets stuck. New forms are published on Meta when the server starts; if Meta won't publish one yet, it's sent as a draft and its card says why.</p>
         {!q.data.formsOn && <div className="banner gold small"><AlertTriangle /><div>The <b>WhatsApp forms</b> switch above is off, so everyone answers in the chat.</div></div>}
         <ul className="tpl-list">
           {rows.map((r) => (

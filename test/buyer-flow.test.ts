@@ -389,7 +389,7 @@ describe('Meta setup', () => {
     expect(await ensureSellerAlertTemplate({ ...base, fetchImpl: f, log: (l) => log.push(l) })).toBe('PENDING');
     const flowPost = calls.find((c) => c.method === 'POST' && c.url.endsWith('/waba/flows'))!;
     expect(flowPost.body.name).toMatch(/^hoolam_buy_/);
-    expect(flowPost.body.publish).toBe(false);
+    expect(flowPost.body.publish).toBe(true); // every form is published
     expect(JSON.parse(flowPost.body.flow_json).version).toBe('7.3');
     const tplPost = calls.find((c) => c.method === 'POST' && c.url.endsWith('/waba/message_templates'))!;
     expect(tplPost.body.category).toBe('UTILITY');
@@ -416,14 +416,14 @@ describe('Meta setup', () => {
     expect(readBuyForm({ item: 'Shoes', price: '15k' }).price).toBe('15k');
   });
 
-  it('publishes a draft form when the server is set to published', async () => {
+  it('publishes a draft form, whatever WHATSAPP_FORM_MODE said', async () => {
     const { f, calls } = fakeMeta({ flows: [{ id: 'flow-9', name: buyFlowName(), status: 'DRAFT' }], templates: [] });
-    expect(await ensureBuyFlow({ ...base, formMode: 'published', fetchImpl: f })).toBe('flow-9');
+    expect(await ensureBuyFlow({ ...base, fetchImpl: f })).toBe('flow-9');
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/flow-9/publish'))).toBe(true);
   });
 
   it('reuses what already exists', async () => {
-    const { f, calls } = fakeMeta({ flows: [{ id: 'flow-9', name: buyFlowName(), status: 'DRAFT' }], templates: [{ name: SELLER_ALERT.name, status: 'APPROVED' }] });
+    const { f, calls } = fakeMeta({ flows: [{ id: 'flow-9', name: buyFlowName(), status: 'PUBLISHED' }], templates: [{ name: SELLER_ALERT.name, status: 'APPROVED' }] });
     expect(await ensureBuyFlow({ ...base, fetchImpl: f })).toBe('flow-9');
     expect(await ensureSellerAlertTemplate({ ...base, fetchImpl: f })).toBe('APPROVED');
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
