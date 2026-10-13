@@ -58,8 +58,8 @@ export class FormRegistry {
   }
 
   /** Created or found on Meta. `status` is Meta's: PUBLISHED or DRAFT. */
-  ready(key: FormKey, r: { flowId: string; name: string; status: string; backup?: boolean }): void {
-    this.s.set(key, { ...this.blank(key, null), state: 'ready', flowId: r.flowId, name: r.name, mode: r.status === 'PUBLISHED' ? 'published' : 'draft', backup: !!r.backup });
+  ready(key: FormKey, r: { flowId: string; name: string; status: string; backup?: boolean; note?: string | null }): void {
+    this.s.set(key, { ...this.blank(key, r.note ?? null), state: 'ready', flowId: r.flowId, name: r.name, mode: r.status === 'PUBLISHED' ? 'published' : 'draft', backup: !!r.backup });
   }
 
   /** Couldn't be set up on Meta. */

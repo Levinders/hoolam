@@ -536,7 +536,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, log };
       /** Meta's answer for one form goes into the registry (ready with its state, or failed with the reason). */
       const into = (key: FormKey, backup = false) => ({ ...o, report: (r: { name: string; id: string | null; status: string | null; error: string | null }) => {
-        if (r.id && r.status) forms.ready(key, { flowId: r.id, name: r.name, status: r.status, backup });
+        if (r.id && r.status) forms.ready(key, { flowId: r.id, name: r.name, status: r.status, backup, note: r.error });
         else forms.failed(key, r.error ?? 'Unknown problem', r.name);
       } });
       // the alerts and the deal updates used outside WhatsApp's 24-hour window (submitted once; used after Meta approves)

@@ -385,7 +385,7 @@ export async function registerFlowsKey(o: AutomationOptions, publicKeyPem: strin
 
 async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label: string, endpointUri?: string): Promise<string | null> {
   const fail = (error: string): null => { o.report?.({ name, id: null, status: null, error: error.slice(0, 400) }); return null; };
-  const ok = (id: string, status: string): string => { o.report?.({ name, id, status, error: null }); return id; };
+  const ok = (id: string, status: string, note: string | null = null): string => { o.report?.({ name, id, status, error: note }); return id; };
   const list = await graph(o, 'GET', `${o.wabaId}/flows?fields=id,name,status,validation_errors&limit=100`);
   if (!list.ok) { o.log?.(`${label}: can't list forms (HTTP ${list.status}): ${list.text}`); return fail(`Can't list forms on Meta (HTTP ${list.status}): ${list.text}`); }
   const existing = (list.json?.data ?? []).find((x: { name: string }) => x.name === name);
@@ -407,7 +407,7 @@ async function ensureFlow(o: MetaSetupOptions, json: object, name: string, label
         // a draft form only opens for testers, so people answer in the chat instead until it's published
         // still usable as a draft (it opens for testers); the console shows why it isn't published
         o.log?.(`${label}: couldn't publish ${name} (HTTP ${pub.status}): ${pub.text}. Sending it as a draft.`);
-        return ok(existing.id, 'DRAFT');
+        return ok(existing.id, 'DRAFT', `Meta wouldn't publish it yet, so it's sent as a draft (only Meta testers can open it): ${pub.text}`);
       }
       o.log?.(`${label} published: ${name}`);
       return ok(existing.id, 'PUBLISHED');

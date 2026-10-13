@@ -35,6 +35,10 @@ describe('forms are sent the way Meta has them', () => {
     }) as unknown as typeof fetch;
     expect(await ensureBuyFlow({ ...base, fetchImpl: noPublish, report: (r) => got.push(r) })).toBe('f1');
     expect(got[0].status).toBe('DRAFT');
+    expect(got[0].error).toMatch(/wouldn't publish it yet[\s\S]*Business not verified/);
+    const forms = new FormRegistry();
+    forms.ready('buy', { flowId: 'f1', name: got[0].name, status: got[0].status, note: got[0].error });
+    expect(forms.get('buy')).toMatchObject({ state: 'ready', mode: 'draft', reason: expect.stringMatching(/wouldn't publish/) });
   });
 
   it('a blocked form is not sent, with the reason', async () => {
