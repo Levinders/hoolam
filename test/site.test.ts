@@ -113,7 +113,11 @@ describe('landing page ↔ server', () => {
     expect(about).toContain('Pay on delivery, made digital (DPOD)</h2>');
     expect(about).toContain('Hoolam is a social commerce platform for buying and selling');
     expect(about).not.toContain('cash to count');
-    expect(about).toContain('Special Control Unit against Money Laundering (SCUML)');
+    expect(about).not.toContain('Special Control Unit'); // the SCUML line shows only once its number is set
+    expect(about).not.toContain('in progress');
+    expect(about).toContain('Mama Bella paid<span class="tag seller">');
+    expect(about).toContain('The money is safely held in the middle until both sides are happy.');
+    expect(about).not.toContain('Nobody can touch it');
     // About and Contact us in the phone menu only (here and on home 1.2.0), never in the wide top bar
     for (const f of ['dist-site/about/index.html', 'dist-site/contact/index.html', 'dist-site/v/1.2.0/index.html']) {
       const h = readFileSync(f, 'utf8');
