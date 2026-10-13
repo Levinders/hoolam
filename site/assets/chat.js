@@ -243,7 +243,7 @@
     var oldMsgs = root.querySelector('.msgs'), oldBody = root.querySelector('.body');
     var atBottom = !oldMsgs || oldMsgs.scrollHeight - oldMsgs.scrollTop - oldMsgs.clientHeight < 60;
     var msgsTop = oldMsgs ? oldMsgs.scrollTop : 0, bodyTop = oldBody ? oldBody.scrollTop : 0;
-    shell.innerHTML = launcher() + (S.open ? '<div class="veil' + (S.anim ? ' anim' : '') + '" data-act="close"></div>' + panel() : '');
+    shell.innerHTML = launcher() + (S.open ? '<div class="veil' + (S.anim ? ' anim' : '') + '" data-act="close"><span class="ghost" aria-hidden="true">' + mark(132) + '</span></div>' + panel() : '');
     if (S.anim) { var pn = root.querySelector('.panel'); if (pn) pn.classList.add('anim'); S.anim = false; }
     bind();
     if (focused) { var f = root.querySelector('#' + focused); if (f) { f.focus(); if (f.setSelectionRange && f.value) f.setSelectionRange(f.value.length, f.value.length); } }
@@ -279,14 +279,8 @@
     return '<button role="tab" aria-selected="' + (S.tab === k) + '" class="' + (S.tab === k ? 'on' : '') + '" data-tab="' + k + '">' + ic(icon) + '<span>' + label + '</span>' + (n ? '<i class="n">' + n + '</i>' : '') + '</button>';
   }
   function homeTab() {
-    var c = S.cfg || { home: [] };
-    var t = S.threads[0];
+    // Home is the greeting (in the header) and WhatsApp; chatting happens on the Messages tab.
     var h = '<div class="pad">';
-    h += '<button class="card ask" data-tab="messages"><span><b>' + (t ? 'Continue your chat' : 'Send us a message') + '</b><small>' +
-      (t && t.last ? esc(t.last.text).slice(0, 70) : 'A Hoolam rep answers right here.') + '</small></span>' + ic('send', 'go') + '</button>';
-    (c.home || []).forEach(function (x) {
-      h += '<a class="card" ' + (x.url ? 'href="' + esc(x.url) + '"' + (/^https?:/.test(x.url) ? ' target="_blank" rel="noopener"' : '') : 'role="presentation"') + '><span><b>' + esc(x.title) + '</b><small>' + esc(x.body) + '</small></span>' + (x.url ? ic('right', 'go') : '') + '</a>';
-    });
     if (WA) h += '<a class="card wa" href="' + esc(WA) + '" target="_blank" rel="noopener">' + ic('wa', 'lead') + '<span><b>Prefer WhatsApp?</b><small>Hoolam on WhatsApp works any time, day or night.</small></span>' + ic('right', 'go') + '</a>';
     return h + '</div>';
   }
@@ -456,7 +450,9 @@
       '.hc *{box-sizing:border-box}.hc button,.hc input,.hc textarea{font:inherit;color:inherit}.hc a{color:var(--teal)}',
       '.ic{width:19px;height:19px;flex:none;display:block}',
       '.mark{border-radius:10px;flex:none;display:block;object-fit:contain}',
-      '.veil{position:fixed;inset:0;background:rgba(27,35,33,.16);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}.veil.anim{animation:fade .25s ease}',
+      '.veil{position:fixed;inset:0;background:rgba(4,22,24,.85);display:grid;place-items:center;padding-right:416px}.veil.anim{animation:fade .25s ease}',
+      '.veil .ghost{display:none;opacity:.16;pointer-events:none}.veil .ghost .mark{display:block;border-radius:36px;box-shadow:none}',
+      '@media (min-width:900px){.veil .ghost{display:block}}',
       '@keyframes fade{from{opacity:0}to{opacity:1}}',
       '.launch{position:fixed;z-index:2;right:max(18px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;border:0;background:var(--teal);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 14px 34px -10px rgba(8,62,67,.55),0 3px 8px rgba(0,0,0,.12);transition:transform .2s cubic-bezier(.22,.8,.24,1),background .2s}',
       '.launch:hover{transform:translateY(-2px);background:var(--teal-2)}.launch .ic{width:24px;height:24px}',
@@ -481,8 +477,6 @@
       '.card{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:16px;background:var(--card);border:0;box-shadow:inset 0 0 0 1px var(--rule);text-align:left;text-decoration:none;color:var(--ink);cursor:pointer;width:100%;transition:box-shadow .2s,transform .2s}',
       '.card:hover{box-shadow:inset 0 0 0 1px var(--teal);transform:translateY(-1px)}.card span{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}.card b{font-weight:600;font-size:.93rem}.card small{color:var(--soft);font-size:.8rem;line-height:1.4}',
       '.card .go{width:17px;height:17px;color:var(--teal)}.card .lead{width:24px;height:24px;color:#25A55F}',
-      '.card.ask{background:#fff;box-shadow:0 10px 26px -18px rgba(8,62,67,.5),inset 0 0 0 1px var(--rule)}',
-      '.card.ask .go{width:32px;height:32px;padding:8px;border-radius:10px;background:var(--teal);color:#fff}',
       '.tabs{display:flex;background:var(--card);border-top:1px solid var(--rule);padding:5px 6px max(5px,env(safe-area-inset-bottom));flex:none}',
       '.tabs button{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;border:0;background:none;color:var(--soft);font-size:.7rem;font-weight:600;cursor:pointer;border-radius:12px}',
       '.tabs button.on{color:var(--teal)}.tabs button:hover{background:var(--bg)}.tabs .ic{width:20px;height:20px}',

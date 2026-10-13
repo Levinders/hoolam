@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronDown, Eye, EyeOff, HelpCircle, House, ImagePlus, Megaphone, MessageSquareQuote, Pencil, Plus, Reply, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, Eye, EyeOff, HelpCircle, ImagePlus, Megaphone, MessageSquareQuote, Pencil, Plus, Reply, Sparkles, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, post } from '../api';
 import { useAuth } from '../auth';
@@ -6,13 +6,12 @@ import { ago } from '../format';
 import { Button, ConfirmAction, Switch, useToast } from '../ui';
 import { useSupport } from './hub';
 
-type Kind = 'HOME' | 'QUESTION' | 'NEWS' | 'CHIP' | 'SAVED' | 'WELCOME';
+type Kind = 'QUESTION' | 'NEWS' | 'CHIP' | 'SAVED' | 'WELCOME';
 interface Item { id: number; kind: Kind; title: string; body: string; url: string | null; shortcut: string | null; published: boolean; position: number; updatedAt: string; updatedBy: string | null; preview: string; imageId: number | null }
 
 /** What visitors see in the chat, and (kept apart) what only reps use. */
-const SECTIONS: { kind: Kind; label: string; icon: typeof House; help: string; reps?: boolean }[] = [
+const SECTIONS: { kind: Kind; label: string; icon: typeof Megaphone; help: string; reps?: boolean }[] = [
   { kind: 'WELCOME', label: 'Welcome', icon: Sparkles, help: 'The first line of every new chat.' },
-  { kind: 'HOME', label: 'Home cards', icon: House, help: 'Cards on the chat’s Home tab. A link can be a page on hoolam.com (/legal/money/) or https://…' },
   { kind: 'QUESTION', label: 'Questions', icon: HelpCircle, help: 'The Questions tab, newest first. Visitors tap a question to open its answer.' },
   { kind: 'NEWS', label: 'News', icon: Megaphone, help: 'Short updates on the News tab, newest first. A picture is optional.' },
   { kind: 'CHIP', label: 'Quick replies', icon: MessageSquareQuote, help: 'Tap-to-send messages above the visitor’s message box.' },
@@ -188,10 +187,10 @@ function Editor({ kind, item, onCancel, onSave }: { kind: Kind; item: Partial<It
         </div>
       )}
       {kind === 'SAVED' && <div className="field"><label htmlFor="cm-short">Shortcut</label><div className="cm-shortin"><span>/</span><input id="cm-short" className="input" placeholder="fees" value={f.shortcut ?? ''} onChange={(e) => setF({ ...f, shortcut: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /></div></div>}
-      {['HOME', 'QUESTION', 'NEWS', 'SAVED'].includes(kind) && <div className="field"><label htmlFor="cm-title">{titleLabel}</label><input id="cm-title" className="input" value={f.title ?? ''} maxLength={140} onChange={(e) => setF({ ...f, title: e.target.value })} autoFocus /></div>}
+      {['QUESTION', 'NEWS', 'SAVED'].includes(kind) && <div className="field"><label htmlFor="cm-title">{titleLabel}</label><input id="cm-title" className="input" value={f.title ?? ''} maxLength={140} onChange={(e) => setF({ ...f, title: e.target.value })} autoFocus /></div>}
       <div className="field"><label htmlFor="cm-body">{bodyLabel}</label><textarea id="cm-body" className="input" rows={kind === 'CHIP' || kind === 'WELCOME' ? 2 : 5} maxLength={4000} value={f.body ?? ''} onChange={(e) => setF({ ...f, body: e.target.value })} autoFocus={kind === 'CHIP' || kind === 'WELCOME'} /></div>
       {(kind === 'QUESTION' || kind === 'SAVED') && <p className="small muted">Live values: {PLACEHOLDERS}. They always show the console’s current numbers.</p>}
-      {(kind === 'HOME' || kind === 'NEWS') && <div className="field"><label htmlFor="cm-url">Link <span className="faint">(optional)</span></label><input id="cm-url" className="input" placeholder="/#pricing or https://…" value={f.url ?? ''} onChange={(e) => setF({ ...f, url: e.target.value })} /></div>}
+      {kind === 'NEWS' && <div className="field"><label htmlFor="cm-url">Link <span className="faint">(optional)</span></label><input id="cm-url" className="input" placeholder="/#pricing or https://…" value={f.url ?? ''} onChange={(e) => setF({ ...f, url: e.target.value })} /></div>}
       <div className="row" style={{ gap: 8 }}>
         {kind !== 'WELCOME' && kind !== 'SAVED' && <label className="row small" style={{ gap: 8 }}><Switch on={f.published ?? true} label="Show in the chat" onChange={(v) => setF({ ...f, published: v })} />Show in the chat</label>}
         <span className="spacer" />

@@ -167,6 +167,11 @@ function Thread({ id, onBack, onChanged }: { id: number; onBack: () => void; onC
   const othersHandling = t.assignedTo && !t.mine;
   const others = (t.viewers ?? []).filter((v: any) => v.id !== me?.id);
   const lastStaff = [...t.messages].reverse().find((m: any) => m.kind === 'STAFF');
+  // the visitor's rating shows in the chat where it happened
+  const rated = t.rating && t.ratedAt ? (
+    <div className={`lc-system rated ${t.rating === 'UP' ? 'good' : 'bad'}`}><span>{t.rating === 'UP' ? <ThumbsUp /> : <ThumbsDown />}{first(t.visitor.name)} rated {t.ratedStaff ? first(t.ratedStaff) : 'the chat'}: {t.rating === 'UP' ? 'helpful' : 'not helpful'} · {time(t.ratedAt)}</span></div>
+  ) : null;
+  const ratedAt = rated ? (() => { const i = t.messages.findIndex((m: any) => new Date(m.at) > new Date(t.ratedAt)); return i < 0 ? t.messages.length : i; })() : -1;
   return (
     <div className="lc-thread">
       <header className="lc-thead">
@@ -176,7 +181,9 @@ function Thread({ id, onBack, onChanged }: { id: number; onBack: () => void; onC
           <b>{t.visitor.name}</b>
           <span className="lc-sub">
             <a href={`https://wa.me/234${String(t.visitor.phone).slice(1)}`} target="_blank" rel="noopener">{t.visitor.phone}</a>
-            <span className={`lc-dot${t.visitor.online ? ' on' : ''}`}>{t.visitor.online ? 'On the page now' : 'Left the page'}</span>
+            <span className="lc-ref">{t.ref}</span>
+            {t.assignedName ? <span className={`lc-handler${t.mine ? ' mine' : ''}`} title={t.mine ? 'You are handling this chat' : `${t.assignedName} is handling this chat`}><UserRoundCheck />{t.mine ? 'You' : first(t.assignedName)}</span>
+              : <span className="lc-handler waiting">Waiting for a rep</span>}
           </span>
         </div>
         <div className="lc-actions">
@@ -186,13 +193,6 @@ function Thread({ id, onBack, onChanged }: { id: number; onBack: () => void; onC
             : <button className="btn sm" onClick={() => act('reopen', 'Chat reopened')}><RotateCcw />Reopen</button>}
         </div>
       </header>
-      <div className="lc-strip">
-        <span className="lc-ref">{t.ref}</span>
-        {t.assignedName ? <span className={`lc-tag${t.mine ? ' mine' : ''}`}><UserRoundCheck />{t.mine ? 'You are handling this' : `${first(t.assignedName)} is handling this`}</span> : <span className="lc-tag waiting">Waiting for a rep</span>}
-        {others.length > 0 && <span className="lc-tag view"><Eye />{others.map((v: any) => first(v.name)).join(', ')} {others.length === 1 ? 'is' : 'are'} here too</span>}
-        {t.status === 'CLOSED' && <span className="lc-tag closed">Closed</span>}
-        {t.rating && <span className={`lc-tag ${t.rating === 'UP' ? 'good' : 'bad'}`}>{t.rating === 'UP' ? <ThumbsUp /> : <ThumbsDown />}Rated {t.rating === 'UP' ? 'helpful' : 'not helpful'}{t.ratedStaff ? ` · ${first(t.ratedStaff)}` : ''}</span>}
-      </div>
 
       <div className="lc-body">
         <div className="lc-msgs">
@@ -201,12 +201,15 @@ function Thread({ id, onBack, onChanged }: { id: number; onBack: () => void; onC
             const newDay = !prev || day(prev.at) !== day(m.at);
             return (
               <Fragment key={m.id}>
+                {i === ratedAt && rated}
                 {newDay && <div className="lc-day"><span>{day(m.at)}</span></div>}
                 <Message m={m} t={t} seen={m.id === lastStaff?.id && t.visitorReadUpTo >= m.id} />
               </Fragment>
             );
           })}
+          {rated && ratedAt === t.messages.length && rated}
           {typing > 0 && <div className="lc-msg them"><div className="lc-typing" aria-label={`${first(t.visitor.name)} is typing`}><i /><i /><i /></div></div>}
+          {others.length > 0 && <div className="lc-here"><Eye />{others.map((v: any) => first(v.name)).join(', ')} {others.length === 1 ? 'is' : 'are'} looking at this chat too</div>}
           <div ref={end} />
         </div>
         {s.expanded && <InfoRail t={t} />}

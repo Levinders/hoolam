@@ -20,8 +20,8 @@ export const CHAT_MAX_IMAGE = 5 * 1024 * 1024; // News pictures
 export const REP_HOURS = { opens: 9, closes: 17 }; // Lagos time, every day
 const NOTIFY_AFTER_MINUTES = 2;
 
-export type ContentKind = 'HOME' | 'QUESTION' | 'NEWS' | 'CHIP' | 'SAVED' | 'WELCOME';
-export const CONTENT_KINDS: ContentKind[] = ['HOME', 'QUESTION', 'NEWS', 'CHIP', 'SAVED', 'WELCOME'];
+export type ContentKind = 'QUESTION' | 'NEWS' | 'CHIP' | 'SAVED' | 'WELCOME';
+export const CONTENT_KINDS: ContentKind[] = ['QUESTION', 'NEWS', 'CHIP', 'SAVED', 'WELCOME'];
 
 export class ChatError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
 
@@ -112,11 +112,11 @@ export class LiveChat {
   }
 
   async contentForVisitors() {
-    const rows = (await this.db.query(`SELECT id, kind, title, body, url, image_id, created_at, updated_at FROM chat_content WHERE published AND kind <> 'SAVED' ORDER BY kind, position, id`)).rows;
+    const rows = (await this.db.query(`SELECT id, kind, title, body, url, image_id, created_at, updated_at FROM chat_content WHERE published AND kind IN ('QUESTION','NEWS','CHIP','WELCOME') ORDER BY kind, position, id`)).rows;
     const of = (k: ContentKind) => rows.filter((r) => r.kind === k).map((r) => ({ id: Number(r.id), title: this.fill(r.title), body: this.fill(r.body), url: r.url, at: r.created_at, imageId: r.image_id ? Number(r.image_id) : null }));
     return {
       welcome: of('WELCOME')[0]?.body ?? 'Hi there. How can we help today?',
-      home: of('HOME'), questions: of('QUESTION'), news: of('NEWS'), chips: of('CHIP').map((c) => c.body),
+      questions: of('QUESTION'), news: of('NEWS'), chips: of('CHIP').map((c) => c.body),
       hours: repHours(), replyMinutes: this.o.settings?.repReplyMinutes() ?? 15,
     };
   }
@@ -133,7 +133,7 @@ export class LiveChat {
     const url = item.url ? String(item.url).trim().slice(0, 400) : null;
     if (url && !/^(https:\/\/|\/)/.test(url)) throw new ChatError('Links must start with https:// or / (a page on hoolam.com).');
     const shortcut = item.kind === 'SAVED' ? String(item.shortcut ?? '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) || null : null;
-    if (['HOME', 'QUESTION', 'NEWS', 'SAVED'].includes(item.kind) && !title) throw new ChatError('Add a title.');
+    if (['QUESTION', 'NEWS', 'SAVED'].includes(item.kind) && !title) throw new ChatError('Add a title.');
     if (!body) throw new ChatError(item.kind === 'QUESTION' ? 'Add the answer.' : 'Add the text.');
     if (item.kind === 'SAVED' && !shortcut) throw new ChatError('Add a shortcut, like fees (reps type /fees).');
     if (shortcut) {
@@ -401,7 +401,7 @@ export class LiveChat {
       id: Number(t.id), ref: t.ref, status: t.status, createdAt: t.created_at, sourcePage: t.source_page,
       visitor: { name: t.name, phone: localPhone(t.phone), userId: t.user_id, chats: t.chats, orders: t.orders, online: (this.online.get(Number(t.visitor_id)) ?? 0) > 0 },
       assignedTo: t.assigned_to, assignedName: t.staff_name, mine: t.assigned_to === staffId,
-      rating: t.rating, ratedStaff: t.rated_staff_name, visitorReadUpTo: Number(t.visitor_read_id), waNotifiedAt: t.wa_notified_at,
+      rating: t.rating, ratedAt: t.rated_at, ratedStaff: t.rated_staff_name, visitorReadUpTo: Number(t.visitor_read_id), waNotifiedAt: t.wa_notified_at,
       viewers: this.viewersOf(id), messages: msgs.map((m) => messageOut(m, true)),
     };
   }

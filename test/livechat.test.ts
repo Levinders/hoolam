@@ -70,6 +70,7 @@ describe('live chat', () => {
     expect(c.json.questions[1].body).not.toContain('{');
     expect(c.json.chips).toContain('Is my money safe?');
     expect(c.json.welcome).toBe('Hi there. How can we help today?');
+    expect(c.json.home).toBeUndefined(); // Home shows only "Prefer WhatsApp?" now
     expect(JSON.stringify(c.json)).not.toContain('/fees'); // saved replies are for reps only
   });
 
@@ -158,6 +159,7 @@ describe('live chat', () => {
     expect(v.json.messages.at(-1)).toMatchObject({ kind: 'SYSTEM', body: 'closed', by: 'Ada' });
     await site('POST', `/threads/${thread}/rate`, { rating: 'UP' }, key);
     expect((await con('owner', 'GET', `/livechat/${thread}`)).json).toMatchObject({ rating: 'UP', ratedStaff: 'Ada Okafor' });
+    expect((await con('owner', 'GET', `/livechat/${thread}`)).json.ratedAt).toBeTruthy();
     const team = await con('owner', 'GET', '/team');
     expect(team.json.rows.find((r: any) => r.name === 'Ada Okafor')).toMatchObject({ chat_up: 1, chat_down: 0 });
     await site('POST', `/threads/${thread}/messages`, { text: 'One more question please' }, key);
@@ -231,6 +233,8 @@ describe('live chat', () => {
 
   it('reps manage what the chat shows; saved replies stay with the team', async () => {
     const c = await con('rep', 'GET', '/livechat-content');
+    expect(c.json.rows.some((r: any) => r.kind === 'HOME')).toBe(false);
+    expect((await con('rep', 'POST', '/livechat-content', { kind: 'HOME', title: 'x', body: 'y' })).json.error).toMatch(/Unknown kind/);
     expect(c.json.rows.filter((r: any) => r.kind === 'SAVED').map((r: any) => r.shortcut)).toEqual(['fees', 'safe', 'order', 'hours']);
     expect((await con('rep', 'POST', '/livechat-content', { kind: 'SAVED', title: 'Again', body: 'x', shortcut: 'fees' })).json.error).toMatch(/already used/);
     const n = await con('rep', 'POST', '/livechat-content', { kind: 'NEWS', title: 'Holiday hours', body: 'Reps are off on 25 December.' });

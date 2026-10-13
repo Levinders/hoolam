@@ -110,9 +110,6 @@
 .lc-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .lc-who b { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lc-sub { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
-.lc-dot { display: inline-flex; align-items: center; gap: 5px; }
-.lc-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-.lc-dot.on::before { background: var(--green); box-shadow: 0 0 0 3px var(--green-50); }
 .lc-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .lc-strip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line-2); }
 .lc-ref { font: 600 11.5px ui-monospace, monospace; color: var(--faint); }
@@ -140,7 +137,7 @@
 .lc-day { text-align: center; margin: 6px 0; }
 .lc-day span { display: inline-block; padding: 3px 10px; border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-1); font-size: 11px; font-weight: 600; color: var(--muted); }
 .lc-system { text-align: center; }
-.lc-system span { display: inline-block; padding: 4px 10px; border-radius: 99px; background: var(--sunk); font-size: 11.5px; color: var(--muted); }
+.lc-system span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; background: var(--sunk); font-size: 11.5px; color: var(--muted); }
 .lc-msg { display: flex; flex-direction: column; max-width: 80%; gap: 3px; }
 .lc-msg.them { align-self: flex-start; }
 .lc-msg.us { align-self: flex-end; align-items: flex-end; }
@@ -283,3 +280,16 @@
 .cm.narrow .cm-item:not(.fold) .cm-item-main { flex-direction: column; width: 100%; }
 .cm.narrow .cm-item:not(.fold) .cm-thumb { width: 100%; }
 .cm.narrow .cm-item:not(.fold) .cm-item-actions { align-self: flex-end; }
+
+/* Chat header: number · ref · who has it (no extra row) */
+.lc-sub { align-items: center; }
+.lc-handler { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--ink-2); }
+.lc-handler svg { width: 13px; height: 13px; }
+.lc-handler.mine { color: var(--teal); }
+.lc-handler.waiting { color: var(--gold-ink); }
+/* In the chat: the rating, and other reps looking */
+.lc-system svg { width: 12px; height: 12px; }
+.lc-system.rated.good span { background: var(--green-50); color: var(--green); }
+.lc-system.rated.bad span { background: var(--red-50); color: var(--red); }
+.lc-here { align-self: center; display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; background: #EEF0FA; color: #3F4A8A; font-size: 11.5px; font-weight: 600; }
+.lc-here svg { width: 13px; height: 13px; }
