@@ -56,7 +56,6 @@ Secrets and platform IDs live only in Render (service `hoolam` → Environment);
 | `WHATSAPP_PUBLIC_NUMBER` | Fallback number for links if the console has none | Digits only. |
 | `WHATSAPP_GRAPH_VERSION` | Graph API version | v26.0 |
 | `WHATSAPP_DRY_RUN` | true = log messages instead of sending | false in production |
-| `WHATSAPP_FORM_MODE` | Whether new or draft forms are **published** on Meta when the server starts (`published`) or left as drafts (`draft`) | Forms are always sent in the state Meta reports, so this can't make them fail. `published` once Meta verified the business. |
 | `WHATSAPP_BUY_FORM`, `WHATSAPP_ORDERS_FORM`, `WHATSAPP_SYNC_MENU` | Switch the buyer form, the live order forms and the menu sync on or off | default on |
 | `FLOWS_PRIVATE_KEY` | Optional key for the encrypted forms endpoint | If unset, the server makes one and keeps it in the database (`app_secrets`). Secret. |
 | `PAYMENT_PROVIDER` | `monnify` or `fake` (pretend money) | currently `fake` |
@@ -376,7 +375,7 @@ Once the buyer has paid, the seller says how the item travels, the buyer gets a 
 
 The server creates every form on Meta when it starts; a changed form gets a new name (a hash of its contents), because published forms can't be edited. If a form can't be sent, the chat asks the same questions instead.
 
-- **Sent as Meta has it:** each form goes out as draft or published according to Meta's own state for that form (read at start), never from `WHATSAPP_FORM_MODE`. (Until 13 Oct 2026 the setting decided, and published forms sent as drafts were refused: "The flow is not in a draft state, but the mode is set to 'draft'.")
+- **Published, and sent as Meta has it:** when the server starts, every new or draft form is published on Meta, and each form goes out in the state Meta reports for it. No setting is involved (`WHATSAPP_FORM_MODE` was removed on 13 Oct 2026; it had sent published forms as drafts, which Meta refused: "The flow is not in a draft state, but the mode is set to 'draft'."). If Meta won't publish a form yet, it's still sent as a draft (only Meta testers can open it) and its console card says why.
 - **A refused form rests:** if WhatsApp refuses to send a form, only that form rests for 30 minutes (Meta's reason is kept), then it's tried again by itself. The other forms carry on. Blocked or deprecated forms aren't sent.
 - **Console → Settings → WhatsApp → WhatsApp forms:** one card per form (Buy something, its edit form, Sell something, its edit form, ID check, My orders, One order): **Ready · published/draft**, **Resting** (with "WhatsApp refused it: …" and when it's tried again), **Failed** (couldn't be set up on Meta, with the reason) or **Not set up** (dry run, no `WHATSAPP_WABA_ID`, switched off on Render). **Try again now** wakes resting forms and runs the Meta setup again (audited).
 
@@ -531,6 +530,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 13 Oct 2026 | `WHATSAPP_FORM_MODE` removed: every form is published at start like the rest; if Meta won't publish one yet, it's sent as a draft and its card says why | 2908ba1, 9e68a43 |
 | 13 Oct 2026 | WhatsApp forms are sent as Meta has them (draft or published), not from `WHATSAPP_FORM_MODE`; a refused form rests 30 minutes instead of switching every form off until a restart; console WhatsApp forms panel with Meta's reasons and Try again now | 412a05d |
 | 12 Oct 2026 | Prembly: the dashboard's BVN address and the same pattern for NIN as defaults; NIN sends both number fields; a wrong address or refused request says "try again" without using a try; Prembly's reference is kept | 7e34fe3 |
 | 12 Oct 2026 | ID checks (KYC) with Prembly: BVN or NIN once, above the limit without ID (either side) and for every seller before payouts; two console limits; Verified seller; payout and refund names must match; console ID panel and Needs review; privacy and terms sections | e3c13f0 |
