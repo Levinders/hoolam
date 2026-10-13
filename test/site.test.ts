@@ -142,6 +142,13 @@ describe('landing page ↔ server', () => {
     for (const f of ['dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html', 'dist-site/legal/terms/index.html', 'dist-site/legal/index.html', 'dist-site/about/index.html']) expect(has(f), f).toBe(true);
     for (const f of ['dist-site/v/1.0.0/index.html', 'dist-site/v/1.1.0/index.html']) expect(has(f), f).toBe(false);
     expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).not.toContain('{{FOOTER_MORE}}');
+    // the website chat: About, Contact us, legal pages, home 1.2.0 and the draft; never 1.0.0 or 1.1.0
+    for (const f of ['dist-site/about/index.html', 'dist-site/contact/index.html', 'dist-site/legal/privacy/index.html', 'dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html']) {
+      expect(readFileSync(f, 'utf8'), f).toMatch(/<script src="\/assets\/chat\.js\?v=[0-9a-f]{10}" data-api="[^"]+" (data-logo="[^"]+" )?data-wa="https:\/\/wa\.me\/2348117663890[^"]*" defer><\/script>/);
+    }
+    for (const f of ['dist-site/v/1.0.0/index.html', 'dist-site/v/1.1.0/index.html']) expect(readFileSync(f, 'utf8'), f).not.toContain('chat.js');
+    expect(readFileSync('dist-site/legal/privacy/index.html', 'utf8')).toContain('Live chat on our website');
+    expect(readFileSync('dist-site/legal/cookies/index.html', 'utf8')).toContain('hoolam:chat:key');
   });
 
   it('builds a preview of every home page version that search engines are told never to list', () => {

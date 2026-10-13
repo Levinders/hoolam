@@ -10,12 +10,14 @@ import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
 import { titleName, type KycService } from '../kyc.js';
+import { ChatError, type LiveChat } from '../livechat.js';
+import { registerSupportApi } from './support-api.js';
 import type { FormRegistry } from '../whatsapp/forms.js';
 import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
 import { ALL_TEMPLATES } from '../whatsapp/automation.js';
 import { audit, type Actor } from './audit.js';
-import { AuthError, can, permissionsFor, ROLES, type Role, type StaffAuth, type StaffMember } from './staff.js';
+import { accessDefault, AuthError, hasAccess, permissionsFor, permissionsOf, ROLES, type Role, type StaffAuth, type StaffMember } from './staff.js';
 
 /**
  * The console's API, under /console/api. Every route needs a signed-in staff member, except the sign-in steps.
@@ -28,6 +30,7 @@ export interface ConsoleDeps {
   refreshTemplates?: () => Promise<void>;
   kyc?: KycService;
   forms?: FormRegistry;
+  chat?: LiveChat;
   retryForms?: () => Promise<void>;
 }
 
@@ -56,7 +59,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
   const meta = (req: FastifyRequest) => ({ ip: req.ip ?? null, ua: (req.headers['user-agent'] as string) ?? null });
   const actorOf = (req: FastifyRequest): Actor => ({ staffId: req.staff!.id, name: req.staff!.name, role: req.staff!.role, ip: req.ip ?? null });
   const need = (req: FastifyRequest, action: string) => {
-    if (!can(req.staff!.role, action)) throw new HttpError(403, `Your role (${roleName(req.staff!.role)}) can't do this. Ask an owner.`);
+    if (!permissionsOf(req.staff!).includes(action)) throw new HttpError(403, action.startsWith('support.') || action.startsWith('livechat.') ? 'You don\'t have access to this support yet. Ask an owner to switch it on in Team.' : `Your role (${roleName(req.staff!.role)}) can't do this. Ask an owner.`);
   };
   const reasonOf = (body: unknown, min = 4): string => {
     const r = String((body as { reason?: string })?.reason ?? '').trim();
@@ -88,11 +91,14 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
     api.setErrorHandler((err, _req, reply) => {
       const e = err as Error & { statusCode?: number; status?: number };
-      if (err instanceof HttpError || err instanceof AuthError) return reply.code(err.status).send({ error: err.message });
+      if (err instanceof HttpError || err instanceof AuthError || err instanceof ChatError) return reply.code(err.status).send({ error: err.message });
       if (err instanceof DealError) return reply.code(409).send({ error: err.message && err.message !== err.reason ? err.message : dealErrorText(err.reason) });
       d.log(`console error: ${e.stack ?? e.message}`);
       return reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).send({ error: e.statusCode && e.statusCode < 500 ? e.message : 'Something went wrong on our side. Please try again.' });
     });
+
+    // the support widget: website live chat and WhatsApp support
+    if (d.chat) registerSupportApi(api, { db, chat: d.chat, need, actorOf });
 
     // =====================================================================================
     // Sign-in
@@ -563,14 +569,17 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // Support
     // =====================================================================================
     api.get('/support', async (req) => {
+      need(req, 'support.reply');
       const state = (req.query as { state?: string }).state === 'closed' ? 'CLOSED' : 'OPEN';
       const r = await db.query(
         `SELECT s.id, s.phone, s.message, s.status, s.created_at, s.closed_at, u.id AS user_id, u.display_name, u.business_name,
-                (SELECT max(created_at) FROM outbound_messages o WHERE o.phone=s.phone AND o.body::text LIKE '%From the Hoolam team%') AS last_reply_at
-         FROM support_requests s LEFT JOIN users u ON u.id=s.user_id WHERE s.status=$1 ORDER BY s.created_at ${state === 'OPEN' ? 'ASC' : 'DESC'} LIMIT 100`, [state]);
+                (SELECT max(created_at) FROM outbound_messages o WHERE o.phone=s.phone AND o.body::text LIKE '%From the Hoolam team%') AS last_reply_at,
+                (s.status='OPEN' AND NOT EXISTS (SELECT 1 FROM support_reads r WHERE r.request_id=s.id AND r.staff_id=$2)) AS unread
+         FROM support_requests s LEFT JOIN users u ON u.id=s.user_id WHERE s.status=$1 ORDER BY s.created_at ${state === 'OPEN' ? 'ASC' : 'DESC'} LIMIT 100`, [state, req.staff!.id]);
       return { rows: r.rows };
     });
     api.get('/support/:id', async (req) => {
+      need(req, 'support.reply');
       const id = Number((req.params as { id: string }).id);
       const s = (await db.query(`SELECT s.*, u.display_name, u.business_name FROM support_requests s LEFT JOIN users u ON u.id=s.user_id WHERE s.id=$1`, [id])).rows[0];
       if (!s) throw new HttpError(404, 'No such request');
@@ -676,7 +685,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       }
       if (!Object.keys(changes).length) throw new HttpError(400, 'Nothing changed.');
       const core = Object.keys(changes).filter((k) => SETTING_DEFS.find((x) => x.key === k)?.core);
-      if (core.length && !can(req.staff!.role, 'settings.core')) throw new HttpError(403, 'Only an owner can change fees, limits and Hoolam\'s WhatsApp number.');
+      if (core.length && !permissionsOf(req.staff!).includes('settings.core')) throw new HttpError(403, 'Only an owner can change fees, limits and Hoolam\'s WhatsApp number.');
       await act(req, { action: 'settings.update', targetType: 'settings', targetId: Object.keys(changes).join(','), reason, details: { changes: diff } },
         async () => { try { await d.settings.save(db, changes, req.staff!.id); } catch (e) { throw new HttpError(400, (e as Error).message); } });
       // the website and its legal pages show fees, limits, timings, the number and the contact details: refresh it
@@ -921,19 +930,29 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // =====================================================================================
     api.get('/team', async () => {
       const r = await db.query(
-        `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, s.created_at, s.last_login_at,
+        `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, s.created_at, s.last_login_at, s.access_whatsapp, s.access_live,
                 (SELECT max(at) FROM audit_log a WHERE a.staff_id=s.id) AS last_action_at,
-                (SELECT count(*)::int FROM audit_log a WHERE a.staff_id=s.id AND a.at > now() - interval '30 days') AS actions_30d
+                (SELECT count(*)::int FROM audit_log a WHERE a.staff_id=s.id AND a.at > now() - interval '30 days') AS actions_30d,
+                (SELECT count(*)::int FROM chat_threads t WHERE t.rated_staff=s.id AND t.rating='UP' AND t.rated_at > now() - interval '90 days') AS chat_up,
+                (SELECT count(*)::int FROM chat_threads t WHERE t.rated_staff=s.id AND t.rating='DOWN' AND t.rated_at > now() - interval '90 days') AS chat_down
          FROM staff s ORDER BY s.active DESC, s.role, s.name`);
-      return { rows: r.rows, roles: ROLES.map((role) => ({ role, name: roleName(role), can: permissionsFor(role) })) };
+      return {
+        rows: r.rows.map((x) => ({ ...x, access: { whatsapp: hasAccess(x, 'whatsapp'), live: hasAccess(x, 'live') } })),
+        roles: ROLES.map((role) => ({ role, name: roleName(role), can: permissionsFor(role), access: { whatsapp: role === 'OWNER' || accessDefault(role, 'whatsapp'), live: role === 'OWNER' || accessDefault(role, 'live') } })),
+      };
     });
     api.post('/team/invite', async (req) => {
       need(req, 'staff.manage');
-      return d.auth.invite(actorOf(req), req.body as { email: string; name: string; role: Role });
+      return d.auth.invite(actorOf(req), req.body as { email: string; name: string; role: Role; access?: { whatsapp?: boolean; live?: boolean } });
     });
     api.post('/team/:id/role', async (req) => {
       need(req, 'staff.manage');
       await d.auth.setRole(actorOf(req), (req.params as { id: string }).id, (req.body as { role: Role }).role);
+      return { ok: true };
+    });
+    api.post('/team/:id/access', async (req) => {
+      need(req, 'staff.manage');
+      await d.auth.setAccess(actorOf(req), (req.params as { id: string }).id, req.body as { whatsapp?: boolean; live?: boolean });
       return { ok: true };
     });
     api.post('/team/:id/active', async (req) => {
@@ -977,7 +996,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
 // ---------- helpers ----------
 function meOf(s: StaffMember) {
-  return { id: s.id, email: s.email, name: s.name, role: s.role, roleName: roleName(s.role), can: permissionsFor(s.role) };
+  return { id: s.id, email: s.email, name: s.name, role: s.role, roleName: roleName(s.role), can: permissionsOf(s), access: { whatsapp: hasAccess(s, 'whatsapp'), live: hasAccess(s, 'live') } };
 }
 export function roleName(r: Role): string {
   return { OWNER: 'Owner', ADMIN: 'Admin', FINANCE: 'Finance', SUPPORT: 'Support' }[r] ?? r;

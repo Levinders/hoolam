@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import { BrandProvider } from './brand';
 import { Shell } from './Shell';
@@ -10,11 +11,24 @@ import { Deal } from './pages/Deal';
 import { Disputes } from './pages/Disputes';
 import { Money } from './pages/Money';
 import { People, Person } from './pages/People';
-import { Support } from './pages/Support';
+import { openSupport } from './support/hub';
 import { Insights } from './pages/Insights';
 import { Settings } from './pages/Settings';
 import { Team } from './pages/Team';
 import { Audit } from './pages/Audit';
+
+/** Old links to /support (Needs action, the audit trail): open the support widget instead, on the page underneath. */
+function OpenSupport() {
+  const [sp] = useSearchParams();
+  const nav = useNavigate();
+  useEffect(() => {
+    const live = Number(sp.get('live')) || null;
+    const wa = Number(sp.get('open')) || null;
+    openSupport(live ? 'live' : 'whatsapp', live ?? wa ?? null);
+    if (window.history.length > 1) nav(-1); else nav('/', { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
 
 function Gate() {
   const { loading, setupNeeded, me } = useAuth();
@@ -33,7 +47,7 @@ function Gate() {
               <Route path="/money" element={<Money />} />
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<Person />} />
-              <Route path="/support" element={<Support />} />
+              <Route path="/support" element={<OpenSupport />} />
               <Route path="/insights" element={<Insights />} />
               <Route path="/settings" element={<Navigate to="/settings/fees" replace />} />
               <Route path="/settings/:page" element={<Settings />} />

@@ -226,6 +226,12 @@ export const DEAL_TEMPLATES = {
     body: '🙋 *Hoolam support:* an update about your order *{{1}}*.\n\n{{2}}\n\nReply here if you have any questions.',
     example: ['HL-7K2QF', 'Your rider is on the way and will call you in about 10 minutes.'],
   },
+  liveChatReply: {
+    // A rep answered a website live chat after the visitor left the page. Sent once until they come back.
+    name: 'hoolam_live_chat_reply', label: 'A rep replied to your website chat (to a visitor)',
+    body: 'Hi {{1}}, a Hoolam rep replied to your chat on our website:\n\n"{{2}}"\n\nOpen the chat to read and reply: {{3}}\n\nThis message is only about the chat you started.',
+    example: ['Ivana', 'Yes, your money is held safely until the item arrives.', 'https://hoolam.com/contact/?chat=Ab3dE5fG7h'],
+  },
   buyerAccepted: {
     name: 'hoolam_buyer_accepted', label: 'The buyer accepted (to the seller)',
     body: '✅ Good news: *{{1}}* accepted your order *{{2}}* on Hoolam.\n\nWe have asked them to pay. *Do not send the item until we tell you the money is held.*',

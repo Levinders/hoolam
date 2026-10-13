@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, post } from './api';
 
-export interface Me { id: string; email: string; name: string; role: 'OWNER' | 'ADMIN' | 'FINANCE' | 'SUPPORT'; roleName: string; can: string[] }
+export interface Me { id: string; email: string; name: string; role: 'OWNER' | 'ADMIN' | 'FINANCE' | 'SUPPORT'; roleName: string; can: string[]; access?: { whatsapp: boolean; live: boolean } }
 interface AuthState { loading: boolean; setupNeeded: boolean; me: Me | null; refresh: () => Promise<void>; signOut: () => Promise<void>; can: (a: string) => boolean }
 
 const Ctx = createContext<AuthState>(null as unknown as AuthState);

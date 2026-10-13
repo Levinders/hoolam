@@ -6,6 +6,7 @@ import { FakeProvider } from '../payments/fake.js';
 import type { PaymentProvider } from '../payments/provider.js';
 import { DealError, isVerified, type BuyerDealInput, type DealService, type MenuMode, type User } from '../deals/service.js';
 import { readDob, type KycMethod, type KycService } from '../kyc.js';
+import { bus } from '../events.js';
 import { CATEGORIES, categoryTitle, isCategory } from '../deals/categories.js';
 import type { ContactCard, Messenger, Outbound } from './client.js';
 import type { Inbound } from './inbound.js';
@@ -585,6 +586,7 @@ export class Conversation {
           'INSERT INTO support_requests (user_id, phone, message, wa_message_id) VALUES ($1,$2,$3,$4) RETURNING id', [user.id, m.phone, (about + body).slice(0, 2000), m.id]);
         await this.save(m.phone, 'IDLE');
         this.o.log?.(`support request #${r.rows[0].id} from …${m.phone.slice(-4)}`);
+        bus.support({ requestId: Number(r.rows[0].id), phone: m.phone, name: user.display_name ?? null, text: (about + body).slice(0, 200) });
         return this.send(m.phone, msg.humanLogged('S-' + r.rows[0].id));
       }
       case 'DISPUTE_DETAIL': {

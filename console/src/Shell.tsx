@@ -1,11 +1,13 @@
 import { useBrand } from './brand';
-import { ChartColumn, Handshake, Inbox, Landmark, LifeBuoy, LogOut, Menu, ScrollText, Search, Settings2, ShieldCheck, Scale, Users } from 'lucide-react';
+import { ChartColumn, Handshake, Inbox, Landmark, LogOut, Menu, ScrollText, Search, Settings2, ShieldCheck, Scale, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
 import { useData, usePoll } from './hooks';
 import { CommandPalette } from './Palette';
 import { Avatar, Logo } from './ui';
+import { SupportProvider } from './support/hub';
+import { SupportWidget } from './support/Widget';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { me, signOut, can } = useAuth();
@@ -32,6 +34,7 @@ export function Shell({ children }: { children: ReactNode }) {
     </NavLink>
   );
   return (
+    <SupportProvider>
     <div className="shell">
       <aside className={`sidebar${menu ? ' open' : ''}`} aria-label="Main navigation">
         {brand.logo && !brand.mark
@@ -45,7 +48,6 @@ export function Shell({ children }: { children: ReactNode }) {
           {item('/money', 'Money', Landmark)}
           <div className="nav-group">People</div>
           {item('/people', 'Buyers & sellers', Users)}
-          {item('/support', 'Support', LifeBuoy, c?.support, true)}
           <div className="nav-group">Business</div>
           {item('/insights', 'Insights', ChartColumn)}
           {can('settings.view') && item('/settings', 'Settings', Settings2)}
@@ -69,6 +71,8 @@ export function Shell({ children }: { children: ReactNode }) {
         <main key={loc.pathname.split('/')[1]}>{children}</main>
       </div>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
+      <SupportWidget />
     </div>
+    </SupportProvider>
   );
 }

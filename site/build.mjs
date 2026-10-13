@@ -19,6 +19,7 @@
 //   WHATSAPP_PUBLIC_NUMBER  used only if the server can't be reached
 //   SITE_URL                this site's own address, for link previews and canonical links
 //   SITE_OFFLINE=1          don't contact the server (tests)
+import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +47,7 @@ const COMPANY = {
   scuml: '',
 };
 // The date the legal pages took effect. Change it (and say what changed) whenever their wording changes.
-const LEGAL_EFFECTIVE = '12 October 2026'; // ID checks (BVN or NIN) above the limit without ID and for sellers' payouts
+const LEGAL_EFFECTIVE = '13 October 2026'; // live chat on the website (privacy: "Live chat on our website"; cookies: the chat key)
 
 // What the console has, or these if the server can't be reached. Keep in step with src/pricing.ts and src/config.ts.
 const DEFAULTS = {
@@ -173,6 +174,10 @@ const FOOTER_MORE = '\n          <li><a href="/about/">About</a></li>\n         
 const footerSrc = read('partials/footer.html');
 const footerFor = (more) => fill(footerSrc, { ...shared, CONTACT_ITEMS: contactItems, FOOTER_MORE: more ? FOOTER_MORE : '' });
 const footer = footerFor(true);
+// the website chat (site/assets/chat.js): on About, Contact us, the legal pages and the home versions with "liveChat"
+const chatJs = read('assets/chat.js');
+const chatVer = createHash('sha256').update(chatJs).digest('hex').slice(0, 10);
+const chatTag = (logo) => `<script src="/assets/chat.js?v=${chatVer}" data-api="${esc(app)}"${logo ? ` data-logo="${esc(logo)}"` : ''} data-wa="${esc(waLink)}" defer></script>`;
 const footerCss = read('partials/footer.css');
 
 // ---------- the home page: the live version at /, every version (and the draft) as a hidden preview ----------
@@ -182,6 +187,7 @@ const iconTags = (prefix, imgs = baked.images) => imgs?.mark?.src
   : `<link rel="icon" href="${prefix}assets/favicon.svg" type="image/svg+xml">\n<link rel="apple-touch-icon" href="${prefix}assets/icon-180.png">`;
 const NOINDEX = '<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">\n<meta name="googlebot" content="noindex, nofollow">';
 const footerPages = (v) => !!manifest.versions.find((x) => x.version === v)?.footerPages;
+const hasChat = (v) => !!manifest.versions.find((x) => x.version === v)?.liveChat;
 function homePage(src, version, preview, draft = false) {
   const imgs = versionImages[version] ?? baked.images;
   const pageBaked = { ...baked, images: imgs, version };
@@ -194,6 +200,7 @@ function homePage(src, version, preview, draft = false) {
     .replace('/*{{FOOTER_CSS}}*/', footerCss)
     .replace('<!--{{FOOTER}}-->', footerFor(draft || footerPages(version)));
   h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, BANK_SHORT: String(shared.BANK_PARTNER).replace(/\s*Microfinance Bank$/, ' MFB'), INCORPORATED: shared.INCORPORATED });
+  if (draft || hasChat(version)) h = h.replace('</body>', `${chatTag(imgs?.mark?.src)}\n</body>`);
   h = h.replace(/<link rel="icon" href="\/?assets\/favicon\.svg" type="image\/svg\+xml">\n<link rel="apple-touch-icon" href="\/?assets\/icon-180\.png">/, iconTags('/', imgs));
   if (preview) {
     // never in search results; a small label so nobody mistakes it for the live page
@@ -236,6 +243,7 @@ function page({ slug, title, blurb, lede, body, toc, path }) {
     CANONICAL: canonical ? `<link rel="canonical" href="${esc(canonical)}">\n<meta property="og:url" content="${esc(canonical)}">` : '',
     OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: imagesJson.replace(/</g, '\\u003c'), WA_HREF: esc(waLink),
     PAGE_CLASS: toc ? 'has-toc' : 'no-toc',
+    CHAT: chatTag(baked.images?.mark?.src),
   }).replace(others ? /^$/ : /\n  <nav class="lg-others"[\s\S]*?<\/nav>/, '');
 }
 
@@ -308,6 +316,7 @@ for (const p of INFO_PAGES) {
     CANONICAL: canonical ? `<link rel="canonical" href="${esc(canonical)}">\n<meta property="og:url" content="${esc(canonical)}">` : '',
     OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: pageImagesJson.replace(/</g, '\\u003c'),
     JSONLD: JSON.stringify(jsonld).replace(/</g, '\\u003c'),
+    CHAT: chatTag(baked.images?.mark?.src),
   });
   mkdirSync(join(out, p.slug), { recursive: true });
   writeFileSync(join(out, p.slug, 'index.html'), html);

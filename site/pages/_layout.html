@@ -383,10 +383,11 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
   document.querySelectorAll('[data-live-chat]').forEach(function (b) {
     b.addEventListener('click', function (e) {
       var chat = window.HoolamChat;
-      if (chat && typeof chat.open === 'function') { e.preventDefault(); chat.open(); }
+      if (chat && typeof chat.open === 'function') { e.preventDefault(); if (chat.message) chat.message(); else chat.open(); }
     });
   });
 })();
 </script>
+{{CHAT}}
 </body>
 </html>

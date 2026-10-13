@@ -19,6 +19,8 @@ import { MediaError, SiteMedia } from './site-media.js';
 import { homeVersions } from './site-versions.js';
 import { SiteSync } from './site-sync.js';
 import { registerConsoleApi } from './console/api.js';
+import { LiveChat } from './livechat.js';
+import { registerLiveChatRoutes } from './livechat-routes.js';
 import { registerConsoleStatic } from './console/static.js';
 import { StaffAuth } from './console/staff.js';
 import { audit, type Actor } from './console/audit.js';
@@ -597,8 +599,11 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   }
 
   // ---------- the staff console (/console) ----------
+  // live chat on the website, answered from the console's support widget
+  const liveChat = new LiveChat({ db, settings, messenger, currency: c.CURRENCY, siteUrl: c.SITE_URL || 'https://hoolam.com', log });
+  registerLiveChatRoutes(app, liveChat, db, log);
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
-  registerConsoleApi(app, { config: c, db, deals, trust, settings, kyc, forms, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -608,6 +613,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         for (const id of await pendingEvents(db, source)) await processEvent(db, id, handlers[source]!, log);
       }
       await deals.pollPayouts();
+      const lc = await liveChat.sweep().catch((e) => { log(`live chat sweep: ${(e as Error).message}`); return null; });
+      if (lc?.notified) log(`live chat: told ${lc.notified} visitor(s) on WhatsApp about a rep's reply`);
     } else {
       if (ALL_TEMPLATES.some((t) => messenger.templateStatus(t.name) !== 'APPROVED')) await refreshTemplates().catch((e) => log(`templates: ${(e as Error).message}`));
       const r = await deals.sweep({ nudgeAfterHours: settings.nudgeHours() });
@@ -618,7 +625,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const load = async () => { await settings.load(); await siteMedia.load(); };
   app.addHook('onClose', async () => siteSync.stop());
   return {
-    app, load, deals, chat, messenger, trust, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
+    app, load, deals, chat, liveChat, messenger, trust, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
     forms,
     setBuyForm: (f: FormUse | null) => forms.set('buy', f), setSellForm: (f: FormUse | null) => forms.set('sell', f),
     setOrdersForm: (f: FormUse | null) => forms.set('orders', f), setOrderForm: (f: FormUse | null) => forms.set('order', f), backupForms,
