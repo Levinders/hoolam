@@ -116,7 +116,7 @@ Everything passes through the one server: messages come in from Meta, money move
 | `/console` | The staff console and its API (`/console/api/...`) |
 | `/o/:code?k=` | Private order page (buyer's link, seller's link, or the neutral link) |
 | `/s/:slug` | A seller's public trust page (indexed: title with their city, ProfilePage data) |
-| `/robots.txt`, `/sitemap.xml` (console.hoolam.com) | Search engines may read only sellers' public pages (`/s/…`) and images; the sitemap lists every public seller page. The console sends `X-Robots-Tag: noindex` |
+| `/robots.txt`, `/sitemap.xml` (console.hoolam.com) | Search engines may read only sellers' public pages (`/s/…`) and images; the sitemap lists every public seller page, with the date it last changed and the seller's photo when they have one. The console sends `X-Robots-Tag: noindex` |
 | `/:code`, `/v/:code`, `/chat` | Short links that open the WhatsApp chat at the right step |
 | `/site.json` | Live fees, limits, timings, contact details, the live home page version (`homeVersion`) and the images for every version (`versions`) for the website |
 | `/media/<slot>` | Uploaded images: `mark` (the logo icon), or `<spot>@<version>` for website images |
@@ -581,6 +581,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 14 Oct 2026 | Sellers' sitemap lists each seller's photo for Google Images; a new photo counts as a change | e0fd9e7 |
 | 14 Oct 2026 | Search: the company data's logo follows the live site; image sitemap; useHoolam as another name; descriptions for the section 5 trader photos; sellers' pages name Hoolam as publisher | c6b0502 |
 | 14 Oct 2026 | Search and AI: home page canonical, company data and FAQ; /llms.txt; sitemap dates; console.hoolam.com robots.txt and sitemap of sellers' public pages; console noindex; sellers' pages get their city in the title and ProfilePage data | 3773f3b |
 | 14 Oct 2026 | Hero phone number back to its original colour; the live chat launcher's icon is brand gold (it showed dark on teal); Contact us: the chat peek in the WhatsApp card shows only on wide screens (it covered the words on phones) | 4348a51 |
