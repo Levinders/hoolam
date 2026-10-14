@@ -148,6 +148,9 @@ describe('landing page ↔ server', () => {
     expect(home).toContain('<link rel="canonical" href="https://hoolam.example/">');
     const homeLd = JSON.parse(home.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]!);
     expect(homeLd['@graph'].map((g: any) => g['@type'])).toEqual(['Organization', 'WebSite', 'WebPage', 'FAQPage']);
+    expect(homeLd['@graph'][0]).toMatchObject({ name: 'Hoolam', alternateName: ['useHoolam'], logo: 'https://hoolam.example/assets/icon-180.png' }); // no uploaded icon here: the drawing
+    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('data-slot="s5-1" data-alt="A seller on Hoolam who sells clothing in Yaba"');
+    expect(readFileSync('dist-site/sitemap.xml', 'utf8')).toContain('xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"');
     const faqLd = homeLd['@graph'][3].mainEntity;
     expect(faqLd[0]).toEqual({ '@type': 'Question', name: 'Do I need an app?', acceptedAnswer: { '@type': 'Answer', text: 'No. It all happens in WhatsApp.' } });
     expect(faqLd.find((q: any) => q.name === 'How much does it cost?').acceptedAnswer.text).toMatch(/^2\.5% of the price, starting from ₦300, never more than ₦5,000\./);

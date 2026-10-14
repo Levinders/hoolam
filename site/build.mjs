@@ -274,7 +274,9 @@ const socials = (contact.socials ?? []).filter((x) => /^https:\/\//.test(x.url))
 // the company as search engines read it (name, registration, address, how to reach us, hours)
 const organization = {
   '@type': 'Organization', '@id': `${site || ''}/#organization`, name: 'Hoolam', legalName: COMPANY.legalName, ...(site ? { url: `${site}/` } : {}),
-  ...(site ? { logo: `${site}/assets/icon-180.png` } : {}),
+  // the logo the live site shows: the uploaded logo icon, else the drawing
+  ...(site ? { logo: baked.images?.mark?.src ? `${site}${baked.images.mark.src}` : `${site}/assets/icon-180.png` } : {}),
+  alternateName: ['useHoolam'],
   description: 'Safe buying and selling on WhatsApp, for Nigeria. The buyer’s money waits with Hoolam until the item arrives, then goes to the seller.',
   identifier: { '@type': 'PropertyValue', propertyID: 'RC number (Corporate Affairs Commission, Nigeria)', value: COMPANY.rc },
   email: contact.email || undefined, ...(wa ? { telephone: `+${wa}` } : {}),
@@ -393,7 +395,11 @@ writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\n${site ? `Sitem
 // when each page last changed: the newest commit touching the files it's built from (left out if git isn't there)
 const lastChanged = (files) => { try { return execFileSync('git', ['log', '-1', '--format=%cs', '--', ...files.map((f) => join(here, f))], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; } };
 const sources = (p) => p === '/' ? [`versions/${liveVersion}.html`, 'versions/versions.json', 'partials'] : p === '/about/' || p === '/contact/' ? [`pages${p.slice(0, -1)}.html`, 'pages/_layout.html', 'partials'] : p === '/legal/' ? ['legal/_layout.html', 'partials'] : [`legal${p.slice(6, -1)}.html`, 'legal/_layout.html'];
-if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => { const d = lastChanged(sources(p)); return `  <url><loc>${site}${p}</loc>${d ? `<lastmod>${d}</lastmod>` : ''}</url>`; }).join('\n')}\n</urlset>\n`);
+// the pictures on each page, for Google Images: the images uploaded for the live version (the drawings are drawn in code, so they aren't image files)
+const pageImages = (p) => p === '/' ? Object.entries(baked.images ?? {}).filter(([k]) => k !== 'whatsapp').map(([, v]) => v.src)
+  : baked.images?.mark ? [baked.images.mark.src] : [];
+const imageTags = (p) => pageImages(p).map((src) => `<image:image><image:loc>${esc(site + src)}</image:loc></image:image>`).join('');
+if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${pages.map((p) => { const d = lastChanged(sources(p)); return `  <url><loc>${site}${p}</loc>${d ? `<lastmod>${d}</lastmod>` : ''}${imageTags(p)}</url>`; }).join('\n')}\n</urlset>\n`);
 writeFileSync(join(out, '404.html'), page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'This page doesn’t exist, or it has moved.', body: `<p><a class="lg-btn" href="/">Go to the Hoolam home page</a></p>`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">'));
 
 const n = Object.keys(baked.images ?? {}).length;

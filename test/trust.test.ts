@@ -185,7 +185,7 @@ describe('the seller\'s own card and public page', () => {
     // for search engines and AI tools: the page says who the seller is, and it's listed in this server's sitemap
     expect(page.body).toContain('<title>Bayo Kicks Lagos on Hoolam · seller in Lagos</title>');
     const ld = JSON.parse(page.body.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]!);
-    expect(ld).toMatchObject({ '@type': 'ProfilePage', url: 'https://hoolam.test/s/bayo-kicks-lagos', mainEntity: { '@type': 'Organization', name: 'Bayo Kicks Lagos', address: { addressLocality: 'Lagos', addressCountry: 'NG' } } });
+    expect(ld).toMatchObject({ '@type': 'ProfilePage', url: 'https://hoolam.test/s/bayo-kicks-lagos', mainEntity: { '@type': 'Organization', name: 'Bayo Kicks Lagos', address: { addressLocality: 'Lagos', addressCountry: 'NG' } }, publisher: { name: 'Hoolam', alternateName: 'useHoolam', logo: 'https://hoolam.test/favicon.svg' } });
     const robots = await h.app.app.inject({ method: 'GET', url: '/robots.txt' });
     expect(robots.body).toBe('User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nDisallow: /\n\nSitemap: https://hoolam.test/sitemap.xml\n');
     expect((await h.app.app.inject({ method: 'GET', url: '/sitemap.xml' })).body).toMatch(/<loc>https:\/\/hoolam\.test\/s\/bayo-kicks-lagos<\/loc><lastmod>\d{4}-\d\d-\d\d<\/lastmod>/);

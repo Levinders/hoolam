@@ -45,6 +45,8 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
   const jsonld = {
     '@context': 'https://schema.org', '@type': 'ProfilePage', url: page, name: title, description: desc, inLanguage: 'en-NG',
     ...(home ? { isPartOf: { '@type': 'WebSite', name: 'Hoolam', url: home } } : {}),
+    // the platform behind the page, with the logo it shows (the uploaded logo icon, else the drawing)
+    publisher: { '@type': 'Organization', name: 'Hoolam', alternateName: 'useHoolam', ...(home ? { url: home } : {}), logo: o.markUrl ?? `${o.baseUrl}/favicon.svg` },
     mainEntity: {
       '@type': 'Organization', name: t.name, url: page, description: desc,
       ...(photo ? { image: photo } : {}),
