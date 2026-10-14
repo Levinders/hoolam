@@ -290,10 +290,18 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   });
 
   // ---------- search engines ----------
-  // On this server only sellers' public pages are for search (and AI tools); the console and everything else stay out.
-  app.get('/robots.txt', async (_req, reply) => reply.type('text/plain').header('cache-control', 'public, max-age=3600')
-    .send(`User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
-  app.get('/sitemap.xml', async (_req, reply) => {
+  // Only sellers' public pages are for search (and AI tools), on their own address (PUBLIC_BASE_URL, e.g. go.hoolam.com).
+  // The console's address stays out of search entirely; a seller page opened there moves to the public address.
+  const publicHost = (() => { try { return new URL(c.PUBLIC_BASE_URL).hostname; } catch { return ''; } })();
+  const onConsole = (req: { hostname?: string }) => { const h = String(req.hostname ?? '').split(':')[0]!; return isConsoleHost(h) && h !== publicHost; };
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.url.startsWith('/s/') && onConsole(req)) return reply.redirect(`${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}${req.url}`, 301);
+  });
+  app.get('/robots.txt', async (req, reply) => reply.type('text/plain').header('cache-control', 'public, max-age=3600')
+    .send(onConsole(req) ? 'User-agent: *\nDisallow: /\n'
+      : `User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
+  app.get('/sitemap.xml', async (req, reply) => {
+    if (onConsole(req)) return reply.code(404).type('text/plain').send('Not found');
     const b = c.PUBLIC_BASE_URL.replace(/\/+$/, '');
     // each page with the date it last changed (new orders, a new photo) and the seller's photo, when they have one
     const rows = (await db.query(`SELECT u.profile_slug AS slug, p.sha256 AS photo,

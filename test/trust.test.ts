@@ -189,6 +189,12 @@ describe('the seller\'s own card and public page', () => {
     const robots = await h.app.app.inject({ method: 'GET', url: '/robots.txt' });
     expect(robots.body).toBe('User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: https://hoolam.test/sitemap.xml\n');
     expect((await h.app.app.inject({ method: 'GET', url: '/sitemap.xml' })).body).toMatch(/<loc>https:\/\/hoolam\.test\/s\/bayo-kicks-lagos<\/loc><lastmod>\d{4}-\d\d-\d\d<\/lastmod>/);
+    // the console's address stays out of search; a seller page opened there moves to the public address
+    const onConsole = (url: string) => h.app.app.inject({ method: 'GET', url, headers: { host: 'console.hoolam.com' } });
+    expect((await onConsole('/robots.txt')).body).toBe('User-agent: *\nDisallow: /\n');
+    expect((await onConsole('/sitemap.xml')).statusCode).toBe(404);
+    const moved = await onConsole('/s/bayo-kicks-lagos');
+    expect([moved.statusCode, moved.headers.location]).toEqual([301, 'https://hoolam.test/s/bayo-kicks-lagos']);
 
     const buyer = phone();
     await h.say(buyer, 'Buy from @bayo-kicks-lagos', 'Femi'); // what the page's button types
