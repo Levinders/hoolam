@@ -292,7 +292,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // ---------- search engines ----------
   // On this server only sellers' public pages are for search (and AI tools); the console and everything else stay out.
   app.get('/robots.txt', async (_req, reply) => reply.type('text/plain').header('cache-control', 'public, max-age=3600')
-    .send(`User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
+    .send(`User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
   app.get('/sitemap.xml', async (_req, reply) => {
     const b = c.PUBLIC_BASE_URL.replace(/\/+$/, '');
     // each page with the date it last changed (new orders, a new photo) and the seller's photo, when they have one
