@@ -29,8 +29,8 @@ export function Audit() {
     : r.target_type === 'support' ? <Link to={`/support?open=${r.target_id}`}>Support #{r.target_id}</Link>
     : r.target_type === 'payout' ? <span className="mono">{r.target_id}</span>
     : r.target_type === 'settings' ? <Link to="/settings/history">Settings</Link> : r.target_type === 'staff' ? 'Team'
-    : r.target_type === 'media' ? <Link to={r.target_id === 'logo' || r.target_id === 'mark' ? '/settings/brand' : `/settings/content${String(r.target_id).includes('@') ? `?v=${String(r.target_id).split('@')[1]}` : ''}`}>{r.details?.where ?? 'Image'}</Link>
-    : r.target_type === 'site' ? (r.action === 'site.version.live' ? <Link to="/settings/content">Home page {r.details?.from} → {r.details?.to}</Link> : 'Website') : r.target_type ?? '—';
+    : r.target_type === 'media' ? <Link to={r.target_id === 'logo' || r.target_id === 'mark' ? '/settings/brand' : `/settings/brand${String(r.target_id).includes('@') ? `?v=${String(r.target_id).split('@')[1]}` : ''}`}>{r.details?.where ?? 'Image'}</Link>
+    : r.target_type === 'site' ? (r.action === 'site.version.live' ? <Link to="/settings/brand">Home page {r.details?.from} → {r.details?.to}</Link> : 'Website') : r.target_type ?? '—';
   return (
     <div className="page">
       <div className="page-head"><div><h1>Audit trail</h1><p className="lede">Every action anyone took in the console, with who, when and why. Entries can't be edited or deleted, by anyone.</p></div></div>

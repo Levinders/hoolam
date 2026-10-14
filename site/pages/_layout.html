@@ -310,6 +310,9 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
 
 {{FOOTER_CSS}}
 @media print { header.top, .drawer, .sf, .band { display: none !important; } body { background: #fff; } }
+/* an uploaded logo icon fills its box (just the picture, no teal behind it) */
+.logo-mark.has-img { background: transparent; }
+.logo-mark > .slot-img { width: 100%; height: 100%; object-fit: contain; display: block; }
 </style>
 </head>
 <body>
@@ -317,7 +320,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
 <header class="top" id="top-bar">
   <div class="wrap">
     <div class="bar">
-      <a class="logo" href="/" aria-label="Hoolam home" data-slot="logo" data-alt="Hoolam"><span class="fb"><span class="logo-mark" data-slot="mark" data-alt=""><svg class="fb"><use href="#mark"/></svg></span><b>Hoolam</b></span></a>
+      <a class="logo" href="/" aria-label="Hoolam home"><span class="fb"><span class="logo-mark" data-slot="mark" data-alt=""><svg class="fb"><use href="#mark"/></svg></span><b>Hoolam</b></span></a>
       <nav class="menu" aria-label="Main"><a href="/#journey">How it works</a><a href="/#pricing">Pricing</a><a href="/#trust">Why trust us</a></nav>
       <div class="bar-r">
         <a class="btn btn-main" href="{{WA_HREF}}" data-wa target="_blank" rel="noopener" aria-label="Chat on WhatsApp"><span class="wa-slot" data-slot="whatsapp" data-alt=""><span class="fb" style="display:contents"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg></span></span><span class="t">Start an order</span></a>
@@ -355,7 +358,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
   document.querySelectorAll('[data-slot]').forEach(function (el) {
     var url = IM[el.getAttribute('data-slot')]; if (!url) return;
     var img = document.createElement('img'); img.className = 'slot-img'; img.alt = ''; img.src = url;
-    img.onload = function () { el.querySelectorAll('.fb').forEach(function (f) { f.style.display = 'none'; }); };
+    img.onload = function () { el.classList.add('has-img'); el.querySelectorAll('.fb').forEach(function (f) { f.style.display = 'none'; }); };
     img.onerror = function () { img.remove(); };
     el.appendChild(img);
   });

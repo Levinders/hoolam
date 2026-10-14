@@ -326,7 +326,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.type('text/html').header('cache-control', 'public, max-age=300')
       .send(sellerPage(t, {
         slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: base, siteUrl: c.SITE_URL ?? null,
-        logoUrl: siteMedia.url(base, 'logo'), markUrl: siteMedia.url(base, 'mark'),
+        markUrl: siteMedia.url(base, 'mark'),
       }));
   });
 

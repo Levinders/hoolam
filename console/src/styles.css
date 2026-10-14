@@ -404,10 +404,8 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 11px; resize: ver
 
 /* ---------- Brand (uploaded logo) ---------- */
 .brand-img { object-fit: contain; border-radius: 8px; }
-.brand-plate { display: inline-flex; align-items: center; height: 36px; padding: 4px 10px; background: #FAFAF7; border-radius: 9px; max-width: 160px; }
-.brand-plate img { height: 28px; width: auto; max-width: 140px; object-fit: contain; }
-.brand .brand-sub { font-size: 11.5px; color: #9FC0C1; }
-.auth-logo { height: 40px; width: auto; max-width: 220px; object-fit: contain; align-self: flex-start; margin-bottom: 4px; }
+.auth-logo { display: flex; align-items: center; gap: 10px; align-self: flex-start; margin-bottom: 4px; color: #1B2321; }
+.auth-logo b { font: 600 20px Poppins, sans-serif; letter-spacing: -0.02em; }
 
 /* ---------- Settings ---------- */
 .settings-main { min-width: 0; animation: page-in .22s var(--ease); padding-bottom: 80px; }
@@ -699,3 +697,17 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 11px; resize: ver
   .ver-actions .btn { flex: 1 1 0; justify-content: center; }
   .ver-foot { padding: 12px 14px 14px; }
 }
+
+/* Brand: the logo icon, then the website content under it */
+.brand-grid:has(> :only-child) { grid-template-columns: minmax(0, 520px); }
+.brand-sub-head { margin: 34px 0 14px; padding-top: 26px; border-top: 1px solid var(--line); }
+.brand-sub-head h2 { font-size: 19px; }
+.brand-sub-head p { margin: 4px 0 0; }
+/* image sections open one at a time */
+.img-toggle { width: 100%; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: inherit; }
+.img-section:not(.open) .img-toggle { border-bottom: 0; }
+.img-toggle:hover { background: var(--sunk); }
+.img-toggle > div { flex: 1; min-width: 0; }
+.img-count { white-space: nowrap; }
+.img-caret { width: 18px; height: 18px; color: var(--muted); flex: none; transform: rotate(-90deg); transition: transform .2s var(--ease); }
+.img-section.open .img-caret { transform: none; color: var(--teal); }

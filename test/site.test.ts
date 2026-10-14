@@ -132,6 +132,16 @@ describe('landing page ↔ server', () => {
       expect(header, name).toContain('<a href="/#journey">How it works</a><a href="/#pricing">Pricing</a><a href="/#trust">Why trust us</a>');
       expect(header, name).not.toMatch(/href="\/(about|contact)\/"/);
     }
+    // the logo is the logo icon with the name as text (no full logo image), here and on home 1.2.0
+    for (const f of ['dist-site/about/index.html', 'dist-site/contact/index.html', 'dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html']) {
+      const h = readFileSync(f, 'utf8');
+      expect(h, f).not.toContain('data-slot="logo"');
+      expect(h, f).toMatch(/<span class="logo-mark" data-slot="mark"[^>]*>.*?<\/span><b>Hoolam<\/b>/);
+    }
+    // an uploaded logo icon is fully round in the hero phone and the footer; the phone's number is gold
+    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('.pf-head .logo-mark.has-img > .slot-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }');
+    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('.pf-who span { font-size: 11.5px; white-space: nowrap; color: var(--gold); }');
+    expect(about).toContain('.sf-logo .logo-mark.has-img { background: transparent; box-shadow: none; border-radius: 50%; }');
     expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
     expect(about).not.toContain('8 October 2026'); // no registration date on About
     expect(contact).toContain('Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.');

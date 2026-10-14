@@ -2,12 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api } from './api';
 
 /** The logo set in Settings → Brand. Every screen reads it from here; without uploads, the built-in mark shows. */
-export interface Brand { logo: string | null; mark: string | null }
-const Ctx = createContext<{ brand: Brand; refreshBrand: () => Promise<void> }>({ brand: { logo: null, mark: null }, refreshBrand: async () => {} });
+export interface Brand { mark: string | null }
+const Ctx = createContext<{ brand: Brand; refreshBrand: () => Promise<void> }>({ brand: { mark: null }, refreshBrand: async () => {} });
 export const useBrand = () => useContext(Ctx);
 
 export function BrandProvider({ children }: { children: ReactNode }) {
-  const [brand, setBrand] = useState<Brand>({ logo: null, mark: null });
+  const [brand, setBrand] = useState<Brand>({ mark: null });
   const refreshBrand = useCallback(async () => {
     try { setBrand(await api<Brand>('/auth/brand')); } catch { /* keep the built-in logo */ }
   }, []);

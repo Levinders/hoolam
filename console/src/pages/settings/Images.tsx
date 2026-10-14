@@ -55,7 +55,7 @@ function useMedia(version?: string) {
 }
 
 /** One image spot: preview (yours or the website's drawing), upload by click or drop, remove. */
-function SlotCard({ slot, item, editable, onChanged, variant = 'card', version, liveVersion }: { slot: Slot; item?: Item; editable: boolean; onChanged: () => void; variant?: 'card' | 'logo' | 'icon'; version?: string; liveVersion?: string }) {
+function SlotCard({ slot, item, editable, onChanged, variant = 'card', version, liveVersion }: { slot: Slot; item?: Item; editable: boolean; onChanged: () => void; variant?: 'card' | 'icon'; version?: string; liveVersion?: string }) {
   const toast = useToast();
   const { refreshBrand } = useBrand();
   const input = useRef<HTMLInputElement>(null);
@@ -94,8 +94,6 @@ function SlotCard({ slot, item, editable, onChanged, variant = 'card', version, 
         onClick={() => input.current?.click()} aria-label={`${item ? 'Replace' : 'Upload'} ${slot.label}`}>
         {variant === 'icon'
           ? <span className="logo-stage icon-stage">{['on-light', 'on-dark'].map((c) => <span key={c} className={c}>{[64, 36, 20].map((n) => <img key={n} src={shown} alt="" style={{ width: n, height: n }} />)}</span>)}</span>
-          : variant === 'logo'
-          ? <span className="logo-stage"><span className="on-light"><img src={shown} alt="" /></span><span className="on-dark"><img src={preview ?? item?.url ?? '/console/slots/logo-dark.webp'} alt="" /></span></span>
           : <img src={shown} alt="" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />}
         <span className={`slot-badge${item || preview ? ' yours' : ''}`}>{item || preview ? <><CircleCheck />Your image</> : 'Drawing'}</span>
         {editable && <span className="slot-drop"><CloudUpload /><b>{over ? 'Drop to upload' : item ? 'Replace' : 'Upload'}</b><span>or drag a file here</span></span>}
@@ -164,30 +162,31 @@ function Shell({ children, version }: { children: (d: MediaData, editable: boole
 export function BrandPage() {
   return (
     <>
-      <SectionHead title="Brand" lede="Your logo, used on the website and across this console. Without one, the built-in Hoolam logo shows." />
+      <SectionHead title="Brand" lede="Your logo icon, with the name Hoolam written beside it, on the website and across this console. Then the home page's images, version by version." />
       <Shell>{(d, editable, reload) => (
         <div className="stack">
           <SiteStatus site={d.site} siteUrl={d.siteUrl} editable={editable} onDone={reload} />
-          <div className="brand-grid">
-            {d.slots.filter((s) => s.group === 'brand').map((s) => <SlotCard key={s.key} slot={s} item={d.items[s.key]} editable={editable} onChanged={reload} variant={s.key === 'logo' ? 'logo' : 'icon'} />)}
+          <div className="brand-grid" id="brand-logo">
+            {d.slots.filter((s) => s.group === 'brand').map((s) => <SlotCard key={s.key} slot={s} item={d.items[s.key]} editable={editable} onChanged={reload} variant="icon" />)}
           </div>
           <section className="panel">
-            <div className="panel-head"><h2>Where they show</h2></div>
+            <div className="panel-head"><h2>Where it shows</h2></div>
             <div className="panel-body where-grid">
-              <div><b>Logo</b><span>Top and bottom of the website · console sign-in page · the console menu if there's no logo icon</span></div>
-              <div><b>Logo icon</b><span>Browser tab on the website and console · chat bubbles and the money step on the website · console menu</span></div>
+              <div><b>With the name beside it</b><span>Website top bar, phone menu and footer · console menu and sign-in page · sellers' public pages. The name is white on dark backgrounds and dark on light ones.</span></div>
+              <div><b>On its own</b><span>Browser tab on the website and console · the live chat · the money step and the phone in the home page's first section (round, in the phone and the footer)</span></div>
             </div>
           </section>
         </div>
       )}</Shell>
+      <WebsiteContent />
     </>
   );
 }
 
 const previewUrl = (siteUrl: string, v: string) => `${siteUrl.replace(/\/+$/, '')}/v/${v}/`;
 
-/** Each version of the home page: preview it, edit its images, choose which one is live. */
-export function ContentPage() {
+/** Each version of the home page: preview it, edit its images, choose which one is live (on the Brand page, under the logo). */
+function WebsiteContent() {
   const { can } = useAuth();
   const toast = useToast();
   const editable = can('brand.update');
@@ -195,8 +194,9 @@ export function ContentPage() {
   const [params, setParams] = useSearchParams();
   const [switching, setSwitching] = useState<Version | null>(null);
   const [goingLive, setGoingLive] = useState<string | null>(null);
-  if (vs.error) return <><SectionHead title="Website content" lede="The home page, version by version." /><ErrorBanner error={vs.error} onRetry={vs.reload} /></>;
-  if (!vs.data) return <><SectionHead title="Website content" lede="The home page, version by version." /><div className="stack"><Skeleton h={72} /><Skeleton h={220} /><Skeleton h={280} /></div></>;
+  const head = <div className="brand-sub-head" id="website-content"><h2>Website content</h2><p className="small muted">Each version of the home page has its own images. Preview any version, then choose which one visitors see.</p></div>;
+  if (vs.error) return <>{head}<ErrorBanner error={vs.error} onRetry={vs.reload} /></>;
+  if (!vs.data) return <>{head}<div className="stack"><Skeleton h={72} /><Skeleton h={220} /><Skeleton h={280} /></div></>;
   const d = vs.data;
   const asked = params.get('v');
   const selected = d.versions.some((v) => v.version === asked) ? asked! : d.live;
@@ -205,9 +205,8 @@ export function ContentPage() {
 
   return (
     <>
-      <SectionHead title="Website content" lede="Each version of the home page has its own images. Preview any version, then choose which one visitors see." />
+      {head}
       <div className="stack">
-        <SiteStatus site={d.site} siteUrl={d.siteUrl} editable={editable} onDone={vs.reload} />
         {goingLive && (
           <div className="banner teal going-live" role="status"><Rocket /><div>
             <b>Version {goingLive} is going live.</b>{' '}
@@ -254,7 +253,7 @@ export function ContentPage() {
           <h3>Images for version {selected}</h3>
           <span className="small muted">{selected === d.live ? 'This version is live, so changes show on the website within about a minute.' : 'This version isn’t live. Changes show in its preview, and on the website once it’s live.'}</span>
         </div>
-        <div className="banner grey" style={{ margin: 0 }}><Link2 /><div>The logo is shared by every version. <Link to="/settings/brand">Change it on the Brand page</Link>.</div></div>
+        <div className="banner grey" style={{ margin: 0 }}><Link2 /><div>The logo icon is shared by every version. <a href="#brand-logo">Change it above</a>.</div></div>
         <VersionImages key={selected} version={selected} live={d.live} onChanged={vs.reload} />
       </div>
 
@@ -274,6 +273,8 @@ export function ContentPage() {
 }
 
 function VersionImages({ version, live, onChanged }: { version: string; live: string; onChanged: () => void }) {
+  // one section open at a time; the first starts open
+  const [open, setOpen] = useState<number | null>(1);
   return (
     <Shell version={version}>{(d, editable, reload) => {
       const web = d.slots.filter((s) => s.group === 'website');
@@ -284,9 +285,13 @@ function VersionImages({ version, live, onChanged }: { version: string; live: st
         <div className="stack">
           <div className="img-summary"><b>{used} of {web.length}</b> spots have your images<div className="meter"><i style={{ width: `${(used / web.length) * 100}%` }} /></div></div>
           {sections.map((n) => (
-            <section className="panel img-section" key={n}>
-              <div className="panel-head"><span className="sec-num">{n}</span><div><h2>Section {n}</h2><span className="small muted">{SECTIONS[n]}</span></div></div>
-              <div className="panel-body">
+            <section className={`panel img-section${open === n ? ' open' : ''}`} key={n}>
+              <button type="button" className="panel-head img-toggle" aria-expanded={open === n} onClick={() => setOpen(open === n ? null : n)}>
+                <span className="sec-num">{n}</span><div><h2>Section {n}</h2><span className="small muted">{SECTIONS[n]}</span></div>
+                <span className="img-count small muted">{web.filter((s) => s.section === n && d.items[s.key]).length} of {web.filter((s) => s.section === n).length}</span>
+                <ChevronDown className="img-caret" aria-hidden="true" />
+              </button>
+              {open === n && <div className="panel-body">
                 <div className="slot-grid">
                   {web.filter((s) => s.section === n).flatMap((s) => {
                     const card = <SlotCard key={s.key} slot={s} item={d.items[s.key]} editable={editable} onChanged={changed} version={version} liveVersion={live} />;
@@ -298,12 +303,12 @@ function VersionImages({ version, live, onChanged }: { version: string; live: st
                           <span className="locked-mark"><img src={d.items.mark?.url ?? '/console/slots/mark.webp'} alt="" /></span>
                           <span className="slot-badge">Logo icon</span>
                         </div>
-                        <div className="slot-body"><div className="slot-title"><b>Step 2</b></div><p>Shows your logo icon in the middle.</p><span className="slot-meta"><Link to="/settings/brand">Change it on the Brand page</Link></span></div>
+                        <div className="slot-body"><div className="slot-title"><b>Step 2</b></div><p>Shows your logo icon in the middle.</p><span className="slot-meta"><a href="#brand-logo">Change it at the top of this page</a></span></div>
                       </div>
                     )];
                   })}
                 </div>
-              </div>
+              </div>}
             </section>
           ))}
           <p className="small muted">Tips: faces in the middle for round spots · photos are resized for phones automatically · landscape photos work best everywhere except the round spots.</p>

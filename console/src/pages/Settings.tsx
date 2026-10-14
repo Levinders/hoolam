@@ -1,9 +1,9 @@
-import { Coins, Contact, Gauge, Landmark, History, Image as ImageIcon, Lock, MessageCircle, Palette, ShieldCheck, Timer, type LucideIcon } from 'lucide-react';
+import { Coins, Contact, Gauge, Landmark, History, Lock, MessageCircle, Palette, ShieldCheck, Timer, type LucideIcon } from 'lucide-react';
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Empty } from '../ui';
-import { BrandPage, ContentPage } from './settings/Images';
+import { BrandPage } from './settings/Images';
 import { HistoryPage } from './settings/History';
 import { PaymentsPage } from './settings/Payments';
 import { ContactPage, FeesPage, LimitsPage, TimingPage, WhatsAppPage } from './settings/Values';
@@ -20,7 +20,6 @@ export const SETTINGS_PAGES: { key: string; group: string; label: string; icon: 
   { key: 'whatsapp', group: 'Service', label: 'WhatsApp', icon: MessageCircle, edit: 'settings.update', el: () => <WhatsAppPage /> },
   { key: 'contact', group: 'Look', label: 'Contact', icon: Contact, edit: 'settings.update', el: () => <ContactPage /> },
   { key: 'brand', group: 'Look', label: 'Brand', icon: Palette, edit: 'brand.update', el: () => <BrandPage /> },
-  { key: 'content', group: 'Look', label: 'Website content', icon: ImageIcon, edit: 'brand.update', el: () => <ContentPage /> },
   { key: 'history', group: 'Records', label: 'History', icon: History, edit: 'settings.view', el: () => <HistoryPage /> },
 ];
 
@@ -69,7 +68,7 @@ export function Settings() {
       </section></div>
     );
   }
-  if (page === 'images') return <Navigate to="/settings/content" replace />; // the old name
+  if (page === 'images' || page === 'content') return <Navigate to={`/settings/brand${window.location.search}`} replace />; // Website content now lives on Brand
   const current = SETTINGS_PAGES.find((p) => p.key === page);
   if (!current) return <Navigate to="/settings/fees" replace />;
 

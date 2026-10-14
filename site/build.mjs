@@ -286,8 +286,8 @@ const organization = {
   }],
   ...(socials.length ? { sameAs: socials.map((x) => x.url) } : {}),
 };
-// the logo, its mark and the WhatsApp icon set in Console → Settings → Brand, as on the home page's top bar
-const pageImagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => ['mark', 'logo', 'whatsapp'].includes(k)).map(([k, v]) => [k, v.src])));
+// the logo icon and the WhatsApp icon set in Console → Settings → Brand, as on the home page's top bar
+const pageImagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => ['mark', 'whatsapp'].includes(k)).map(([k, v]) => [k, v.src])));
 const INFO_PAGES = [
   { slug: 'about', type: 'AboutPage', title: 'About Hoolam: safe buying and selling on WhatsApp',
     description: 'Hoolam holds the buyer’s money until the item arrives, then pays the seller. Who we are, why we built it, and what keeps your money safe.' },

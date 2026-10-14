@@ -15,7 +15,7 @@ function AuthLayout({ children }: { children: ReactNode }) {
         <h1>Every naira, accounted for.</h1>
         <p>Money waits in the middle until buyers are happy. This is where the team keeps it that way, with a trail of who did what and when.</p>
       </div>
-      <div className="auth-form"><div className="auth-card">{brand.logo && <img className="auth-logo" src={brand.logo} alt="Hoolam" />}{children}</div></div>
+      <div className="auth-form"><div className="auth-card">{brand.mark && <div className="auth-logo"><Logo /><b>Hoolam</b></div>}{children}</div></div>
     </div>
   );
 }

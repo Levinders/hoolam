@@ -179,6 +179,9 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
 
 {{FOOTER_CSS}}
 @media print { .lg-top, .lg-toc, .lg-others, .sf { display: none !important; } body { background: #fff; color: #000; } .lg-body { display: block; } }
+/* an uploaded logo icon fills its box (just the picture, no teal behind it) */
+.logo-mark.has-img { background: transparent; }
+.logo-mark > .slot-img { width: 100%; height: 100%; object-fit: contain; display: block; }
 </style>
 </head>
 <body class="{{PAGE_CLASS}}">
@@ -227,7 +230,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
   document.querySelectorAll('[data-slot]').forEach(function (el) {
     var url = IM[el.getAttribute('data-slot')]; if (!url) return;
     var img = document.createElement('img'); img.className = 'slot-img'; img.alt = ''; img.src = url;
-    img.onload = function () { el.querySelectorAll('.fb').forEach(function (f) { f.style.display = 'none'; }); };
+    img.onload = function () { el.classList.add('has-img'); el.querySelectorAll('.fb').forEach(function (f) { f.style.display = 'none'; }); };
     img.onerror = function () { img.remove(); };
     el.appendChild(img);
   });

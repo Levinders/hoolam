@@ -60,20 +60,21 @@ describe('logo and website images', () => {
 
   it('logos can be SVG, but not SVG with scripts; photos can\'t be SVG', async () => {
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#0E5C63"/></svg>');
-    expect((await call('PUT', '/console/api/media/logo', { raw: svg, type: 'image/svg+xml', cookie: owner })).status).toBe(200);
+    expect((await call('PUT', '/console/api/media/mark', { raw: svg, type: 'image/svg+xml', cookie: owner })).status).toBe(200);
+    // only the logo icon now: the name is written as text beside it
+    expect((await call('PUT', '/console/api/media/logo', { raw: svg, type: 'image/svg+xml', cookie: owner })).status).toBe(404);
     const bad = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
     const r = await call('PUT', '/console/api/media/mark', { raw: bad, type: 'image/svg+xml', cookie: owner });
     expect(r.status).toBe(400);
     expect(r.json.error).toMatch(/scripts/);
     expect((await call('PUT', '/console/api/media/s1-1', { raw: svg, type: 'image/svg+xml', cookie: owner })).status).toBe(400);
-    const served = await call('GET', '/media/logo');
+    const served = await call('GET', '/media/mark');
     expect(served.headers['content-security-policy']).toContain('sandbox');
   });
 
-  it('the console reads the logo, even on the sign-in page', async () => {
+  it('the console reads the logo icon, even on the sign-in page', async () => {
     const b = await call('GET', '/console/api/auth/brand');
-    expect(b.json.logo).toMatch(/^\/media\/logo\?v=/);
-    expect(b.json.mark).toBeNull();
+    expect(b.json).toEqual({ mark: expect.stringMatching(/^\/media\/mark\?v=/) });
   });
 
   it('rejects files that aren\'t images, unknown spots, and non-owners', async () => {
@@ -88,7 +89,7 @@ describe('logo and website images', () => {
     expect((await call('GET', '/site.json')).json.images['s2-1']).toBeUndefined();
     const log = await h.db.query(`SELECT action, actor, target_id, details FROM audit_log WHERE action LIKE 'media.%' ORDER BY id`);
     expect(log.rows.map((r) => [r.action, r.target_id, r.actor])).toEqual([
-      ['media.upload', 's2-1@1.0.0', 'Raphael'], ['media.upload', 'logo', 'Raphael'], ['media.upload', 'mark', 'Raphael'], ['media.upload', 's1-1@1.0.0', 'Raphael'],
+      ['media.upload', 's2-1@1.0.0', 'Raphael'], ['media.upload', 'mark', 'Raphael'], ['media.upload', 'mark', 'Raphael'], ['media.upload', 's1-1@1.0.0', 'Raphael'],
       ['media.upload', 's1-1@1.0.0', 'Raphael'], ['media.remove', 's2-1@1.0.0', 'Raphael'],
     ]);
     expect(log.rows[0].details).toMatchObject({ where: 'Version 1.0.0 · Section 2 · Image 1', file: 'street.jpg', ok: true });
@@ -101,7 +102,7 @@ describe('home page versions', () => {
     expect((await call('PUT', '/console/api/media/s2-2?version=1.2.0', { raw: await photo(800, 600), type: 'image/jpeg', cookie: owner })).status).toBe(200);
     const v12 = (await call('GET', '/console/api/media?version=1.2.0', { cookie: owner })).json;
     expect(v12.version).toBe('1.2.0');
-    expect(Object.keys(v12.items).sort()).toEqual(['logo', 's2-2']);
+    expect(Object.keys(v12.items).sort()).toEqual(['mark', 's2-2']);
     expect(v12.items['s2-2'].url).toMatch(/^\/media\/s2-2@1\.2\.0\?v=/);
     const live = (await call('GET', '/console/api/media', { cookie: owner })).json;
     expect(live.version).toBe('1.0.0');
@@ -109,7 +110,7 @@ describe('home page versions', () => {
     const j = (await call('GET', '/site.json')).json;
     expect(j.homeVersion).toBe('1.0.0');
     expect(j.images['s2-2']).toBeUndefined();
-    expect(Object.keys(j.versions['1.2.0'].images).sort()).toEqual(['logo', 's2-2']);
+    expect(Object.keys(j.versions['1.2.0'].images).sort()).toEqual(['mark', 's2-2']);
     expect((await call('PUT', '/console/api/media/s2-2?version=9.9.9', { raw: await photo(10, 10), type: 'image/jpeg', cookie: owner })).status).toBe(404);
     expect((await call('DELETE', '/console/api/media/s2-2?version=1.1.0', { cookie: owner })).status).toBe(200); // nothing there: fine
     expect((await call('GET', '/media/s2-2@1.2.0')).status).toBe(200);
@@ -133,7 +134,7 @@ describe('home page versions', () => {
     expect(r.json.live).toBe('1.2.0');
     const j = (await call('GET', '/site.json')).json;
     expect(j.homeVersion).toBe('1.2.0');
-    expect(Object.keys(j.images).sort()).toEqual(['logo', 's2-2']); // the live images follow the live version
+    expect(Object.keys(j.images).sort()).toEqual(['mark', 's2-2']); // the live images follow the live version
     const log = (await h.db.query(`SELECT actor, reason, details FROM audit_log WHERE action='site.version.live'`)).rows;
     expect(log).toEqual([expect.objectContaining({ actor: 'Tunde', reason: 'The phone picture is clearer', details: expect.objectContaining({ from: '1.0.0', to: '1.2.0' }) })]);
     const hist = (await call('GET', '/console/api/media', { cookie: owner })).json.history;

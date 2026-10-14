@@ -12,7 +12,7 @@ const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2)
 
 export interface SellerPageOptions {
   slug: string; waNumber: string; baseUrl: string; siteUrl?: string | null;
-  logoUrl?: string | null; markUrl?: string | null;
+  markUrl?: string | null;
 }
 
 export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
@@ -38,9 +38,7 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
     : t.completed ? 'No problems reported' : null;
   const title = `${t.name} on Hoolam`;
   const desc = t.completed ? `${t.completed} safe orders completed. Pay through Hoolam: your money is held until you're happy.` : `Buy from ${t.name} safely: your money is held until you're happy.`;
-  const brand = o.logoUrl
-    ? `<img class="logo-img" src="${esc(o.logoUrl)}" alt="Hoolam">`
-    : `${o.markUrl ? `<img class="mark-img" src="${esc(o.markUrl)}" alt="">` : ICON.mark}<span>Hoolam</span>`;
+  const brand = `${o.markUrl ? `<img class="mark-img" src="${esc(o.markUrl)}" alt="">` : ICON.mark}<span>Hoolam</span>`;
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(title)}</title>
@@ -63,7 +61,6 @@ a{color:inherit}
 .wrap{width:100%;max-width:480px;margin:0 auto;padding:16px 16px 28px}
 header{display:flex;align-items:center;justify-content:space-between;height:44px;margin-bottom:14px}
 .brand{display:inline-flex;align-items:center;gap:9px;text-decoration:none;color:var(--teal);font:600 18px Poppins,Inter,sans-serif;letter-spacing:-.01em}
-.logo-img{height:28px;width:auto;max-width:160px;display:block}
 .mark-img{width:30px;height:30px;border-radius:9px;object-fit:contain}
 .tag{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--teal);background:var(--teal-50);padding:6px 10px;border-radius:999px}
 .tag .ic{width:15px;height:15px}

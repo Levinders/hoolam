@@ -17,6 +17,9 @@
 .sf-logo .logo-mark { width: 42px; height: 42px; border-radius: 14px; background: #0E5C63; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); display: grid; place-items: center; overflow: hidden; }
 .sf-logo .logo-mark svg { width: 26px; height: 26px; }
 .sf-logo .logo-mark .slot-img { position: static; width: 100%; height: 100%; object-fit: contain; }
+/* an uploaded logo icon: just the picture, fully round */
+.sf-logo .logo-mark.has-img { background: transparent; box-shadow: none; border-radius: 50%; }
+.sf-logo .logo-mark.has-img .slot-img { object-fit: cover; border-radius: 50%; }
 .sf-logo b { font: 600 1.55rem var(--font-display); letter-spacing: -0.02em; }
 .sf-brand p { margin-top: 18px; color: var(--sf-soft); font-size: 1.02rem; max-width: 42ch; }
 .sf-brand .sf-held { margin-top: 12px; font-size: .9rem; color: var(--sf-faint); }

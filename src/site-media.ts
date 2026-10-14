@@ -22,8 +22,7 @@ export interface SlotDef {
 }
 
 export const SLOTS: SlotDef[] = [
-  { key: 'logo', group: 'brand', label: 'Logo', hint: 'Your full logo with the name. Shows at the top and bottom of the website and on the console sign-in page. A transparent PNG or SVG works best.', aspect: '4 / 1', maxWidth: 900, svg: true },
-  { key: 'mark', group: 'brand', label: 'Logo icon', hint: 'The square symbol on its own. Shows where space is small: the browser tab, chat bubbles on the website, the centre of the money step, and the console menu.', aspect: '1 / 1', maxWidth: 512, svg: true },
+  { key: 'mark', group: 'brand', label: 'Logo icon', hint: 'The square symbol on its own, without the name (the name "Hoolam" is written next to it as text). Shows in the website\'s top bar and footer, the browser tab, the live chat, the money step, and the console.', aspect: '1 / 1', maxWidth: 512, svg: true },
 
   { key: 's1-1', group: 'website', section: 1, label: 'Image 1', hint: 'Round photo on the left of the deal card.', aspect: '1 / 1', round: true, maxWidth: 480 },
   { key: 's1-2', group: 'website', section: 1, label: 'Image 2', hint: 'Round photo on the right of the deal card.', aspect: '1 / 1', round: true, maxWidth: 480 },
@@ -71,7 +70,7 @@ export class SiteMedia {
     this.cache.clear();
   }
 
-  /** The spot for a stored key: "logo", "mark", or "<website spot>@<version>". */
+  /** The spot for a stored key: "mark", or "<website spot>@<version>". */
   slot(key: string): SlotDef {
     const [base, version] = key.split('@');
     const s = SLOTS.find((x) => x.key === base);

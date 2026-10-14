@@ -104,7 +104,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // Sign-in
     // =====================================================================================
     // the logo for every screen, including the sign-in page
-    api.get('/auth/brand', async () => ({ logo: d.siteMedia.url('', 'logo'), mark: d.siteMedia.url('', 'mark') }));
+    api.get('/auth/brand', async () => ({ mark: d.siteMedia.url('', 'mark') }));
     api.get('/auth/state', async (req) => ({
       setupNeeded: !(await d.auth.hasOwner()),
       me: req.staff ? meOf(req.staff) : null,

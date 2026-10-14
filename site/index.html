@@ -453,7 +453,10 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 .pf-head .logo-mark svg { width: 22px; height: 22px; }
 .pf-who { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .pf-who b { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 600; }
-.pf-who span { font-size: 11.5px; opacity: .78; white-space: nowrap; }
+.pf-who span { font-size: 11.5px; white-space: nowrap; color: var(--gold); }
+/* an uploaded logo icon: just the picture, fully round */
+.pf-head .logo-mark.has-img { background: transparent; box-shadow: none; overflow: hidden; }
+.pf-head .logo-mark.has-img > .slot-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .pf-ok { width: 15px; height: 15px; color: #8BE0B4; }
 .pf-chat { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 7px; padding: 12px 8px 8px; background-color: #EEE7DC; background-image: radial-gradient(color-mix(in srgb, var(--teal) 9%, transparent) 1.1px, transparent 1.4px); background-size: 15px 15px; }
 .pf-day { align-self: center; margin-bottom: 2px; padding: 5px 10px; border-radius: 8px; background: rgba(255,253,249,.9); color: var(--soft); font: 600 11px/1 var(--font-body); box-shadow: 0 1px 1px rgba(0,0,0,.05); }
@@ -649,7 +652,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 <header class="top" id="top-bar">
   <div class="wrap">
     <div class="bar">
-      <a class="logo" href="#start" aria-label="Hoolam home" data-slot="logo" data-alt="Hoolam"><span class="fb"><span class="logo-mark" data-slot="mark" data-alt=""><svg class="fb"><use href="#mark"/></svg></span><b>Hoolam</b></span></a>
+      <a class="logo" href="#start" aria-label="Hoolam home"><span class="fb"><span class="logo-mark" data-slot="mark" data-alt=""><svg class="fb"><use href="#mark"/></svg></span><b>Hoolam</b></span></a>
       <nav class="menu" aria-label="Main"><a href="#journey" data-spy="journey">How it works</a><a href="#pricing" data-spy="pricing">Pricing</a><a href="#trust" data-spy="trust">Why trust us</a></nav>
       <div class="bar-r">
         <a class="btn btn-main" href="#start-chat" data-wa target="_blank" rel="noopener" aria-label="Chat on WhatsApp"><span class="wa-slot" data-slot="whatsapp" data-alt=""><span class="fb" style="display:contents"><svg class="ic " aria-hidden="true"><use href="#i-message-circle"/></svg></span></span><span class="t">Start an order</span></a>
