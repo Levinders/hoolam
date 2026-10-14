@@ -88,8 +88,7 @@ Owner-only values are marked. Changes apply to new orders; an order keeps the fe
 | Timing | Reps reply within; problem cases answered within | 30 min; 24 h |
 | WhatsApp | Hoolam's WhatsApp number (owner); alerts by number; WhatsApp forms | on; on |
 | Contact | Email, phone for calls, social links | shown on the website and legal pages |
-| Brand | Logo and logo icon (shared by every home page version) | built-in Hoolam logo |
-| Website content | Which home page version is live; each version's images | 1.0.0 |
+| Brand | The logo icon (shared by every home page version; the name Hoolam is written beside it as text), then the website content: which home page version is live and each version's images | built-in Hoolam logo; 1.0.0 |
 
 ## Architecture
 
@@ -119,7 +118,7 @@ Everything passes through the one server: messages come in from Meta, money move
 | `/s/:slug` | A seller's public trust page |
 | `/:code`, `/v/:code`, `/chat` | Short links that open the WhatsApp chat at the right step |
 | `/site.json` | Live fees, limits, timings, contact details, the live home page version (`homeVersion`) and the images for every version (`versions`) for the website |
-| `/media/<slot>` | Uploaded images: `logo`, `mark`, or `<spot>@<version>` for website images |
+| `/media/<slot>` | Uploaded images: `mark` (the logo icon), or `<spot>@<version>` for website images |
 | `/livechat/...` | The website chat's API (open to any page, CORS): `config` (content and hours), `start`, `resume`, `me`, `threads/:id` (messages, files, seen, typing, close, rate), `files/:id`, `media/:id` (news pictures, open to all), `events` (live updates). Visitors use the key the server gave their browser |
 | `/console/api/support/events` | Live updates for the console's support widget (new live chat and WhatsApp messages, typing, seen, who's looking) |
 | `/health` | Health check for Render |
@@ -132,7 +131,7 @@ Everything passes through the one server: messages come in from Meta, money move
 | Orders | `deals` (incl. `handover_by`: seller or courier; `courier_alert`: sent, not-sent, skipped; `legacy_ship`: a seller's order from before Sell something was rebuilt), `deal_events`, `deal_photos`, `deal_notes`, `deal_ratings`, `disputes` |
 | Money | `payment_intents`, `payouts` (status `WAITING_KYC`: a seller payout waiting for their ID check or an account in their ID name), `ledger_entries` |
 | WhatsApp | `chat_sessions` (state + last message time), `webhook_events`, `outbound_messages` (incl. `wa_id`, WhatsApp's id, to match read receipts), `contact_cards` (who got Hoolam's contact card). Deals also keep `alert_wa_id` and `seen_at` (seen), `delivery_pin` and `courier_pin` (shared locations, "lat,lng"); support requests keep `wa_message_id` (for quoting). Migration 019. |
-| Website | `media` (logo, logo icon, and each version's website images as `<spot>@<version>`; migration 017 moved the existing ones to 1.0.0) |
+| Website | `media` (the logo icon, and each version's website images as `<spot>@<version>`; migration 017 moved the existing ones to 1.0.0; migration 024 deleted the full logo) |
 | Team | `staff` (incl. `access_whatsapp`, `access_live`: support access per person, null = the role's default), `staff_invites`, `staff_sessions`, `audit_log`, `support_requests`, `support_reads` (who has read which WhatsApp support message), `inbox_dismissals` |
 | Live chat | `chat_visitors` (name, WhatsApp number, linked user), `chat_visitor_keys` (hashes of browser keys), `chat_threads` (ref LC-…, status, handler, rating, the WhatsApp nudge), `chat_messages` (VISITOR, STAFF, NOTE for the team only, SYSTEM), `chat_files` (photos and PDFs), `chat_reads` (what each teammate has read), `chat_content` (welcome, Questions, News with an optional picture, quick replies, saved replies), `chat_media` (news pictures). One conversation per WhatsApp number; a browser key from a new device keeps `since_id` so it sees only later messages. Migrations 021, 022 and 023 (Home cards removed). |
 | System | `settings` (console values, incl. `home_version`), `app_secrets` (forms key), `contact_optouts` (old, now empty) |
@@ -468,7 +467,7 @@ The console at console.hoolam.com is where the team watches orders, moves money 
 | Money | Ledger balances (held, owed, fees earned), payouts, retries, OTP approvals, export |
 | Buyers & sellers | Each person's record, orders, bank accounts, trust card, who they said "Not me" to, order limit, pause, **Message them**. Filters: Everyone, Sellers, Buyers, Paused, **Needs review**, **ID verified**. **ID check** panel: status (Verified / Needs review / Not verified), name on ID, BVN or NIN with last 4 digits (or "Approved by the team"), date, reference, recent tries and tries left today, payouts waiting for it; **Approve ID** (with the full name on their ID; tells them), **Remove verification**, **Clear review**, and for a flagged ID **Decline ID** instead of Clear review (tells them; shows Flagged / Declined with the issuer's reason), each with a reason in the audit trail. The Limits panel shows the limit without ID and once verified. |
 | Insights | Trends: orders, value, fees, conversion |
-| Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, the state of each form with Try again now, template statuses), Contact, Brand, Website content (home page versions and their images), History |
+| Settings | Fees, Limits, Timing, Payments, WhatsApp (number, switches, the state of each form with Try again now, template statuses), Contact, Brand (the logo icon, then the website content: home page versions and their images), History |
 | Team, Audit | Staff and roles; the full audit trail |
 
 **Roles:** Owner (everything, including fees, limits and Hoolam's number), Admin (orders, money moves, people incl. approving or removing ID checks, most settings), Finance (payouts, exports, audit), Support (messages, notes, support).
@@ -511,7 +510,8 @@ Support isn't in the sidebar any more: it's a round button at the bottom right o
 - **Fees:** Hoolam's fee and the two transaction fee tables (each folds open with an arrow), with a "Try it" calculator.
 - **Changes apply to new orders.** Fee, limit and number changes also rebuild the website within about a minute.
 - **Phone numbers** are typed as 08117663890; the country code is added behind the scenes.
-- **Website content:** pick a home page version from the dropdown to see its notes, **Preview** it or **Make live** (needs a reason; audited; the website takes about 2 minutes to switch). The images below follow the version picked; the logo is shared and changed on Brand. The old /settings/images address opens this page.
+- **Brand:** only the **logo icon** is uploaded (512 × 512, SVG or transparent PNG); the name **Hoolam** is always written beside it as text, white on dark backgrounds and #1B2321 on light ones (website top bar, phone menu and footer, console menu and sign-in page, sellers' public pages). An uploaded icon shows as just the picture, fully round, in the hero phone's header and the footer; without one, the built-in drawings stay.
+- **Website content** (on the Brand page, under the logo icon): pick a home page version from the dropdown to see its notes, **Preview** it or **Make live** (needs a reason; audited; the website takes about 2 minutes to switch). The images below follow the version picked, in sections that open one at a time (Section 1 open first). The old /settings/images and /settings/content addresses open the Brand page.
 
 ## Website, legal pages and private pages
 
@@ -578,6 +578,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 14 Oct 2026 | Brand: logo icon only, with Hoolam written as text (full logo removed, migration 024); About, Contact us and legal pages use the logo icon; round logo icon in the hero phone and footer; gold number in the hero phone; Brand and Website content merged into one Brand page with image sections that open one at a time | ee79937 |
 | 13 Oct 2026 | Live chat: the cover behind the chat is solid dark, so the page is hidden while it is open | e3a5692 |
 | 13 Oct 2026 | Live chat: dark cover behind the chat with a faint logo on bigger screens; Home is just "Prefer WhatsApp?"; Home cards removed (migration 023); console chat header on one line (number, ref, You / rep / Waiting for a rep), no "On the page now"; rating and "looking at this chat too" shown in the chat | 86db2bc |
 | 13 Oct 2026 | Live chat round 2: blurred page behind, lighter Home, curved header with the logo only, website soft theme, smaller text, 1px borders; name, number and message in one form; one conversation per WhatsApp number (new device sees later messages only, until the WhatsApp link); questions open in place, newest first; news pictures. Console: Chat config (dropdown in the side panel), accordions, notes and About in a foldable side rail, page names for Started on. Migration 022 | 848d063 |
