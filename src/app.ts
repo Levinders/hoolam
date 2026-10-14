@@ -354,6 +354,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       .send(sellerPage(t, {
         slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: base, siteUrl: c.SITE_URL ?? null,
         markUrl: siteMedia.url(base, 'mark'),
+        gaId: c.GA_MEASUREMENT_ID === 'off' ? null : (c.GA_MEASUREMENT_ID || 'G-J2YB5ZF1NE'),
       }));
   });
 

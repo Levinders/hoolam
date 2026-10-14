@@ -173,8 +173,10 @@
   }
 
   // ---------- actions ----------
+  // tells the page's analytics (analytics.js) when the chat opens and when a chat starts
+  function emit(action) { try { window.dispatchEvent(new CustomEvent('hoolam:chat', { detail: { action: action } })); } catch (e) { /* old browsers */ } }
   function openChat(tab) {
-    if (!S.open) S.anim = true;
+    if (!S.open) { S.anim = true; emit('open'); }
     S.open = true; if (tab) S.tab = tab;
     if (!S.cfg) loadConfig();
     if (S.tab === 'messages') goMessages(); else render();
@@ -212,7 +214,7 @@
     S.busy = true; render();
     req('/start', { body: { name: name, phone: phone, text: text, page: location.pathname } }).then(function (r) {
       if (r.key) { key = r.key; store.set(KEY_STORE, key); if (S.es) { S.es.close(); S.es = null; } }
-      S.busy = false; clearDraft();
+      S.busy = false; clearDraft(); emit('start');
       return loadMe().then(loadThread).then(focusBox);
     }).catch(function (e) { S.busy = false; S.err = e.message; render(); });
   }

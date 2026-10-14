@@ -13,6 +13,7 @@ const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2)
 export interface SellerPageOptions {
   slug: string; waNumber: string; baseUrl: string; siteUrl?: string | null;
   markUrl?: string | null;
+  gaId?: string | null;      // Google Analytics (with consent: no cookies until the visitor accepts on the banner)
 }
 
 export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
@@ -160,7 +161,7 @@ footer a{text-decoration:none;color:var(--teal);font-weight:600}
 a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:12px}
 @media (max-width:360px){.stat{padding:14px}.stat b{font-size:19px}h1{font-size:23px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-</style></head><body><div class="wrap">
+</style>${analytics(o)}</head><body><div class="wrap">
 <header>
   ${home ? `<a class="brand" href="${esc(home)}">${brand}</a>` : `<span class="brand">${brand}</span>`}
   <span class="tag">${ICON.shieldCheck}Trust card</span>
@@ -203,11 +204,21 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
 <footer>${home ? `<a href="${esc(home)}">Hoolam</a>` : '<b>Hoolam</b>'}<span>Pay safe. Ship safe.</span></footer>
 </div>
 ${photo ? `<figure class="lightbox" id="photo" aria-label="${esc(t.name)}"><a class="x" href="#" aria-label="Close"></a><img src="${esc(photo)}" alt="${esc(t.name)}"><a class="close" href="#" aria-label="Close">${ICON.close}</a><figcaption>${esc(t.name)}</figcaption></figure>` : ''}
-</body></html>`;
+${o.gaId && home ? `<script src="${esc(home.replace(/\/+$/, ''))}/assets/analytics.js" data-cookies="${esc(home.replace(/\/+$/, ''))}/legal/cookies/" defer></script>\n` : ''}</body></html>`;
 }
 
 export function notFoundPage(): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hoolam</title>
 <style>body{font-family:Inter,system-ui,sans-serif;background:#FAFAF7;color:#17292b;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;text-align:center}h1{color:#0E5C63;font-size:22px;margin:14px 0 6px}p{color:#5d6b6c;max-width:34ch;margin:0 auto}</style></head>
 <body><div>${ICON.mark}<h1>This page isn't available</h1><p>The seller may have hidden it. You can still buy safely with Hoolam on WhatsApp.</p></div></body></html>`;
+}
+
+/** The Google tag for a seller's page: every consent starts "denied" (the banner on hoolam.com's analytics.js asks), and events carry the seller. */
+function analytics(o: SellerPageOptions): string {
+  if (!o.gaId || !/^G-[A-Z0-9]+$/.test(o.gaId) || !o.siteUrl) return '';
+  return `
+<script>window.HOOLAM_PAGE={seller:${JSON.stringify(o.slug).replace(/</g, '\\u003c')}};window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}
+gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:/(?:^|;\\s*)hoolam_consent=yes/.test(document.cookie)?'granted':'denied'});
+gtag('js',new Date());gtag('config','${o.gaId}',{content_group:'Seller pages',seller:${JSON.stringify(o.slug).replace(/</g, '\\u003c')}});</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=${o.gaId}"></script>`;
 }

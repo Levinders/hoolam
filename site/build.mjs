@@ -48,7 +48,7 @@ const COMPANY = {
   scuml: '',
 };
 // The date the legal pages took effect. Change it (and say what changed) whenever their wording changes.
-const LEGAL_EFFECTIVE = '13 October 2026'; // live chat on the website (privacy: "Live chat on our website"; cookies: the chat key)
+const LEGAL_EFFECTIVE = '14 October 2026'; // Google Analytics with consent (cookies: the banner, _ga, hoolam_consent; privacy: analytics)
 
 // What the console has, or these if the server can't be reached. Keep in step with src/pricing.ts and src/config.ts.
 const DEFAULTS = {
@@ -401,6 +401,28 @@ const pageImages = (p) => p === '/' ? Object.entries(baked.images ?? {}).filter(
 const imageTags = (p) => pageImages(p).map((src) => `<image:image><image:loc>${esc(site + src)}</image:loc></image:image>`).join('');
 if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${pages.map((p) => { const d = lastChanged(sources(p)); return `  <url><loc>${site}${p}</loc>${d ? `<lastmod>${d}</lastmod>` : ''}${imageTags(p)}</url>`; }).join('\n')}\n</urlset>\n`);
 writeFileSync(join(out, '404.html'), page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'This page doesn’t exist, or it has moved.', body: `<p><a class="lg-btn" href="/">Go to the Hoolam home page</a></p>`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">'));
+
+// ---------- Google Analytics (with consent) ----------
+// On the live pages only (never the /v/ previews or the draft). Every consent starts "denied": until a visitor taps Accept
+// on the banner (site/assets/analytics.js), Google gets only cookieless pings. GA_MEASUREMENT_ID can override the ID; GA_OFF=1 turns it off.
+const GA_ID = (process.env.GA_MEASUREMENT_ID ?? 'G-J2YB5ZF1NE').trim();
+if (GA_ID && /^G-[A-Z0-9]+$/.test(GA_ID) && process.env.GA_OFF !== '1') {
+  const analyticsVer = createHash('sha256').update(read('assets/analytics.js')).digest('hex').slice(0, 10);
+  const head = `<!-- Google tag (gtag.js), with consent mode: no analytics cookies until the visitor accepts -->
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}
+gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:/(?:^|;\\s*)hoolam_consent=yes/.test(document.cookie)?'granted':'denied'});
+gtag('js',new Date());gtag('config','${GA_ID}',{content_group:'Website'});</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=${GA_ID}"></script>
+`;
+  const tail = `<script src="/assets/analytics.js?v=${analyticsVer}" defer></script>\n`;
+  const live = ['index.html', '404.html', join('about', 'index.html'), join('contact', 'index.html'), join('legal', 'index.html'), ...LEGAL_PAGES.map((p) => join('legal', p.slug, 'index.html'))];
+  for (const f of live) {
+    const file = join(out, f);
+    const html = readFileSync(file, 'utf8');
+    if (html.includes('googletagmanager.com/gtag/js')) continue;
+    writeFileSync(file, html.replace('</head>', `${head}</head>`).replace('</body>', `${tail}</body>`));
+  }
+}
 
 const n = Object.keys(baked.images ?? {}).length;
 console.log(`Site built → dist-site/  (${pages.length} pages, home page ${liveVersion} live, ${VERSIONS.length} versions + draft to preview; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);

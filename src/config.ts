@@ -7,6 +7,7 @@ const schema = z.object({
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().min(1),
   SITE_URL: z.string().optional(),
+  GA_MEASUREMENT_ID: z.string().optional(),            // Google Analytics on sellers' public pages (default: Hoolam's; "off" turns it off)
   CONSOLE_URL: z.string().optional(),                   // e.g. https://console.hoolam.com: the console only opens there
   PAY_URL: z.string().optional(),                       // e.g. https://pay.hoolam.com: short payment links (pay.hoolam.com/HL-ABCDE)
   SITE_DEPLOY_HOOK: z.string().optional(),              // Render deploy hook of the landing page: rebuilt after logo, picture, fee or number changes                      // the landing page (e.g. https://hoolam.ng); the server's / sends visitors there

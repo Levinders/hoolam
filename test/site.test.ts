@@ -163,6 +163,17 @@ describe('landing page ↔ server', () => {
     // example amounts (₦15,000 sneakers, the ₦10,300 order) never show in search results as if they were Hoolam's price
     expect(about).toContain('<div data-nosnippet class="flow" role="img"');
     expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('<div data-nosnippet class="pf" role="img"');
+    // Google Analytics with consent on the live pages only (never the previews); the Cookies page explains it and reopens the banner
+    for (const f of ['dist-site/index.html', 'dist-site/about/index.html', 'dist-site/contact/index.html', 'dist-site/legal/cookies/index.html']) {
+      const h = readFileSync(f, 'utf8');
+      expect(h, f).toContain("analytics_storage:/(?:^|;\\s*)hoolam_consent=yes/.test(document.cookie)?'granted':'denied'");
+      expect(h, f).toMatch(/<script src="\/assets\/analytics\.js\?v=[0-9a-f]{10}" defer><\/script>/);
+    }
+    for (const f of ['dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html']) expect(readFileSync(f, 'utf8'), f).not.toContain('googletagmanager');
+    const cookies = readFileSync('dist-site/legal/cookies/index.html', 'utf8');
+    expect(cookies).toContain('data-consent-open');
+    expect(cookies).toContain('<td>_ga</td>');
+    expect(readFileSync('dist-site/legal/privacy/index.html', 'utf8')).toContain('Our website counts visits with Google Analytics, only if you accept analytics cookies.');
     expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
     expect(about).not.toContain('8 October 2026'); // no registration date on About
     expect(contact).toContain('Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.');

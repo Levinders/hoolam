@@ -12,7 +12,7 @@ let sellerId = '';
 const ADMIN = 'test-admin-token-123456';
 
 beforeAll(async () => {
-  h = await startHarness({ quiet: true, env: { TRUST_COUNT_TEST_DEALS: 'true', PUBLIC_BASE_URL: 'https://go.hoolam.test' } });
+  h = await startHarness({ quiet: true, env: { TRUST_COUNT_TEST_DEALS: 'true', PUBLIC_BASE_URL: 'https://go.hoolam.test', SITE_URL: 'https://hoolam.test' } });
   await h.say(seller, 'hi', 'Bayo Adeyemi');
   await h.tap(seller, 'menu:account'); await h.say(seller, '0123456789 GTBank'); await h.tap(seller, 'bank:yes');
   sellerId = (await h.db.query('SELECT id FROM users WHERE phone=$1', [seller])).rows[0].id;
@@ -101,6 +101,11 @@ describe('the public page', () => {
     expect(page).toContain('Bayo &lt;Kicks&gt;');
     expect(page).not.toContain('Bayo <Kicks>');
     expect(page).not.toMatch(/[✅👥👍📦⚖️🏦🛒💳🛡️]/u);
+    // Google Analytics with consent: everything starts denied; the banner and events come from hoolam.com's analytics.js
+    expect(page).toContain(`window.HOOLAM_PAGE={seller:"${t.slug}"}`);
+    expect(page).toContain("gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:/(?:^|;\\s*)hoolam_consent=yes/.test(document.cookie)?'granted':'denied'});");
+    expect(page).toContain('<script async src="https://www.googletagmanager.com/gtag/js?id=G-J2YB5ZF1NE"></script>');
+    expect(page).toContain('<script src="https://hoolam.test/assets/analytics.js" data-cookies="https://hoolam.test/legal/cookies/" defer></script>');
     // the photo is listed with the page in the sellers' sitemap, for Google Images
     expect((await get('/sitemap.xml')).body).toContain(`<loc>https://go.hoolam.test/s/${t.slug}</loc>`);
     expect((await get('/sitemap.xml')).body).toContain(`<image:image><image:loc>https://go.hoolam.test/s/${t.slug}/photo.webp?v=${v}</image:loc></image:image>`);
