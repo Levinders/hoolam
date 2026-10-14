@@ -495,6 +495,7 @@ Support isn't in the sidebar any more: it's a round button at the bottom right o
 ### Live chat on the website
 
 - **Where:** About, Contact us, the legal pages, home version 1.2.0 and the draft (`"liveChat": true` in `versions.json`), not home versions 1.0.0 or 1.1.0. `site/assets/chat.js`, drawn in its own shadow root so it never clashes with the page; the page passes the server address, Hoolam's logo for that version (or the drawing) and the WhatsApp link. Contact us's **Chat with a rep** opens it (`HoolamChat.message()`).
+- **Launcher:** a teal circle with a brand-gold chat icon.
 - **Look:** a solid dark cover hides the page while the chat is open, with Hoolam's logo faint in the middle on bigger screens (on phones the chat fills the screen). Curved teal header with Hoolam's logo only, the website's soft theme, slightly smaller text, 1px borders.
 - **Tabs:** **Home** ("Hi there." or "Hi Ivana.", the welcome line, whether reps are online and the usual reply time or "Reps are back at 9am", then only the "Prefer WhatsApp?" card; chatting starts on the Messages tab), **Messages** (their one conversation, with a back arrow to Home), **Questions** (search; newest at the top; a question opens its answer in place, one at a time; "Still need help? Message us"), **News** (newest first, with its picture when there is one).
 - **Starting:** the first time, one form asks for their **name**, **WhatsApp number** (required, a Nigerian mobile number) and **their message**, with "Only for this chat…", then **Start chat**. Quick replies fill in the message. No email. After that, any message just sends.
@@ -578,6 +579,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 14 Oct 2026 | Hero phone number back to its original colour; the live chat launcher's icon is brand gold (it showed dark on teal); Contact us: the chat peek in the WhatsApp card shows only on wide screens (it covered the words on phones) | 4348a51 |
 | 14 Oct 2026 | Brand: logo icon only, with Hoolam written as text (full logo removed, migration 024); About, Contact us and legal pages use the logo icon; round logo icon in the hero phone and footer; gold number in the hero phone; Brand and Website content merged into one Brand page with image sections that open one at a time | ee79937 |
 | 13 Oct 2026 | Live chat: the cover behind the chat is solid dark, so the page is hidden while it is open | e3a5692 |
 | 13 Oct 2026 | Live chat: dark cover behind the chat with a faint logo on bigger screens; Home is just "Prefer WhatsApp?"; Home cards removed (migration 023); console chat header on one line (number, ref, You / rep / Waiting for a rep), no "On the page now"; rating and "looking at this chat too" shown in the chat | 86db2bc |
