@@ -588,6 +588,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 14 Oct 2026 | Cookie banner goes away after Allow or Not now (the choice was saved but the banner stayed on screen) | 0ddb274 |
 | 14 Oct 2026 | Campaign links (hoolam.com/<name>, taps, QR); seller page stats with Settings → Features (My page, public page and trust card from 50 views); reading depth on the home page; cookie banner reworded and dark; migration 025 | 931d1cd |
 | 14 Oct 2026 | Google Analytics 4 with consent: banner, events (WhatsApp, live chat, calculator, questions, contact taps), sellers' pages; Cookies and Privacy updated, effective 14 October 2026 | 485c4c9 |
 | 14 Oct 2026 | Search: example amounts kept out of results (Google showed "NGN 15,000.00" under About) | 6dd90be |
