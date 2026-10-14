@@ -143,6 +143,20 @@ describe('landing page ↔ server', () => {
     // Contact us: the chat peek in the WhatsApp card is for wide screens only
     expect(contact).toContain('@media (max-width: 900px) { .way.main > .mini { display: none; }');
     expect(about).toContain('.sf-logo .logo-mark.has-img { background: transparent; box-shadow: none; border-radius: 50%; }');
+    // search engines and AI tools: the live home page's real address, company data and questions; llms.txt; sitemap dates
+    const home = readFileSync('dist-site/index.html', 'utf8');
+    expect(home).toContain('<link rel="canonical" href="https://hoolam.example/">');
+    const homeLd = JSON.parse(home.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]!);
+    expect(homeLd['@graph'].map((g: any) => g['@type'])).toEqual(['Organization', 'WebSite', 'WebPage', 'FAQPage']);
+    const faqLd = homeLd['@graph'][3].mainEntity;
+    expect(faqLd[0]).toEqual({ '@type': 'Question', name: 'Do I need an app?', acceptedAnswer: { '@type': 'Answer', text: 'No. It all happens in WhatsApp.' } });
+    expect(faqLd.find((q: any) => q.name === 'How much does it cost?').acceptedAnswer.text).toMatch(/^2\.5% of the price, starting from ₦300, never more than ₦5,000\./);
+    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).not.toContain('application/ld+json'); // previews stay out of search
+    const llms = readFileSync('dist-site/llms.txt', 'utf8');
+    expect(llms).toMatch(/^# Hoolam\n\n> Hoolam is a WhatsApp escrow service for Nigeria\./);
+    expect(llms).toContain('HOOLAM DIGITAL PLATFORM LTD (RC 9919417)');
+    expect(llms).toContain('- [About](https://hoolam.example/about/)');
+    expect(readFileSync('dist-site/sitemap.xml', 'utf8')).toMatch(/<loc>https:\/\/hoolam\.example\/<\/loc><lastmod>\d{4}-\d\d-\d\d<\/lastmod>/);
     expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
     expect(about).not.toContain('8 October 2026'); // no registration date on About
     expect(contact).toContain('Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.');

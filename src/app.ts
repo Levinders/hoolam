@@ -289,6 +289,19 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return c.SITE_URL ? reply.redirect(c.SITE_URL) : reply.type('text/plain').send('Hoolam is running.');
   });
 
+  // ---------- search engines ----------
+  // On this server only sellers' public pages are for search (and AI tools); the console and everything else stay out.
+  app.get('/robots.txt', async (_req, reply) => reply.type('text/plain').header('cache-control', 'public, max-age=3600')
+    .send(`User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
+  app.get('/sitemap.xml', async (_req, reply) => {
+    const b = c.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    const rows = (await db.query(`SELECT u.profile_slug AS slug, GREATEST(u.created_at, (SELECT max(d.updated_at) FROM deals d WHERE d.seller_id=u.id)) AS at
+      FROM users u WHERE u.profile_public AND u.profile_slug IS NOT NULL ORDER BY u.profile_slug LIMIT 50000`)).rows;
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows.map((r) =>
+      `  <url><loc>${b}/s/${encodeURIComponent(r.slug)}</loc><lastmod>${new Date(r.at).toISOString().slice(0, 10)}</lastmod></url>`).join('\n')}\n</urlset>\n`;
+    return reply.type('application/xml').header('cache-control', 'public, max-age=3600').send(xml);
+  });
+
   // ---------- public seller pages ----------
   const shareImage = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'share.png'));
   const favicon = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'site', 'assets', 'favicon.svg'));

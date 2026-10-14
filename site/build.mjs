@@ -19,6 +19,7 @@
 //   WHATSAPP_PUBLIC_NUMBER  used only if the server can't be reached
 //   SITE_URL                this site's own address, for link previews and canonical links
 //   SITE_OFFLINE=1          don't contact the server (tests)
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -322,9 +323,77 @@ for (const p of INFO_PAGES) {
   writeFileSync(join(out, p.slug, 'index.html'), html);
 }
 
+// ---------- search engines and AI tools ----------
+// The live home page says who Hoolam is (company data), where its real address is (canonical) and its questions and answers (FAQ),
+// all read from what the page itself shows. Nothing here changes how any page looks.
+const decode = (t) => t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+const plain = (h) => decode(h.replace(/<span class="pm">[\s\S]*?<\/span>/g, '').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+// the fee answer as visitors see it once the page has loaded today's fees
+const feeAnswer = `${shared.FEE_RATE} of the price, starting from ${shared.FEE_MIN}, never more than ${shared.FEE_MAX}. Whoever starts the order pays it. The other side pays a small flat transaction fee, from ${naira(txn.seller[0].fee)}. Orders go up to ${shared.MAX_DEAL} for now.`;
+const homeFile = join(out, 'index.html');
+const homeHtml = readFileSync(homeFile, 'utf8');
+const faqHtml = homeHtml.match(/<section class="faq"[\s\S]*?<\/section>/)?.[0] ?? '';
+const faq = [...faqHtml.matchAll(/<details>\s*<summary>([\s\S]*?)<\/summary>\s*<p([^>]*)>([\s\S]*?)<\/p>\s*<\/details>/g)]
+  .map(([, q, attrs, ans]) => ({ q: plain(q), a: /data-p="faq"/.test(attrs) ? feeAnswer : plain(ans) })).filter((x) => x.q && x.a);
+if (site) {
+  const homeLd = { '@context': 'https://schema.org', '@graph': [
+    organization,
+    { '@type': 'WebSite', '@id': `${site}/#website`, url: `${site}/`, name: 'Hoolam', inLanguage: 'en-NG', publisher: { '@id': organization['@id'] } },
+    { '@type': 'WebPage', '@id': `${site}/#webpage`, url: `${site}/`, name: 'Hoolam · Safe orders on WhatsApp', isPartOf: { '@id': `${site}/#website` }, about: { '@id': organization['@id'] }, inLanguage: 'en-NG' },
+    ...(faq.length ? [{ '@type': 'FAQPage', '@id': `${site}/#faq`, mainEntity: faq.map((x) => ({ '@type': 'Question', name: x.q, acceptedAnswer: { '@type': 'Answer', text: x.a } })) }] : []),
+  ] };
+  const tags = `<link rel="canonical" href="${site}/">\n${homeHtml.includes('property="og:url"') ? '' : `<meta property="og:url" content="${site}/">\n`}<script type="application/ld+json">${JSON.stringify(homeLd).replace(/</g, '\\u003c')}</script>\n`;
+  writeFileSync(homeFile, homeHtml.replace('</head>', `${tags}</head>`));
+}
+
+// llms.txt: a plain summary of Hoolam for AI assistants (https://llmstxt.org)
+const llms = `# Hoolam
+
+> Hoolam is a WhatsApp escrow service for Nigeria. When people buy and sell on WhatsApp, Instagram, TikTok or Facebook, the buyer pays Hoolam instead of the seller. Hoolam holds the money safely until the buyer has received the item and is happy, then pays the seller. No app is needed: everything happens in a WhatsApp chat.
+
+Hoolam is run by ${COMPANY.legalName} (RC ${COMPANY.rc}), registered with the Corporate Affairs Commission, Nigeria. Money for orders is held with ${COMPANY.bankPartner}${COMPANY.payService ? ` (${COMPANY.payService})` : ''}.
+
+## How it works
+
+1. It starts on WhatsApp: the buyer tells Hoolam what they're buying and the price agreed, and the seller confirms with one tap.
+2. The buyer pays by bank transfer to a one-time account for that order. The money goes to Hoolam, not the seller.
+3. The seller can see the money is ready, then sends the item.
+4. The buyer checks the item at the door.
+5. If the buyer is happy, the seller is paid straight to their bank account. If something is wrong, the money stays frozen while a Hoolam rep sorts it out.
+
+## Fees
+
+- Hoolam's fee: ${shared.FEE_RATE} of the price, starting from ${shared.FEE_MIN}, never more than ${shared.FEE_MAX}. Whoever starts the order pays it.
+- The other side pays a small flat transaction fee: ${shared.TXN_SELLER}.
+- Orders go up to ${shared.MAX_DEAL} for now (${shared.MAX_DEAL_VERIFIED} for verified users).
+
+## Questions
+
+${faq.map((x) => `- **${x.q}** ${x.a}`).join('\n')}
+
+## Contact
+
+${wa ? `- WhatsApp (orders and help, any time): ${phoneText(wa)} (https://wa.me/${wa})\n` : ''}${contact.email ? `- Email: ${contact.email}\n` : ''}- Live reps: 9am to 5pm, every day (live chat on the website, or WhatsApp)
+- Registered office: ${COMPANY.address}
+
+## Pages
+${site ? `
+- [Home](${site}/): what Hoolam is, how an order works, fees and questions
+- [About](${site}/about/): who we are, why we built Hoolam, the company behind it
+- [Contact us](${site}/contact/): WhatsApp, live reps, email and office
+- [Where the money sits](${site}/legal/money/): the bank, the accounts, and every step the money takes
+- [If something goes wrong](${site}/legal/disputes/): reporting a problem and how refunds work
+- [Terms of service](${site}/legal/terms/)
+- [Privacy policy](${site}/legal/privacy/)
+` : ''}`;
+writeFileSync(join(out, 'llms.txt'), llms);
+
 const pages = ['/', '/about/', '/contact/', '/legal/', ...LEGAL_PAGES.map((p) => `/legal/${p.slug}/`)];
 writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\n${site ? `Sitemap: ${site}/sitemap.xml\n` : ''}`);
-if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${site}${p}</loc></url>`).join('\n')}\n</urlset>\n`);
+// when each page last changed: the newest commit touching the files it's built from (left out if git isn't there)
+const lastChanged = (files) => { try { return execFileSync('git', ['log', '-1', '--format=%cs', '--', ...files.map((f) => join(here, f))], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; } };
+const sources = (p) => p === '/' ? [`versions/${liveVersion}.html`, 'versions/versions.json', 'partials'] : p === '/about/' || p === '/contact/' ? [`pages${p.slice(0, -1)}.html`, 'pages/_layout.html', 'partials'] : p === '/legal/' ? ['legal/_layout.html', 'partials'] : [`legal${p.slice(6, -1)}.html`, 'legal/_layout.html'];
+if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => { const d = lastChanged(sources(p)); return `  <url><loc>${site}${p}</loc>${d ? `<lastmod>${d}</lastmod>` : ''}</url>`; }).join('\n')}\n</urlset>\n`);
 writeFileSync(join(out, '404.html'), page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'This page doesn’t exist, or it has moved.', body: `<p><a class="lg-btn" href="/">Go to the Hoolam home page</a></p>`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">'));
 
 const n = Object.keys(baked.images ?? {}).length;

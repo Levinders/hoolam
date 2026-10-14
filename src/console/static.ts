@@ -13,6 +13,7 @@ const SECURITY_HEADERS = {
   'x-frame-options': 'DENY',
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'same-origin',
+  'x-robots-tag': 'noindex, nofollow', // the console never shows in search
   'content-security-policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
 };
 

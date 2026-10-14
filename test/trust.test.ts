@@ -182,6 +182,13 @@ describe('the seller\'s own card and public page', () => {
     expect(page.body).toMatch(/text=Buy%20from%20%40bayo-kicks-lagos/);
     expect(page.body).toMatch(/og:image" content="https:\/\/hoolam\.test\/s\/bayo-kicks-lagos\/share\.jpg/);
     expect((await h.app.app.inject({ method: 'GET', url: '/share.png' })).headers['content-type']).toBe('image/png');
+    // for search engines and AI tools: the page says who the seller is, and it's listed in this server's sitemap
+    expect(page.body).toContain('<title>Bayo Kicks Lagos on Hoolam · seller in Lagos</title>');
+    const ld = JSON.parse(page.body.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]!);
+    expect(ld).toMatchObject({ '@type': 'ProfilePage', url: 'https://hoolam.test/s/bayo-kicks-lagos', mainEntity: { '@type': 'Organization', name: 'Bayo Kicks Lagos', address: { addressLocality: 'Lagos', addressCountry: 'NG' } } });
+    const robots = await h.app.app.inject({ method: 'GET', url: '/robots.txt' });
+    expect(robots.body).toBe('User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nDisallow: /\n\nSitemap: https://hoolam.test/sitemap.xml\n');
+    expect((await h.app.app.inject({ method: 'GET', url: '/sitemap.xml' })).body).toMatch(/<loc>https:\/\/hoolam\.test\/s\/bayo-kicks-lagos<\/loc><lastmod>\d{4}-\d\d-\d\d<\/lastmod>/);
 
     const buyer = phone();
     await h.say(buyer, 'Buy from @bayo-kicks-lagos', 'Femi'); // what the page's button types
@@ -190,6 +197,7 @@ describe('the seller\'s own card and public page', () => {
     await h.tap(seller, 'card:hide');
     expect(h.last(seller)).toMatch(/Your page is hidden/);
     expect((await h.app.app.inject({ method: 'GET', url: '/s/bayo-kicks-lagos' })).statusCode).toBe(404);
+    expect((await h.app.app.inject({ method: 'GET', url: '/sitemap.xml' })).body).not.toContain('bayo-kicks-lagos'); // hidden pages leave the sitemap
   });
 
   it('two sellers with the same name get different page addresses', async () => {

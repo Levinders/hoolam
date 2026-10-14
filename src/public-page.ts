@@ -36,8 +36,22 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
   const disputes = t.problems
     ? `${t.problems} problem${t.problems === 1 ? '' : 's'} reported` + [t.refunded ? `${t.refunded} refunded after review` : '', t.released ? `${t.released} settled in the seller's favour` : '', open > 0 ? `${open} being reviewed` : ''].filter(Boolean).map((x) => ` · ${x}`).join('')
     : t.completed ? 'No problems reported' : null;
-  const title = `${t.name} on Hoolam`;
-  const desc = t.completed ? `${t.completed} safe orders completed. Pay through Hoolam: your money is held until you're happy.` : `Buy from ${t.name} safely: your money is held until you're happy.`;
+  const title = `${t.name} on Hoolam${t.city ? ` · seller in ${t.city}` : ''}`;
+  const who = `${t.verified ? 'Verified seller' : 'Seller'}${t.city ? ` in ${t.city}, Nigeria` : ' in Nigeria'}`;
+  const desc = t.completed
+    ? `${who}. ${t.completed} safe ${t.completed === 1 ? 'order' : 'orders'} completed on Hoolam. Pay through Hoolam on WhatsApp: your money is held until you're happy.`
+    : `${who}. Buy from ${t.name} safely through Hoolam on WhatsApp: your money is held until you're happy.`;
+  // the seller as search engines and AI tools read it (only what the page itself shows)
+  const jsonld = {
+    '@context': 'https://schema.org', '@type': 'ProfilePage', url: page, name: title, description: desc, inLanguage: 'en-NG',
+    ...(home ? { isPartOf: { '@type': 'WebSite', name: 'Hoolam', url: home } } : {}),
+    mainEntity: {
+      '@type': 'Organization', name: t.name, url: page, description: desc,
+      ...(photo ? { image: photo } : {}),
+      address: { '@type': 'PostalAddress', ...(t.city ? { addressLocality: t.city } : {}), addressCountry: 'NG' },
+      ...(t.socials.length ? { sameAs: t.socials.map((x) => x.url) } : {}),
+    },
+  };
   const brand = `${o.markUrl ? `<img class="mark-img" src="${esc(o.markUrl)}" alt="">` : ICON.mark}<span>Hoolam</span>`;
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -45,6 +59,8 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
 <meta name="description" content="${esc(desc)}">
 <meta name="theme-color" content="#0E5C63">
 <link rel="canonical" href="${esc(page)}">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<script type="application/ld+json">${JSON.stringify(jsonld).replace(/</g, '\\u003c')}</script>
 <link rel="icon" href="${esc(o.markUrl ?? `${o.baseUrl}/favicon.svg`)}">
 <meta property="og:type" content="profile"><meta property="og:site_name" content="Hoolam">
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:url" content="${esc(page)}">
