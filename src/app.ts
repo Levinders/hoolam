@@ -295,10 +295,16 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     .send(`User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
   app.get('/sitemap.xml', async (_req, reply) => {
     const b = c.PUBLIC_BASE_URL.replace(/\/+$/, '');
-    const rows = (await db.query(`SELECT u.profile_slug AS slug, GREATEST(u.created_at, (SELECT max(d.updated_at) FROM deals d WHERE d.seller_id=u.id)) AS at
-      FROM users u WHERE u.profile_public AND u.profile_slug IS NOT NULL ORDER BY u.profile_slug LIMIT 50000`)).rows;
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows.map((r) =>
-      `  <url><loc>${b}/s/${encodeURIComponent(r.slug)}</loc><lastmod>${new Date(r.at).toISOString().slice(0, 10)}</lastmod></url>`).join('\n')}\n</urlset>\n`;
+    // each page with the date it last changed (new orders, a new photo) and the seller's photo, when they have one
+    const rows = (await db.query(`SELECT u.profile_slug AS slug, p.sha256 AS photo,
+        GREATEST(u.created_at, p.updated_at, (SELECT max(d.updated_at) FROM deals d WHERE d.seller_id=u.id)) AS at
+      FROM users u LEFT JOIN user_photos p ON p.user_id=u.id
+      WHERE u.profile_public AND u.profile_slug IS NOT NULL ORDER BY u.profile_slug LIMIT 50000`)).rows;
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${rows.map((r) => {
+      const page = `${b}/s/${encodeURIComponent(r.slug)}`;
+      const img = r.photo ? `<image:image><image:loc>${page}/photo.webp?v=${String(r.photo).slice(0, 12)}</image:loc></image:image>` : '';
+      return `  <url><loc>${page}</loc><lastmod>${new Date(r.at).toISOString().slice(0, 10)}</lastmod>${img}</url>`;
+    }).join('\n')}\n</urlset>\n`;
     return reply.type('application/xml').header('cache-control', 'public, max-age=3600').send(xml);
   });
 

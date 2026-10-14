@@ -101,6 +101,9 @@ describe('the public page', () => {
     expect(page).toContain('Bayo &lt;Kicks&gt;');
     expect(page).not.toContain('Bayo <Kicks>');
     expect(page).not.toMatch(/[✅👥👍📦⚖️🏦🛒💳🛡️]/u);
+    // the photo is listed with the page in the sellers' sitemap, for Google Images
+    expect((await get('/sitemap.xml')).body).toContain(`<loc>https://go.hoolam.test/s/${t.slug}</loc>`);
+    expect((await get('/sitemap.xml')).body).toContain(`<image:image><image:loc>https://go.hoolam.test/s/${t.slug}/photo.webp?v=${v}</image:loc></image:image>`);
   });
 
   it('a hidden page hides the photo too', async () => {
