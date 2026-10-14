@@ -115,7 +115,8 @@ Everything passes through the one server: messages come in from Meta, money move
 | `/webhook/payments` | Payment and payout notices from Monnify |
 | `/console` | The staff console and its API (`/console/api/...`) |
 | `/o/:code?k=` | Private order page (buyer's link, seller's link, or the neutral link) |
-| `/s/:slug` | A seller's public trust page |
+| `/s/:slug` | A seller's public trust page (indexed: title with their city, ProfilePage data) |
+| `/robots.txt`, `/sitemap.xml` (console.hoolam.com) | Search engines may read only sellers' public pages (`/s/…`) and images; the sitemap lists every public seller page. The console sends `X-Robots-Tag: noindex` |
 | `/:code`, `/v/:code`, `/chat` | Short links that open the WhatsApp chat at the right step |
 | `/site.json` | Live fees, limits, timings, contact details, the live home page version (`homeVersion`) and the images for every version (`versions`) for the website |
 | `/media/<slot>` | Uploaded images: `mark` (the logo icon), or `<spot>@<version>` for website images |
@@ -533,6 +534,7 @@ The website reads its live values (fees, both transaction fee tables, the larges
   - **1.2.0, phone menu:** on phones and small screens the menu opens as a sidebar from the right (How it works, Pricing, Why trust us, About, Contact us; the one in view highlighted, company and RC number at the bottom), with the page behind blurred. The WhatsApp button stays in the top bar.
   - **1.2.0, why trust us:** four cards (Kept at a bank, A registered company with "Verify on CAC", Every order protected, and Deposits insured by NDIC: "Money sits in a CBN-licensed, NDIC-insured bank. In our care.") and the example seller Mama Bella Shoes (verified tick, Woji, Port Harcourt, Delivered count, rating with review count, months on Hoolam, a "Buy from this seller" link that opens WhatsApp in a new tab). A small "Example" tag stays on her card because the record is made up.
   - **1.2.0, questions and closing:** the questions section is "Questions / We get asked this a lot." The fee answer reads from the console (rate, "starting from" the minimum, the maximum, the transaction fee, the order limit), and the WhatsApp number in the last answer does too. Answers say "a rep". The closing card's label is "Now", with "Say hi. We'll guide you through your first one."
+  - **Search and AI tools:** the live home page carries its canonical address (https://hoolam.com/) and schema.org data: the company (Organization), the website, the page, and its questions and answers as an FAQPage, read from the page itself with today's fees. `/llms.txt` is a plain summary for AI assistants (what Hoolam is, the company, how an order works, fees, the questions, contact and key pages). `sitemap.xml` gives each page the date its source last changed (from git). Google Search Console (Domain property hoolam.com, which also covers console.hoolam.com) has the sitemap submitted; next: Bing Webmaster Tools, imported from Search Console, with both sitemaps. Nothing here changes how a page looks.
   - **Previews** are public links with a "Preview · version X" label, but search engines never list them: a `noindex` tag on each page and an `X-Robots-Tag: noindex` header on `/v/*` (render.yaml). `/v/` is deliberately not blocked in robots.txt, because a blocked page can't be read, so its noindex would never be seen.
   - **Making a version:** changes are gathered first; a new version is only made when the owner confirms that's everything for this round. Numbers: patch (1.0.1) for small fixes, minor (1.1.0) for new or changed sections, major (2.0.0) for a redesign. Claude suggests the number; the owner confirms.
   - A new version starts with a copy of the images of the version it came from (when it has none of its own).
@@ -579,6 +581,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 14 Oct 2026 | Search and AI: home page canonical, company data and FAQ; /llms.txt; sitemap dates; console.hoolam.com robots.txt and sitemap of sellers' public pages; console noindex; sellers' pages get their city in the title and ProfilePage data | 3773f3b |
 | 14 Oct 2026 | Hero phone number back to its original colour; the live chat launcher's icon is brand gold (it showed dark on teal); Contact us: the chat peek in the WhatsApp card shows only on wide screens (it covered the words on phones) | 4348a51 |
 | 14 Oct 2026 | Brand: logo icon only, with Hoolam written as text (full logo removed, migration 024); About, Contact us and legal pages use the logo icon; round logo icon in the hero phone and footer; gold number in the hero phone; Brand and Website content merged into one Brand page with image sections that open one at a time | ee79937 |
 | 13 Oct 2026 | Live chat: the cover behind the chat is solid dark, so the page is hidden while it is open | e3a5692 |
