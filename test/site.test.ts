@@ -160,6 +160,9 @@ describe('landing page ↔ server', () => {
     expect(llms).toContain('HOOLAM DIGITAL PLATFORM LTD (RC 9919417)');
     expect(llms).toContain('- [About](https://hoolam.example/about/)');
     expect(readFileSync('dist-site/sitemap.xml', 'utf8')).toMatch(/<loc>https:\/\/hoolam\.example\/<\/loc><lastmod>\d{4}-\d\d-\d\d<\/lastmod>/);
+    // example amounts (₦15,000 sneakers, the ₦10,300 order) never show in search results as if they were Hoolam's price
+    expect(about).toContain('<div data-nosnippet class="flow" role="img"');
+    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('<div data-nosnippet class="pf" role="img"');
     expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
     expect(about).not.toContain('8 October 2026'); // no registration date on About
     expect(contact).toContain('Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.');
