@@ -29,12 +29,12 @@
 
   var host, root;
   function banner() {
-    if (host) { host.hidden = false; return; }
+    if (host) { host.hidden = false; host.style.display = ''; return; }
     host = document.createElement('div');
     host.id = 'hoolam-consent';
     root = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host;
     root.innerHTML = '<style>' +
-      ':host{all:initial}' +
+      ':host{all:initial}:host([hidden]){display:none!important}' +
       '.c{position:fixed;z-index:2147482000;left:16px;bottom:16px;width:360px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:18px;border-radius:18px;background:#1B2321;color:#fff;' +
       'box-shadow:0 22px 48px -20px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06);font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;animation:in .3s cubic-bezier(.22,.8,.24,1)}' +
       '@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}' +
@@ -53,7 +53,7 @@
       '<p>Allow cookies so we can see what works and fix what doesn\u2019t. <a href="' + COOKIES_URL + '">Cookies</a></p>' +
       '<div class="r"><button class="y" data-v="yes">Allow</button><button class="n" data-v="no">Not now</button></div></div>';
     root.querySelectorAll('button').forEach(function (b) {
-      b.addEventListener('click', function () { var v = b.getAttribute('data-v'); save(v); apply(v); host.hidden = true; gtag('event', v === 'yes' ? 'consent_accept' : 'consent_decline'); });
+      b.addEventListener('click', function () { var v = b.getAttribute('data-v'); save(v); apply(v); host.hidden = true; host.style.display = 'none'; gtag('event', v === 'yes' ? 'consent_accept' : 'consent_decline'); });
     });
     document.body.appendChild(host);
   }

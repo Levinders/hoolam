@@ -172,6 +172,7 @@ describe('landing page ↔ server', () => {
     for (const f of ['dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html']) expect(readFileSync(f, 'utf8'), f).not.toContain('googletagmanager');
     const analytics = readFileSync('dist-site/assets/analytics.js', 'utf8');
     expect(analytics).toContain('Help us make Hoolam better for you.');
+    expect(analytics).toContain(':host([hidden]){display:none!important}'); // the banner really goes away after a choice
     expect(analytics).toContain('>Allow</button><button class="n" data-v="no">Not now</button>');
     expect(analytics).toContain("send('section_view'");
     const cookies = readFileSync('dist-site/legal/cookies/index.html', 'utf8');
