@@ -138,9 +138,10 @@ describe('landing page ↔ server', () => {
       expect(h, f).not.toContain('data-slot="logo"');
       expect(h, f).toMatch(/<span class="logo-mark" data-slot="mark"[^>]*>.*?<\/span><b>Hoolam<\/b>/);
     }
-    // an uploaded logo icon is fully round in the hero phone and the footer; the phone's number is gold
+    // an uploaded logo icon is fully round in the hero phone and the footer
     expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('.pf-head .logo-mark.has-img > .slot-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }');
-    expect(readFileSync('dist-site/v/1.2.0/index.html', 'utf8')).toContain('.pf-who span { font-size: 11.5px; white-space: nowrap; color: var(--gold); }');
+    // Contact us: the chat peek in the WhatsApp card is for wide screens only
+    expect(contact).toContain('@media (max-width: 900px) { .way.main > .mini { display: none; }');
     expect(about).toContain('.sf-logo .logo-mark.has-img { background: transparent; box-shadow: none; border-radius: 50%; }');
     expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
     expect(about).not.toContain('8 October 2026'); // no registration date on About

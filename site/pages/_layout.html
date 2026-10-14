@@ -251,7 +251,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
 .mini .opts { display: flex; gap: 6px; flex-wrap: wrap; }
 .mini .opts span { padding: 6px 11px; border-radius: 99px; background: rgba(255,255,255,.14); color: #fff; font-size: .8rem; font-weight: 600; }
 .way.main > div:not(.mini) { max-width: 54%; }
-@media (max-width: 900px) { .mini { display: none; } .way.main > div:not(.mini) { max-width: none; } }
+@media (max-width: 900px) { .way.main > .mini { display: none; } .way.main > div:not(.mini) { max-width: none; } }
 .way .link { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; text-decoration: none; }
 .way .link .ic { width: 17px; height: 17px; }
 @media (max-width: 900px) { .way, .way.main { grid-column: span 12; grid-row: auto; } .way.main { min-height: 0; gap: 18px; } }
