@@ -179,7 +179,11 @@ describe('the seller\'s own card and public page', () => {
     expect(page.statusCode).toBe(200);
     expect(page.body).toMatch(/Bayo Kicks Lagos/);
     expect(page.body).toMatch(/order completed/);
-    expect(page.body).toMatch(/text=Buy%20from%20%40bayo-kicks-lagos/);
+    // "Buy" goes through us (counted for the seller), then straight to Hoolam's WhatsApp with "Buy from @…" typed in
+    expect(page.body).toContain('<a class="cta" href="https://hoolam.test/s/bayo-kicks-lagos/buy" data-wa>');
+    const buyTap = await h.app.app.inject({ method: 'GET', url: '/s/bayo-kicks-lagos/buy', headers: { 'user-agent': 'Mozilla/5.0 (iPhone)' } });
+    expect(buyTap.statusCode).toBe(302);
+    expect(buyTap.headers.location).toMatch(/^https:\/\/wa\.me\/\d+\?text=Buy%20from%20%40bayo-kicks-lagos$/);
     expect(page.body).toMatch(/og:image" content="https:\/\/hoolam\.test\/s\/bayo-kicks-lagos\/share\.jpg/);
     expect((await h.app.app.inject({ method: 'GET', url: '/share.png' })).headers['content-type']).toBe('image/png');
     // for search engines and AI tools: the page says who the seller is, and it's listed in this server's sitemap

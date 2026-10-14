@@ -145,6 +145,14 @@ export function Person() {
                     {can('user.block') && <Button size="sm" variant="ghost" icon={ImageOff} onClick={() => setOpen('photo')}>Remove</Button>}
                   </div>
                 ) : <p className="small muted">No photo yet. Sellers add one from “My trust card” on WhatsApp.</p>}
+                {data.pageStats && (data.pageStats.total > 0 || u.profile_public) && (
+                  <div className="page-stats">
+                    <div><b>{data.pageStats.views30.toLocaleString("en-NG")}</b><span>views, 30 days</span></div>
+                    <div><b>{data.pageStats.buys30.toLocaleString("en-NG")}</b><span>tapped Buy, 30 days</span></div>
+                    <div><b>{data.pageStats.total.toLocaleString("en-NG")}</b><span>views, all time</span></div>
+                    {!data.pageStatsShown && <p className="small muted" style={{ gridColumn: '1 / -1', margin: 0 }}>Only the team sees these for now. Turn them on in <Link to="/settings/features">Settings → Features</Link>.</p>}
+                  </div>
+                )}
                 {s.socials.length > 0 && <div className="links">{s.socials.map((l: any) => (
                   <div key={l.kind} className="row" style={{ gap: 10 }}>
                     <span className={`soc-dot ${l.kind}`} aria-hidden="true" />

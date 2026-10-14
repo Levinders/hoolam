@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Config } from '../config.js';
 import type { Db } from '../db.js';
@@ -9,6 +10,7 @@ import { MAX_UPLOAD_BYTES, MediaError, SLOTS, SiteMedia } from '../site-media.js
 import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
+import { LINK_PAGES, LINK_SOURCES, LinkError, linkTarget, type CampaignLinks } from '../links.js';
 import { titleName, type KycService } from '../kyc.js';
 import { ChatError, type LiveChat } from '../livechat.js';
 import { registerSupportApi } from './support-api.js';
@@ -25,7 +27,7 @@ import { accessDefault, AuthError, hasAccess, permissionsFor, permissionsOf, ROL
  * with who, when, why and what changed.
  */
 export interface ConsoleDeps {
-  config: Config; db: Db; deals: DealService; trust: Trust; settings: Settings; messenger: Messenger;
+  config: Config; db: Db; deals: DealService; trust: Trust; links: CampaignLinks; settings: Settings; messenger: Messenger;
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   refreshTemplates?: () => Promise<void>;
   kyc?: KycService;
@@ -458,6 +460,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       return { rows: rows.rows, total: total.rows[0].n, page, pageSize: PAGE };
     });
 
+    // the most-viewed sellers' public pages, last 30 days (Settings → Features)
+    api.get('/seller-pages/top', async () => ({ rows: await d.trust.topPages(10), shown: d.trust.statsOn() }));
     api.get('/people/:id', async (req) => {
       const id = (req.params as { id: string }).id;
       const u = (await db.query('SELECT * FROM users WHERE id=$1', [id])).rows[0];
@@ -475,6 +479,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const k = d.kyc ? await d.kyc.status(id) : null;
       return {
         user: u, seller: await d.trust.seller(id), buyer: await d.trust.buyer(id),
+        pageStats: await d.trust.pageStats(id), pageStatsShown: d.trust.statsOn(),
         banks: banks.rows, deals: deals.rows, support: support.rows, refusals: optout.rows, trail: trail.rows,
         normalCapMinor: d.deals.maxDealMinor, verifiedCapMinor: d.deals.maxDealVerifiedMinor,
         kyc: k ? { ...k, checks: checks.rows, heldPayouts: held, provider: d.kyc!.checker.name, triesLeft: await d.kyc!.triesLeft(id) } : null,
@@ -689,7 +694,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       await act(req, { action: 'settings.update', targetType: 'settings', targetId: Object.keys(changes).join(','), reason, details: { changes: diff } },
         async () => { try { await d.settings.save(db, changes, req.staff!.id); } catch (e) { throw new HttpError(400, (e as Error).message); } });
       // the website and its legal pages show fees, limits, timings, the number and the contact details: refresh it
-      if (Object.keys(changes).some((k) => k !== 'alerts_enabled' && k !== 'forms_enabled')) d.siteSync.changed();
+      if (Object.keys(changes).some((k) => !['alerts_enabled', 'forms_enabled', 'feature_seller_stats'].includes(k))) d.siteSync.changed();
       return { ok: true, values: d.settings.all() };
     });
 
@@ -807,6 +812,40 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       };
     };
     api.get('/site/versions', async (req) => { need(req, 'settings.view'); return versionsState(); });
+
+    // ---------- campaign links (Settings → Links): hoolam.com/<slug> ----------
+    const siteBase = () => (d.config.SITE_URL ?? 'https://hoolam.com').replace(/\/+$/, '');
+    const linksState = async () => ({
+      rows: (await d.links.list()).map((l) => ({ ...l, url: `${siteBase()}/${l.slug}`, target: `${siteBase()}${linkTarget(l)}`, sourceLabel: LINK_SOURCES[l.source]?.label ?? l.source, pageLabel: (LINK_PAGES as Record<string, string>)[l.page] ?? l.page })),
+      sources: Object.entries(LINK_SOURCES).map(([key, v]) => ({ key, label: v.label })),
+      pages: Object.entries(LINK_PAGES).map(([key, label]) => ({ key, label })),
+      site: siteState(),
+    });
+    api.get('/links', async (req) => { need(req, 'settings.view'); return linksState(); });
+    api.post('/links', async (req) => {
+      need(req, 'brand.update');
+      const b = (req.body ?? {}) as { slug?: string; source?: string; campaign?: string | null; page?: string };
+      try {
+        const l = await act(req, { action: 'link.create', targetType: 'link', targetId: String(b.slug ?? ''), details: { source: b.source, campaign: b.campaign ?? null, page: b.page ?? '/' } },
+          () => d.links.create(req.staff!.id, b));
+        d.siteSync.changed(); // the website builds the link's page
+        return { ...(await linksState()), created: l.slug };
+      } catch (e) { throw e instanceof LinkError ? new HttpError(400, e.message) : e; }
+    });
+    api.delete('/links/:slug', async (req) => {
+      need(req, 'brand.update');
+      const { slug } = req.params as { slug: string };
+      await act(req, { action: 'link.delete', targetType: 'link', targetId: slug }, () => d.links.remove(slug));
+      d.siteSync.changed();
+      return linksState();
+    });
+    api.get('/links/:slug/qr.png', async (req, reply) => {
+      need(req, 'settings.view');
+      const { slug } = req.params as { slug: string };
+      if (!/^[a-z0-9-]{2,40}$/.test(slug)) throw new HttpError(404, 'Not found');
+      const png = await QRCode.toBuffer(`${siteBase()}/${slug}`, { margin: 2, width: 1024, color: { dark: '#1B2321', light: '#FFFFFF' }, errorCorrectionLevel: 'M' });
+      return reply.type('image/png').header('content-disposition', `attachment; filename="hoolam-${slug}-qr.png"`).send(png);
+    });
     api.post('/site/versions/:version/live', async (req) => {
       need(req, 'brand.update');
       const { version } = req.params as { version: string };

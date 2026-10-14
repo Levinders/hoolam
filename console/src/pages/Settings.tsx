@@ -1,4 +1,4 @@
-import { Coins, Contact, Gauge, Landmark, History, Lock, MessageCircle, Palette, ShieldCheck, Timer, type LucideIcon } from 'lucide-react';
+import { Coins, Contact, Gauge, Landmark, History, Link2, Lock, MessageCircle, Palette, ShieldCheck, Timer, ToggleRight, type LucideIcon } from 'lucide-react';
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth';
@@ -6,7 +6,8 @@ import { Empty } from '../ui';
 import { BrandPage } from './settings/Images';
 import { HistoryPage } from './settings/History';
 import { PaymentsPage } from './settings/Payments';
-import { ContactPage, FeesPage, LimitsPage, TimingPage, WhatsAppPage } from './settings/Values';
+import { ContactPage, FeaturesPage, FeesPage, LimitsPage, TimingPage, WhatsAppPage } from './settings/Values';
+import { LinksPage } from './settings/Links';
 
 /**
  * Settings, split into small pages under one row of tabs. Owners and admins only.
@@ -18,8 +19,10 @@ export const SETTINGS_PAGES: { key: string; group: string; label: string; icon: 
   { key: 'timing', group: 'Service', label: 'Timing', icon: Timer, edit: 'settings.update', el: () => <TimingPage /> },
   { key: 'payments', group: 'Service', label: 'Payments', icon: Landmark, edit: 'settings.core', ownerOnly: true, el: () => <PaymentsPage /> },
   { key: 'whatsapp', group: 'Service', label: 'WhatsApp', icon: MessageCircle, edit: 'settings.update', el: () => <WhatsAppPage /> },
+  { key: 'features', group: 'Service', label: 'Features', icon: ToggleRight, edit: 'settings.core', ownerOnly: true, el: () => <FeaturesPage /> },
   { key: 'contact', group: 'Look', label: 'Contact', icon: Contact, edit: 'settings.update', el: () => <ContactPage /> },
   { key: 'brand', group: 'Look', label: 'Brand', icon: Palette, edit: 'brand.update', el: () => <BrandPage /> },
+  { key: 'links', group: 'Look', label: 'Links', icon: Link2, edit: 'brand.update', el: () => <LinksPage /> },
   { key: 'history', group: 'Records', label: 'History', icon: History, edit: 'settings.view', el: () => <HistoryPage /> },
 ];
 

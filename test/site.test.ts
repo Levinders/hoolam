@@ -14,7 +14,7 @@ describe('landing page ↔ server', () => {
     expect(r.statusCode).toBe(200);
     expect(r.headers['access-control-allow-origin']).toBe('*');
     expect(r.json()).toEqual({
-      currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, maxDealVerified: 2000000, images: {}, homeVersion: '1.0.0',
+      currency: 'NGN', whatsapp: '2348012345678', fees: { rate: 2.5, min: 300, max: 5000, roundTo: 100 }, maxDeal: 50000, maxDealVerified: 2000000, images: {}, homeVersion: '1.0.0', links: [],
       txn: { seller: DEFAULT_TXN_BANDS, buyer: DEFAULT_TXN_BANDS }, // the website calculator shows the transaction fee too
       contact: { email: 'hello@hoolam.com', phone: '', whatsapp: '2348012345678', socials: [] },
       versions: { '1.0.0': { date: '2026-10-11', images: {} }, '1.1.0': { date: '2026-10-11', images: {} }, '1.2.0': { date: '2026-10-11', images: {} } },
@@ -170,6 +170,10 @@ describe('landing page ↔ server', () => {
       expect(h, f).toMatch(/<script src="\/assets\/analytics\.js\?v=[0-9a-f]{10}" defer><\/script>/);
     }
     for (const f of ['dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html']) expect(readFileSync(f, 'utf8'), f).not.toContain('googletagmanager');
+    const analytics = readFileSync('dist-site/assets/analytics.js', 'utf8');
+    expect(analytics).toContain('Help us make Hoolam better for you.');
+    expect(analytics).toContain('>Allow</button><button class="n" data-v="no">Not now</button>');
+    expect(analytics).toContain("send('section_view'");
     const cookies = readFileSync('dist-site/legal/cookies/index.html', 'utf8');
     expect(cookies).toContain('data-consent-open');
     expect(cookies).toContain('<td>_ga</td>');

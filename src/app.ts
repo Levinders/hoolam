@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { DealError, DealService, viewKey, type Deal } from './deals/service.js';
@@ -13,7 +13,8 @@ import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/or
 import { FormRegistry, type FormKey, type FormUse } from './whatsapp/forms.js';
 import { COMPANY } from './receipt.js';
 import { Media } from './whatsapp/media.js';
-import { Trust } from './trust.js';
+import { isBot, Trust } from './trust.js';
+import { CampaignLinks } from './links.js';
 import { Settings } from './settings.js';
 import { MediaError, SiteMedia } from './site-media.js';
 import { homeVersions } from './site-versions.js';
@@ -24,7 +25,7 @@ import { registerLiveChatRoutes } from './livechat-routes.js';
 import { registerConsoleStatic } from './console/static.js';
 import { StaffAuth } from './console/staff.js';
 import { audit, type Actor } from './console/audit.js';
-import { notFoundPage, sellerPage } from './public-page.js';
+import { buyWhatsApp, notFoundPage, sellerPage } from './public-page.js';
 import { orderPage } from './order-page.js';
 import sharp from 'sharp';
 import { sellerShareImage } from './share-image.js';
@@ -54,6 +55,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const skipAccountMatch = c.KYC === 'prembly' && c.PAYMENT_PROVIDER === 'fake';
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS, skipAccountMatch);
   const settings = new Settings(db, c);
+  trust.statsOn = () => settings.get<boolean>('feature_seller_stats') === true; // Console → Settings → Features
+  const links = new CampaignLinks(db); // hoolam.com/<name> campaign links (Console → Settings → Links)
   // messages mention reply times and use Hoolam's number as the example: always the console's current values
   configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
   const siteMedia = new SiteMedia(db);
@@ -193,7 +196,14 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       homeVersion: settings.homeVersion(),
       images: siteMedia.forVersion(c.PUBLIC_BASE_URL, settings.homeVersion()),
       versions: Object.fromEntries(homeVersions().map((v) => [v.version, { date: v.date, images: siteMedia.forVersion(c.PUBLIC_BASE_URL, v.version) }])),
+      links: await links.forSite(), // campaign links: the website builds hoolam.com/<slug> for each
     });
+  });
+  // a campaign link's page on the website counts the tap here (navigator.sendBeacon), then moves the visitor on
+  app.post('/l/:slug/tap', async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    if (/^[a-z0-9-]{2,40}$/.test(slug) && !isBot(req.headers['user-agent'])) await links.tap(slug).catch((e) => log(`link tap: ${(e as Error).message}`));
+    return reply.header('access-control-allow-origin', '*').code(204).send();
   });
   // Logo and website pictures uploaded in the console. Versioned URLs (?v=) are cached for a year.
   app.get('/media/:slot', async (req, reply) => {
@@ -335,6 +345,22 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     return reply.type(p.mime).header('x-content-type-options', 'nosniff')
       .header('cache-control', v === p.version ? 'public, max-age=31536000, immutable' : 'public, max-age=300').send(p.bytes);
   });
+  // "Buy" and social links on a seller's page: counted for the seller, then straight on to WhatsApp / their page
+  app.get('/s/:slug/buy', async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    const id = await trust.findSeller({ slug });
+    if (id && !isBot(req.headers['user-agent'])) await trust.recordBuy(id, visitorCode(req)).catch((e) => log(`seller page stats: ${(e as Error).message}`));
+    return reply.header('cache-control', 'no-store').header('x-robots-tag', 'noindex').redirect(buyWhatsApp(settings.waNumber(), slug.toLowerCase()), 302);
+  });
+  app.get('/s/:slug/go/:kind', async (req, reply) => {
+    const { slug, kind } = req.params as { slug: string; kind: string };
+    const id = await trust.findSeller({ slug });
+    const t = id ? await trust.seller(id) : null;
+    const link = t?.socials.find((x) => x.kind === kind);
+    if (!id || !link) return reply.code(404).type('text/html').send(notFoundPage());
+    if (!isBot(req.headers['user-agent'])) await trust.recordSocial(id).catch((e) => log(`seller page stats: ${(e as Error).message}`));
+    return reply.header('cache-control', 'no-store').header('x-robots-tag', 'noindex').redirect(link.url, 302);
+  });
   // the picture shown when a seller's link is shared (their photo in the Hoolam card)
   app.get('/s/:slug/share.jpg', async (req, reply) => {
     const s = await publicSeller((req.params as { slug: string }).slug);
@@ -345,9 +371,13 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const img = await sellerShareImage(`${s.id}:${s.t.photoVersion ?? '-'}:${markV}`, photo?.bytes ?? null, markFile?.bytes ?? null);
     return reply.type('image/jpeg').header('cache-control', 'public, max-age=3600').send(img);
   });
+  // a one-way code for "this browser on this network today", so a visitor counts once a day; the IP itself is never stored
+  const visitorCode = (req: { ip?: string; headers: Record<string, unknown> }) =>
+    createHash('sha256').update(`${req.ip ?? ''}|${String(req.headers['user-agent'] ?? '')}|${new Date().toISOString().slice(0, 10)}|${formSecret}`).digest('hex').slice(0, 32);
   app.get('/s/:slug', async (req, reply) => {
     const { slug } = req.params as { slug: string };
     const id = await trust.findSeller({ slug });
+    if (id && !isBot(req.headers['user-agent'])) await trust.recordView(id, visitorCode(req)).catch((e) => log(`seller page stats: ${(e as Error).message}`));
     const t = id ? await trust.seller(id) : null;
     if (!t) return reply.code(404).type('text/html').send(notFoundPage());
     return reply.type('text/html').header('cache-control', 'public, max-age=300')
@@ -631,7 +661,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const liveChat = new LiveChat({ db, settings, messenger, currency: c.CURRENCY, siteUrl: c.SITE_URL || 'https://hoolam.com', log });
   registerLiveChatRoutes(app, liveChat, db, log);
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
-  registerConsoleApi(app, { config: c, db, deals, trust, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, links, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -647,13 +677,14 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (ALL_TEMPLATES.some((t) => messenger.templateStatus(t.name) !== 'APPROVED')) await refreshTemplates().catch((e) => log(`templates: ${(e as Error).message}`));
       const r = await deals.sweep({ nudgeAfterHours: settings.nudgeHours() });
       if (r.nudged || r.expired) log(`sweep: nudged ${r.nudged}, expired ${r.expired}`);
+      await trust.purgeSeen().catch((e) => log(`seller page stats: ${(e as Error).message}`)); // the one-way visitor codes last 2 days
     }
   }
 
   const load = async () => { await settings.load(); await siteMedia.load(); };
   app.addHook('onClose', async () => siteSync.stop());
   return {
-    app, load, deals, chat, liveChat, messenger, trust, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
+    app, load, deals, chat, liveChat, messenger, trust, links, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
     forms,
     setBuyForm: (f: FormUse | null) => forms.set('buy', f), setSellForm: (f: FormUse | null) => forms.set('sell', f),
     setOrdersForm: (f: FormUse | null) => forms.set('orders', f), setOrderForm: (f: FormUse | null) => forms.set('order', f), backupForms,

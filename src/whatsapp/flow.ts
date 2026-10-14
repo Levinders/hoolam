@@ -1045,7 +1045,7 @@ export class Conversation {
   private async showMyCard(phone: string, user: User) {
     const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
     if (!t) return this.send(phone, msg.didntUnderstand());
-    return this.send(phone, msg.myTrustCard(msg.trustCardText(t), t.isPublic && t.slug ? this.pageUrl(t.slug) : null));
+    return this.send(phone, msg.myTrustCard(msg.trustCardText(t), t.isPublic && t.slug ? this.pageUrl(t.slug) : null, t.ownStats ?? null));
   }
 
   private async cardAction(phone: string, user: User, action: string) {

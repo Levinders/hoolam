@@ -13,7 +13,7 @@ export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' |
 
 export interface SettingDef {
   key: string;
-  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact';
+  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact' | 'Features';
   label: string;
   help: string;
   type: SettingType;
@@ -47,6 +47,7 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'contact_email', group: 'Contact', label: 'Email', help: 'Where people can write to Hoolam. Shown in the website footer and on the legal pages.', type: 'email' },
   { key: 'contact_phone', group: 'Contact', label: 'Phone for calls', help: 'Optional. Leave it empty to show Hoolam\'s WhatsApp number instead.', type: 'phone', optional: true },
   ...COMPANY_SOCIAL_KINDS.map((k): SettingDef => ({ key: `company_${k}`, group: 'Contact', label: COMPANY_SOCIAL_NAMES[k], help: `Hoolam's ${COMPANY_SOCIAL_NAMES[k]} page. Paste the link or type the username. Empty hides it.`, type: 'social', social: k, optional: true })),
+  { key: 'feature_seller_stats', group: 'Features', label: 'Seller page stats', help: 'Sellers see their page views and "Buy" taps under My page in WhatsApp, and buyers see a seller\'s page views (from 50) on their public page and trust card. Counting never stops: when this is off, nobody sees the numbers; turn it on and the full history shows.', type: 'boolean', core: true },
   { key: 'forms_enabled', group: 'WhatsApp', label: 'WhatsApp forms', help: 'Offer the buy and sell forms (needs Meta business verification).', type: 'boolean' },
 ];
 
@@ -73,7 +74,7 @@ export class Settings {
       unpaid_close_hours: 72, rep_reply_minutes: 30, problem_reply_hours: 24, handover_code_tries: 5,
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
       whatsapp_number: this.c.WHATSAPP_PUBLIC_NUMBER.replace(/\D/g, ''),
-      alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM,
+      alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM, feature_seller_stats: false,
       contact_email: 'hello@hoolam.com', contact_phone: '',
       home_version: FIRST_VERSION, // the live home page version (Console → Settings → Website content)
       ...Object.fromEntries(COMPANY_SOCIAL_KINDS.map((k) => [`company_${k}`, ''])),

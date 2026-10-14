@@ -34,7 +34,24 @@ export interface SellerStats {
   isPublic: boolean;
   socials: SocialLink[];     // Instagram, TikTok, Facebook, website (in that order, only the ones set)
   photoVersion: string | null; // short hash of their photo, for /s/:slug/photo.webp?v=
+  /** Page views to show buyers (public page, trust card): only with Seller page stats on, a public page, and 50+ views. */
+  pageViews?: number | null;
+  /** The seller's own numbers (My page), only with Seller page stats on. */
+  ownStats?: { views30: number; buys30: number; total: number } | null;
 }
+
+/** Short counts: 950, 1.2k, 15.4k, 1.2m (one decimal, dropped when it's .0). */
+export function compact(n: number): string {
+  if (n < 1000) return String(n);
+  const one = (x: number) => (Math.floor(x * 10) / 10).toFixed(1).replace(/\.0$/, '');
+  return n < 1_000_000 ? `${one(n / 1000)}k` : `${one(n / 1_000_000)}m`;
+}
+
+/** Views a public page needs before buyers see the count. */
+export const PUBLIC_VIEWS_FROM = 50;
+const BOT = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|telegram|skype|discord|slack|headless|curl|wget|python|go-http|java\/|okhttp|lighthouse|pingdom|uptime/i;
+/** True for link previews, search engines and scripts: they don't count as views. */
+export const isBot = (ua: string | undefined) => !ua || BOT.test(ua);
 
 export interface BuyerStats { name: string; purchases: number; problems: number; refunded: number; isNew: boolean }
 
@@ -43,6 +60,43 @@ const DONE = `('RELEASING','PAYOUT_PENDING','COMPLETED')`;
 export class Trust {
   /** includeTest: count pretend-money deals too (only for trying things out on the test number). */
   constructor(private readonly db: Db, private readonly includeTest = false, private readonly skipAccountMatch = false) {}
+
+  /** Console → Settings → Features → Seller page stats. Counting never stops; this only decides whether anyone sees the numbers. */
+  statsOn: () => boolean = () => false;
+
+  /** Counts a page view, once per visitor per day (visitor: a one-way code, never stored beyond 2 days). */
+  async recordView(userId: string, visitor: string): Promise<void> { await this.recordOnce(userId, visitor, 'views'); }
+  /** Counts a "Buy" tap, once per visitor per day. */
+  async recordBuy(userId: string, visitor: string): Promise<void> { await this.recordOnce(userId, `buy:${visitor}`, 'buys'); }
+  /** Counts a tap on one of their social links. */
+  async recordSocial(userId: string): Promise<void> {
+    await this.db.query(`INSERT INTO seller_page_stats (user_id, day, socials) VALUES ($1, current_date, 1)
+      ON CONFLICT (user_id, day) DO UPDATE SET socials=seller_page_stats.socials+1`, [userId]);
+  }
+  private async recordOnce(userId: string, visitor: string, col: 'views' | 'buys') {
+    const first = await this.db.query('INSERT INTO seller_page_seen (user_id, day, visitor) VALUES ($1, current_date, $2) ON CONFLICT DO NOTHING', [userId, visitor]);
+    if (!first.rowCount) return;
+    await this.db.query(`INSERT INTO seller_page_stats (user_id, day, ${col}) VALUES ($1, current_date, 1)
+      ON CONFLICT (user_id, day) DO UPDATE SET ${col}=seller_page_stats.${col}+1`, [userId]);
+  }
+  /** Removes the one-way visitor codes older than yesterday. */
+  async purgeSeen(): Promise<number> { return (await this.db.query(`DELETE FROM seller_page_seen WHERE day < current_date - 1`)).rowCount ?? 0; }
+
+  /** A seller's page numbers: last 30 days and all time (for the console, whatever the switch says). */
+  async pageStats(userId: string): Promise<{ views30: number; buys30: number; socials30: number; total: number; totalBuys: number }> {
+    const r = (await this.db.query(`SELECT coalesce(sum(views) FILTER (WHERE day > current_date - 30), 0)::int AS views30,
+        coalesce(sum(buys) FILTER (WHERE day > current_date - 30), 0)::int AS buys30, coalesce(sum(socials) FILTER (WHERE day > current_date - 30), 0)::int AS socials30,
+        coalesce(sum(views), 0)::int AS total, coalesce(sum(buys), 0)::int AS total_buys FROM seller_page_stats WHERE user_id=$1`, [userId])).rows[0];
+    return { views30: r.views30, buys30: r.buys30, socials30: r.socials30, total: r.total, totalBuys: r.total_buys };
+  }
+  /** The most-viewed public pages in the last 30 days (for the console). */
+  async topPages(limit = 10): Promise<{ userId: string; name: string; slug: string | null; isPublic: boolean; views30: number; buys30: number }[]> {
+    const r = await this.db.query(`SELECT u.id, coalesce(nullif(u.business_name, ''), u.display_name, 'Seller') AS name, u.profile_slug, u.profile_public,
+        sum(s.views)::int AS views30, sum(s.buys)::int AS buys30
+      FROM seller_page_stats s JOIN users u ON u.id=s.user_id WHERE s.day > current_date - 30
+      GROUP BY u.id HAVING sum(s.views) + sum(s.buys) > 0 ORDER BY views30 DESC, buys30 DESC LIMIT $1`, [limit]);
+    return r.rows.map((x) => ({ userId: x.id, name: x.name, slug: x.profile_slug, isPublic: x.profile_public, views30: x.views30, buys30: x.buys30 }));
+  }
 
   async seller(userId: string): Promise<SellerStats | null> {
     const u = (await this.db.query(`SELECT u.id, u.display_name, u.business_name, u.city, u.created_at, u.profile_slug, u.profile_public, u.kyc_status, u.kyc_verified_at, u.kyc_name,
@@ -72,7 +126,10 @@ export class Trust {
     ]);
     const row = d.rows[0];
     const bankName: string | null = bank.rows[0]?.account_name ?? null;
+    const stats = this.statsOn() ? await this.pageStats(userId) : null;
     return {
+      pageViews: stats && u.profile_public && stats.total >= PUBLIC_VIEWS_FROM ? stats.total : null,
+      ownStats: stats ? { views30: stats.views30, buys30: stats.buys30, total: stats.total } : null,
       name: u.business_name || firstName(u.display_name) || 'Seller',
       city: u.city,
       since: new Date(u.created_at),

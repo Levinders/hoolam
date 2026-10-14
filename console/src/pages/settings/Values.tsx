@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BarChart3, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -448,6 +448,47 @@ function TemplatesPanel() {
           ))}
         </ul>
       </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+
+/** Settings → Features: things the owner turns on when they're ready. Counting and the like keep running while a feature is off. */
+export function FeaturesPage() {
+  return <ValuesPage title="Features" lede="Turn new things on when you're ready for people to see them." keys={['feature_seller_stats']} applies="applies right away"
+    aside={() => (
+      <section className="panel"><div className="panel-body stack" style={{ gap: 10 }}>
+        <div className="aside-ic"><BarChart3 /></div>
+        <h3>Seller page stats</h3>
+        <p className="small muted">Views of sellers' public pages and taps on their <b>Buy</b> button are always counted, on our own server: daily totals only, never who the visitor was.</p>
+        <p className="small muted"><b>On:</b> sellers see their last 30 days under <b>My page</b> in WhatsApp. Buyers see a seller's page views on their public page and trust card once the page has <b>50</b> or more.</p>
+        <p className="small muted"><b>Off:</b> nobody sees the numbers. Turn it on any time and the full history shows.</p>
+      </div></section>
+    )} after={<TopSellerPages />} />;
+}
+
+const compact = (n: number) => n < 1000 ? String(n) : n < 1_000_000 ? `${(Math.floor(n / 100) / 10).toFixed(1).replace(/\.0$/, '')}k` : `${(Math.floor(n / 100_000) / 10).toFixed(1).replace(/\.0$/, '')}m`;
+
+/** The most-viewed sellers' public pages, last 30 days. */
+function TopSellerPages() {
+  const q = useData<{ rows: { userId: string; name: string; slug: string | null; isPublic: boolean; views30: number; buys30: number }[]; shown: boolean }>('/seller-pages/top');
+  if (!q.data) return null;
+  return (
+    <section className="panel">
+      <div className="panel-head"><h2>Most-viewed seller pages</h2><span className="right small muted">Last 30 days</span></div>
+      {!q.data.rows.length ? <div className="panel-body"><p className="small muted">No views yet. Pages start counting as soon as sellers share their link.</p></div> : (
+        <div className="table-wrap"><table className="t">
+          <thead><tr><th>Seller</th><th className="r">Views</th><th className="r">Tapped Buy</th></tr></thead>
+          <tbody>{q.data.rows.map((r) => (
+            <tr key={r.userId}>
+              <td><Link to={`/people/${r.userId}`}>{r.name}</Link>{r.slug && <div className="cell-sub">/s/{r.slug}{!r.isPublic && ' · hidden now'}</div>}</td>
+              <td className="r"><span className="row" style={{ gap: 5, justifyContent: 'flex-end' }}><Eye style={{ width: 14, height: 14 }} className="faint" />{compact(r.views30)}</span></td>
+              <td className="r">{compact(r.buys30)}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
     </section>
   );
 }

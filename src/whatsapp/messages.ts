@@ -1,6 +1,6 @@
 import { formatMoney, type Currency } from '../money.js';
 import type { ListSection, Outbound } from './client.js';
-import { shipText, shortBankName, type BuyerStats, type SellerStats } from '../trust.js';
+import { compact, shipText, shortBankName, type BuyerStats, type SellerStats } from '../trust.js';
 import { SOCIAL_NAMES, type SocialKind } from '../socials.js';
 import { CATEGORIES } from '../deals/categories.js';
 import { localPhone } from '../phone.js';
@@ -263,6 +263,7 @@ export const msg = {
     if (t.rated >= 5) lines.push(`👍 ${Math.round((100 * t.happy) / t.rated)}% of buyers happy (${t.rated} ratings)`);
     else if (t.rated) lines.push(`👍 ${t.happy} of ${t.rated} buyer${t.rated === 1 ? '' : 's'} happy`);
     if (t.bankName) lines.push(`🏦 Paid out to ${shortBankName(t.bankName)}, bank-verified${t.bankMatches ? ' ✓ matches their name' : ''}`);
+    if (t.pageViews) lines.push(`👀 ${compact(t.pageViews)} page views`);
     if (t.socials.length) lines.push(`🔗 ${t.socials.map((s) => `${s.kind === 'website' ? '' : SOCIAL_NAMES[s.kind] + ' '}${s.label}`).join(' · ')}`);
     lines.push('', '_Counted from real orders paid through Hoolam._');
     return lines.join('\n');
@@ -295,9 +296,10 @@ export const msg = {
   buyingFrom: (name: string, trust: string): Outbound => ({ kind: 'text', text: `🛒 You're buying from *${name}*\n${trust}\n\nWhat are you buying?\nFor example: _Black sneakers, size 42_\n\n💡 You only pay after *${name}* accepts.` }),
 
   /** A seller looks at their own card. */
-  myTrustCard: (card: string, url: string | null): Outbound => ({
+  myTrustCard: (card: string, url: string | null, stats: { views30: number; buys30: number } | null = null): Outbound => ({
     kind: 'buttons',
-    text: `${card}\n\n👀 This is what buyers see before they pay.` + (url ? `\n\n🔗 Your page: ${url}` : ''),
+    text: `${card}\n\n👀 This is what buyers see before they pay.` + (url ? `\n\n🔗 Your page: ${url}` : '')
+      + (stats && url ? `\n📊 Last 30 days: *${compact(stats.views30)}* ${stats.views30 === 1 ? 'view' : 'views'} · *${compact(stats.buys30)}* tapped Buy` : ''),
     buttons: url
       ? [{ id: 'card:share', title: '🔗 Share my link' }, { id: 'card:edit', title: '✏️ Edit my page' }, { id: 'card:hide', title: '🙈 Hide my page' }]
       : [{ id: 'card:share', title: '🔗 Share my card' }, { id: 'card:edit', title: '✏️ Edit my page' }, { id: 'menu:open', title: 'Main menu' }],

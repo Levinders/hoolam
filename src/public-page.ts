@@ -1,5 +1,8 @@
 import { ICON } from './icons.js';
-import { shipText, shortBankName, type SellerStats } from './trust.js';
+import { compact, shipText, shortBankName, type SellerStats } from './trust.js';
+
+/** Where a seller page's "Buy" button ends up: Hoolam's WhatsApp with "Buy from @slug" typed in. */
+export const buyWhatsApp = (waNumber: string, slug: string) => `https://wa.me/${waNumber}?text=${encodeURIComponent(`Buy from @${slug}`)}`;
 
 /**
  * A seller's public page: their photo, links, trust card and one button, "Buy safely", that opens WhatsApp with
@@ -17,7 +20,8 @@ export interface SellerPageOptions {
 }
 
 export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
-  const buy = `https://wa.me/${o.waNumber}?text=${encodeURIComponent(`Buy from @${o.slug}`)}`;
+  // "Buy" and their social links pass through this server, so the taps are counted for the seller, then move on instantly
+  const buyGo = `${o.baseUrl}/s/${o.slug}/buy`;
   const check = `https://wa.me/${o.waNumber}?text=${encodeURIComponent('hi')}`;
   const since = t.since.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const pct = t.rated >= 5 ? Math.round((100 * t.happy) / t.rated) : null;
@@ -32,6 +36,7 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
   if (t.buyers > 1) stats.push({ icon: ICON.users, big: String(t.buyers), small: 'different buyers' });
   if (pct != null) stats.push({ icon: ICON.thumbsUp, big: `${pct}%`, small: `buyers happy · ${t.rated} ratings`, tone: 'gold' });
   else if (t.rated) stats.push({ icon: ICON.thumbsUp, big: `${t.happy}/${t.rated}`, small: 'buyers happy', tone: 'gold' });
+  if (t.pageViews) stats.push({ icon: ICON.eye, big: compact(t.pageViews), small: 'page views' });
   if (t.shipHours != null) stats.push({ icon: ICON.package, big: shipText(t.shipHours).replace(/^in about |^within /, ''), small: 'usually ships' });
 
   const disputes = t.problems
@@ -180,7 +185,7 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
       ${t.isNew ? `<span class="chip gold">${ICON.sprout}New on Hoolam</span>` : ''}
     </div>
   </div>
-  ${t.socials.length ? `<nav class="socials" aria-label="Where ${esc(t.name)} sells">${t.socials.map((s) => `<a class="soc ${s.kind}" href="${esc(s.url)}" target="_blank" rel="noopener nofollow ugc"><span class="si">${ICON[s.kind]}</span><span class="txt"><b>${{ instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', website: 'Website' }[s.kind]}</b><span>${esc(s.label)}</span></span><span class="go">${ICON.arrowUpRight}</span></a>`).join('')}</nav>` : ''}
+  ${t.socials.length ? `<nav class="socials" aria-label="Where ${esc(t.name)} sells">${t.socials.map((s) => `<a class="soc ${s.kind}" href="${esc(`${page}/go/${s.kind}`)}" data-social="${s.kind}" target="_blank" rel="noopener nofollow ugc"><span class="si">${ICON[s.kind]}</span><span class="txt"><b>${{ instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', website: 'Website' }[s.kind]}</b><span>${esc(s.label)}</span></span><span class="go">${ICON.arrowUpRight}</span></a>`).join('')}</nav>` : ''}
   <div class="sec stats">${stats.map((s) => `<div class="stat"><span class="si ${s.tone ?? ''}">${s.icon}</span><span><b>${esc(s.big)}</b><small>${esc(s.small)}</small></span></div>`).join('')}${stats.length % 2 ? '<div class="stat"></div>' : ''}</div>
   ${disputes || t.bankName || t.isNew || t.verified ? `<div class="rows">
     ${t.verified ? `<div class="row good">${ICON.badgeCheck}<span><b>Verified seller.</b> ID and bank account name checked by Hoolam.</span></div>` : ''}
@@ -199,7 +204,7 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
     <li><span class="si">${ICON.check}</span>You're happy, then they get paid</li>
   </ol>
 </section>
-<div class="cta-bar"><a class="cta" href="${esc(buy)}">${ICON.whatsapp}Buy from ${esc(t.name)} safely</a></div>
+<div class="cta-bar"><a class="cta" href="${esc(buyGo)}" data-wa>${ICON.whatsapp}Buy from ${esc(t.name)} safely</a></div>
 <a class="sub" href="${esc(check)}">Have an order code? Open Hoolam on WhatsApp</a>
 <footer>${home ? `<a href="${esc(home)}">Hoolam</a>` : '<b>Hoolam</b>'}<span>Pay safe. Ship safe.</span></footer>
 </div>

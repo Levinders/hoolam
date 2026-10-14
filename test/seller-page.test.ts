@@ -97,7 +97,11 @@ describe('the public page', () => {
     const page = (await get(`/s/${t.slug}`)).body;
     expect(page).toContain(`/s/${t.slug}/photo.webp?v=${v}`);
     expect(page).toContain(`content="https://go.hoolam.test/s/${t.slug}/share.jpg?v=${v}"`);
-    expect(page).toContain('href="https://instagram.com/bayokicks" target="_blank" rel="noopener nofollow ugc"');
+    // their links pass through us (counted for the seller), then on to Instagram
+    expect(page).toContain(`href="https://go.hoolam.test/s/${t.slug}/go/instagram" data-social="instagram" target="_blank" rel="noopener nofollow ugc"`);
+    const ig = await get(`/s/${t.slug}/go/instagram`);
+    expect([ig.statusCode, ig.headers.location]).toEqual([302, 'https://instagram.com/bayokicks']);
+    expect((await get(`/s/${t.slug}/go/tiktok`)).statusCode).toBe(404); // not one of theirs
     expect(page).toContain('Bayo &lt;Kicks&gt;');
     expect(page).not.toContain('Bayo <Kicks>');
     expect(page).not.toMatch(/[✅👥👍📦⚖️🏦🛒💳🛡️]/u);

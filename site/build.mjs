@@ -21,7 +21,7 @@
 //   SITE_OFFLINE=1          don't contact the server (tests)
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -402,6 +402,27 @@ const imageTags = (p) => pageImages(p).map((src) => `<image:image><image:loc>${e
 if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${pages.map((p) => { const d = lastChanged(sources(p)); return `  <url><loc>${site}${p}</loc>${d ? `<lastmod>${d}</lastmod>` : ''}${imageTags(p)}</url>`; }).join('\n')}\n</urlset>\n`);
 writeFileSync(join(out, '404.html'), page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'This page doesn’t exist, or it has moved.', body: `<p><a class="lg-btn" href="/">Go to the Hoolam home page</a></p>`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">'));
 
+// ---------- campaign links (Console → Settings → Links) ----------
+// hoolam.com/<slug>: a tiny page that counts the tap on the server, then moves the visitor on to the page with the tags
+// Google Analytics reads (utm_source / utm_medium / utm_campaign). Never in search results, and never over a real page.
+const campaignLinks = (ok && Array.isArray(live.links)) ? live.links.filter((l) => /^[a-z0-9-]{2,40}$/.test(l.slug) && typeof l.target === 'string' && l.target.startsWith('/')) : [];
+let linksBuilt = 0;
+for (const l of campaignLinks) {
+  const dir = join(out, l.slug);
+  if (existsSync(dir)) { console.log(`  skipped link /${l.slug}: the website already uses that address`); continue; }
+  mkdirSync(dir, { recursive: true });
+  const target = esc(l.target);
+  writeFileSync(join(dir, 'index.html'), `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hoolam</title><meta name="robots" content="noindex">${site ? `<link rel="canonical" href="${site}/">` : ''}
+<meta http-equiv="refresh" content="1; url=${target}">
+<script>(function(){try{navigator.sendBeacon&&navigator.sendBeacon(${JSON.stringify(`${app}/l/${l.slug}/tap`)})}catch(e){}location.replace(${JSON.stringify(l.target)}+(location.hash||''))})();</script>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F7F3EC;font:15px/1.5 Inter,system-ui,sans-serif;color:#1B2321}a{color:#0E5C63;font-weight:600}</style>
+</head><body><p><a href="${target}">Continue to Hoolam</a></p></body></html>
+`);
+  linksBuilt++;
+}
+
 // ---------- Google Analytics (with consent) ----------
 // On the live pages only (never the /v/ previews or the draft). Every consent starts "denied": until a visitor taps Accept
 // on the banner (site/assets/analytics.js), Google gets only cookieless pings. GA_MEASUREMENT_ID can override the ID; GA_OFF=1 turns it off.
@@ -425,4 +446,4 @@ gtag('js',new Date());gtag('config','${GA_ID}',{content_group:'Website'});</scri
 }
 
 const n = Object.keys(baked.images ?? {}).length;
-console.log(`Site built → dist-site/  (${pages.length} pages, home page ${liveVersion} live, ${VERSIONS.length} versions + draft to preview; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);
+console.log(`Site built → dist-site/  (${pages.length} pages, home page ${liveVersion} live, ${VERSIONS.length} versions + draft to preview; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}, ${linksBuilt} campaign link${linksBuilt === 1 ? '' : 's'}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);
