@@ -566,16 +566,12 @@ details p { padding: 0 20px 18px; color: var(--soft); }
 .fee-note { display: block; font-size: .74rem; margin-top: 1px; }
 
 /* pricing: the limits as three tiles, the breakdown under each amount */
-.plimits { margin: 0; font-size: 1.02rem; line-height: 1.6; color: var(--soft); max-width: 40ch; }
-.plimits b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* desktop: the three pills on one line, and the limits on one line */
+/* desktop: the three pills on one line */
 @media (min-width: 1200px) {
   .price-info .perks { flex-wrap: nowrap; gap: 6px; }
   .price-info .perks li { padding: 7px 11px; font-size: .84rem; gap: 6px; white-space: nowrap; }
   .price-info .perks .ic { width: 14px; height: 14px; }
-  .plimits { max-width: none; white-space: nowrap; font-size: .95rem; }
 }
-@media (min-width: 861px) { .plimits b { font-weight: inherit; color: inherit; } }
 @media (max-width: 560px) { .split { grid-template-columns: 1fr; } }
 .fee-line[hidden] { display: none; }
 .side-p .side-x .tag { white-space: nowrap; display: block; width: fit-content; }
@@ -749,7 +745,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
   <div class="wrap">
     <div class="head rv">
       <div><span class="label">True life story</span><h2>Pay before delivery? Pay on delivery? Who go trust who?</h2></div>
-      <p><b>Ivana</b> paid <span data-nosnippet style="white-space:nowrap">₦15,000</span> for shoes, but got ghosted after. <b>Musa</b> sent a bag to GRA and paid for delivery for nothing. It happens every day.</p>
+      <p>It happens every day.</p>
     </div>
     <div class="old-grid">
       <div class="old-card rv"><figure class="scene" data-slot="s2-1" data-alt="Ivana waiting for a seller who blocked her"><svg class="scene-svg" viewBox="0 0 900 700" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Late at night, with no light, Ivana stares at her phone. She paid ₦15,000 three days ago. The seller saw her messages and never replied."><defs>
@@ -1063,11 +1059,10 @@ details p { padding: 0 20px 18px; color: var(--soft); }
           <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>No monthly fee</li>
           <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>No hidden charges</li>
         </ul>
-        <p class="plimits">Starting from <b data-p="fee-min">₦300</b>. Max <b data-p="fee-max">₦5,000</b>. Orders up to <b data-p="max-deal">₦50,000</b>.</p>
       </div>
       <div data-nosnippet class="calc">
-        <label class="calc-l" for="calc-price">Type the item price</label>
-        <div class="calc-in"><span class="cur">₦</span><input id="calc-price" type="text" inputmode="numeric" autocomplete="off" value="10,000" aria-describedby="calc-who" aria-label="Item price in naira"></div>
+        <label class="calc-l" for="calc-price">Type the order amount</label>
+        <div class="calc-in"><span class="cur">₦</span><input id="calc-price" type="text" inputmode="numeric" autocomplete="off" value="10,000" aria-describedby="calc-who" aria-label="Order amount in naira"></div>
         <div class="quick-p" role="group" aria-label="Example prices">
           <button type="button" data-v="5000" aria-label="₦5,000">₦5k</button><button type="button" data-v="10000" aria-pressed="true" aria-label="₦10,000">₦10k</button><button type="button" data-v="25000" aria-label="₦25,000">₦25k</button><button type="button" data-v="50000" aria-label="₦50,000">₦50k</button>
         </div>

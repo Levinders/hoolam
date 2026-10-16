@@ -227,7 +227,8 @@ describe('landing page ↔ server', () => {
     expect(v12).toContain('<span class="pro-tag">Example</span>'); // the made-up seller stays labelled as an example
     expect(v12).toContain('HOOLAM DIGITAL PLATFORM LTD</b>, RC 9919417');
     expect(v12).toMatch(/<\/header>\s*<div class="scrim" id="scrim" hidden><\/div>\s*<aside class="drawer" id="sheet"/); // phones: the menu is a sidebar
-    expect(v12).toMatch(/No hidden charges<\/li>\s*<\/ul>\s*<p class="plimits">Starting from/);
+    expect(v12).toMatch(/No hidden charges<\/li>\s*<\/ul>\s*<\/div>\s*<div data-nosnippet class="calc">\s*<label class="calc-l" for="calc-price">Type the order amount<\/label>/); // no limits line under the perks
+    expect(v12).toMatch(/<h2>Pay before delivery\? Pay on delivery\? Who go trust who\?<\/h2><\/div>\s*<p>It happens every day\.<\/p>/);
     expect(v12).toMatch(/Step 2 of 5 · Buyer[\s\S]*Step 3 of 5 · Seller[\s\S]*Step 4 of 5 · Buyer[\s\S]*Step 5 of 5 · Seller/);
     expect(v12).toContain("set('story-seller', '+' + naira(s.seller));"); // the seller's money follows the live fees
     expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).toContain('someone always gets burned');
