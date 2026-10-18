@@ -14,6 +14,8 @@ import { LINK_PAGES, LINK_SOURCES, LinkError, linkTarget, type CampaignLinks } f
 import { titleName, type KycService } from '../kyc.js';
 import { ChatError, type LiveChat } from '../livechat.js';
 import { registerSupportApi } from './support-api.js';
+import { registerAmbassadorConsole } from './amb-api.js';
+import type { Ambassadors } from '../ambassadors.js';
 import type { FormRegistry } from '../whatsapp/forms.js';
 import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
@@ -28,6 +30,7 @@ import { accessDefault, AuthError, hasAccess, permissionsFor, permissionsOf, ROL
  */
 export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; links: CampaignLinks; settings: Settings; messenger: Messenger;
+  ambassadors?: Ambassadors;
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   refreshTemplates?: () => Promise<void>;
   kyc?: KycService;
@@ -101,6 +104,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
     // the support widget: website live chat and WhatsApp support
     if (d.chat) registerSupportApi(api, { db, chat: d.chat, need, actorOf });
+    // the ambassador programme (main menu → Ambassadors)
+    if (d.ambassadors) registerAmbassadorConsole(api, { a: d.ambassadors, need, act, reasonOf, fail: (status, message) => new HttpError(status, message), can: (req, action) => permissionsOf(req.staff!).includes(action) });
 
     // =====================================================================================
     // Sign-in
@@ -480,6 +485,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       return {
         user: u, seller: await d.trust.seller(id), buyer: await d.trust.buyer(id),
         pageStats: await d.trust.pageStats(id), pageStatsShown: d.trust.statsOn(),
+        ambassador: d.ambassadors ? await d.ambassadors.personLinks(id) : null,
         banks: banks.rows, deals: deals.rows, support: support.rows, refusals: optout.rows, trail: trail.rows,
         normalCapMinor: d.deals.maxDealMinor, verifiedCapMinor: d.deals.maxDealVerifiedMinor,
         kyc: k ? { ...k, checks: checks.rows, heldPayouts: held, provider: d.kyc!.checker.name, triesLeft: await d.kyc!.triesLeft(id) } : null,
@@ -969,20 +975,20 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // =====================================================================================
     api.get('/team', async () => {
       const r = await db.query(
-        `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, s.created_at, s.last_login_at, s.access_whatsapp, s.access_live,
+        `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, s.created_at, s.last_login_at, s.access_whatsapp, s.access_live, s.access_ambassadors,
                 (SELECT max(at) FROM audit_log a WHERE a.staff_id=s.id) AS last_action_at,
                 (SELECT count(*)::int FROM audit_log a WHERE a.staff_id=s.id AND a.at > now() - interval '30 days') AS actions_30d,
                 (SELECT count(*)::int FROM chat_threads t WHERE t.rated_staff=s.id AND t.rating='UP' AND t.rated_at > now() - interval '90 days') AS chat_up,
                 (SELECT count(*)::int FROM chat_threads t WHERE t.rated_staff=s.id AND t.rating='DOWN' AND t.rated_at > now() - interval '90 days') AS chat_down
          FROM staff s ORDER BY s.active DESC, s.role, s.name`);
       return {
-        rows: r.rows.map((x) => ({ ...x, access: { whatsapp: hasAccess(x, 'whatsapp'), live: hasAccess(x, 'live') } })),
-        roles: ROLES.map((role) => ({ role, name: roleName(role), can: permissionsFor(role), access: { whatsapp: role === 'OWNER' || accessDefault(role, 'whatsapp'), live: role === 'OWNER' || accessDefault(role, 'live') } })),
+        rows: r.rows.map((x) => ({ ...x, access: { whatsapp: hasAccess(x, 'whatsapp'), live: hasAccess(x, 'live'), ambassadors: hasAccess(x, 'ambassadors') } })),
+        roles: ROLES.map((role) => ({ role, name: roleName(role), can: permissionsFor(role), access: { whatsapp: role === 'OWNER' || accessDefault(role, 'whatsapp'), live: role === 'OWNER' || accessDefault(role, 'live'), ambassadors: role === 'OWNER' || accessDefault(role, 'ambassadors') } })),
       };
     });
     api.post('/team/invite', async (req) => {
       need(req, 'staff.manage');
-      return d.auth.invite(actorOf(req), req.body as { email: string; name: string; role: Role; access?: { whatsapp?: boolean; live?: boolean } });
+      return d.auth.invite(actorOf(req), req.body as { email: string; name: string; role: Role; access?: { whatsapp?: boolean; live?: boolean; ambassadors?: boolean } });
     });
     api.post('/team/:id/role', async (req) => {
       need(req, 'staff.manage');
@@ -991,7 +997,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     });
     api.post('/team/:id/access', async (req) => {
       need(req, 'staff.manage');
-      await d.auth.setAccess(actorOf(req), (req.params as { id: string }).id, req.body as { whatsapp?: boolean; live?: boolean });
+      await d.auth.setAccess(actorOf(req), (req.params as { id: string }).id, req.body as { whatsapp?: boolean; live?: boolean; ambassadors?: boolean });
       return { ok: true };
     });
     api.post('/team/:id/active', async (req) => {
@@ -1035,7 +1041,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
 // ---------- helpers ----------
 function meOf(s: StaffMember) {
-  return { id: s.id, email: s.email, name: s.name, role: s.role, roleName: roleName(s.role), can: permissionsOf(s), access: { whatsapp: hasAccess(s, 'whatsapp'), live: hasAccess(s, 'live') } };
+  return { id: s.id, email: s.email, name: s.name, role: s.role, roleName: roleName(s.role), can: permissionsOf(s), access: { whatsapp: hasAccess(s, 'whatsapp'), live: hasAccess(s, 'live'), ambassadors: hasAccess(s, 'ambassadors') } };
 }
 export function roleName(r: Role): string {
   return { OWNER: 'Owner', ADMIN: 'Admin', FINANCE: 'Finance', SUPPORT: 'Support' }[r] ?? r;

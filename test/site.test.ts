@@ -19,6 +19,9 @@ describe('landing page ↔ server', () => {
       contact: { email: 'hello@hoolam.com', phone: '', whatsapp: '2348012345678', socials: [] },
       versions: { '1.0.0': { date: '2026-10-11', images: {} }, '1.1.0': { date: '2026-10-11', images: {} }, '1.2.0': { date: '2026-10-11', images: {} } },
       timing: { acceptHours: 48, nudgeHours: 24, flagHours: 72, unpaidHours: 72, autoReleaseMinutes: 1440, repReplyMinutes: 30, problemReplyHours: 24 },
+      // the ambassador programme: off until the owner turns it on (then the menu link, the page and the links appear)
+      ambassadors: { on: false, applyWeb: true, sellerPct: 20, buyerPct: 10, bonus: 1000, bonusOrders: 3, payoutDay: 1, payoutMin: 5000, terms: [3, 6, 12], api: 'http://localhost:3000' },
+      ambassadorLinks: [],
     });
   });
 

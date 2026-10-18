@@ -69,7 +69,13 @@ export const sellerMenu = (): ListSection[] => [
 ];
 
 export type MenuMode = 'buyer' | 'seller';
-export const menuFor = (mode: MenuMode): ListSection[] => (mode === 'seller' ? sellerMenu() : buyerMenu());
+/** The menu for a side. `extra`: one more row at the very end (the ambassador row, when it applies to this person). */
+export const menuFor = (mode: MenuMode, extra?: ListRowLite | null): ListSection[] => {
+  const sections = mode === 'seller' ? sellerMenu() : buyerMenu();
+  if (extra) sections[sections.length - 1]!.rows.push(extra);
+  return sections;
+};
+type ListRowLite = { id: string; title: string; description?: string };
 export const BUYER_MENU = buyerMenu();
 export const SELLER_MENU = sellerMenu();
 
@@ -124,13 +130,14 @@ export function mapsLink(address: string | null | undefined, pin?: string | null
 const withMenu = (text: string): Outbound => ({ kind: 'buttons', text, buttons: [{ id: 'menu:open', title: 'Main menu' }] });
 
 /** What someone was doing when the ID check came up. */
-export type KycWhy = 'order' | 'accept' | 'pay' | 'seller' | 'payout';
+export type KycWhy = 'order' | 'accept' | 'pay' | 'seller' | 'payout' | 'ambassador';
 const kycWhyText = (why: KycWhy, l: { noId: Money; verified: Money }): string => ({
   order: `🪪 *Quick ID check, once*\n\nOrders above *${m(l.noId)}* need your ID checked. You do it once, then you can do orders up to *${m(l.verified)}*.`,
   accept: `🪪 *Quick ID check, once*\n\nThis order is above *${m(l.noId)}*, so we check your ID before you accept. You do it once. The order waits for you.`,
   pay: `🪪 *Quick ID check, once*\n\nThis order is above *${m(l.noId)}*, so we check your ID before you pay. You do it once. The order waits for you.`,
   seller: '🪪 *One step before your payout account*\n\nWe check every seller\'s ID once. Then your payout account must be in the same name. Buyers see *Verified seller* on your trust card.',
   payout: '🪪 *One step before we pay you*\n\nWe check every seller\'s ID once. Then your money goes to an account in your name.',
+  ambassador: '🪪 *First, a quick ID check*\n\nEvery Hoolam ambassador checks their ID once. It keeps the programme safe, and people you invite see you as a *Verified Hoolam ambassador*.',
 }[why]);
 
 export const msg = {
@@ -143,13 +150,13 @@ export const msg = {
   }),
 
   /** Everyone after that: short, straight to the options for the side they're on. */
-  menu: (name: string | null, mode: MenuMode = 'buyer', note?: string): Outbound => ({
+  menu: (name: string | null, mode: MenuMode = 'buyer', note?: string, extra?: ListRowLite | null): Outbound => ({
     kind: 'list',
     header: mode === 'seller' ? '🏷️ Selling' : '🛒 Buying',
     text: note ? `${note}\n\nWhat would you like to do?` : `Hi${first(name)} 👋 What would you like to do?`,
     footer: 'Your money stays safe with Hoolam',
     button: 'Open menu',
-    sections: menuFor(mode),
+    sections: menuFor(mode, extra),
   }),
 
   // ----- becoming a seller (once) -----
@@ -1017,7 +1024,7 @@ export const msg = {
     kind: 'buttons',
     text: (fresh ? '🕵️ *We couldn\'t confirm your ID right away.* Our team will check it and message you.'
       : '🕵️ *Your ID is with our team for checking.* We\'ll message you once it\'s done.')
-      + (why === 'seller' || why === 'payout' ? '\n\nYour payouts wait until then. Your money stays safe with Hoolam.' : '')
+      + (why === 'seller' || why === 'payout' ? '\n\nYour payouts wait until then. Your money stays safe with Hoolam.' : why === 'ambassador' ? '\n\nYour ambassador setup carries on once it\'s done.' : '')
       + `\n\nMeanwhile, you can do orders up to *${m(noId)}*.${draft ? ' Type a smaller price to carry on.' : ''}`,
     buttons: [{ id: 'menu:human', title: 'Talk to a rep' }, { id: 'menu:open', title: 'Main menu' }],
   }),

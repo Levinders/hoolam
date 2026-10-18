@@ -13,7 +13,9 @@ export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' |
 
 export interface SettingDef {
   key: string;
-  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact' | 'Features';
+  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact' | 'Features' | 'Ambassadors';
+  /** Within a feature's settings: the heading it sits under (Earnings, Payouts…). */
+  sub?: string;
   label: string;
   help: string;
   type: SettingType;
@@ -48,6 +50,21 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'contact_phone', group: 'Contact', label: 'Phone for calls', help: 'Optional. Leave it empty to show Hoolam\'s WhatsApp number instead.', type: 'phone', optional: true },
   ...COMPANY_SOCIAL_KINDS.map((k): SettingDef => ({ key: `company_${k}`, group: 'Contact', label: COMPANY_SOCIAL_NAMES[k], help: `Hoolam's ${COMPANY_SOCIAL_NAMES[k]} page. Paste the link or type the username. Empty hides it.`, type: 'social', social: k, optional: true })),
   { key: 'feature_seller_stats', group: 'Features', label: 'Seller page stats', help: 'Sellers see their page views and "Buy" taps under My page in WhatsApp, and buyers see a seller\'s page views (from 50) on their public page and trust card. Counting never stops: when this is off, nobody sees the numbers; turn it on and the full history shows.', type: 'boolean', core: true },
+  // ----- Features → Ambassadors (owner only). Everything below shows under the Ambassadors card. -----
+  { key: 'feature_ambassadors', group: 'Features', label: 'Ambassadors', help: 'People you approve bring new sellers and buyers, and earn a share of what Hoolam makes on their orders. Off: nobody sees the programme (menu, website page, links). Earnings already made are kept.', type: 'boolean', core: true },
+  { key: 'amb_seller_pct', group: 'Ambassadors', sub: 'Earnings', label: 'Share on sellers they bring', help: 'Of everything Hoolam earns (Hoolam fee and transaction fee) on each completed order of a seller they brought. You can set a different share for one ambassador on their page.', type: 'percent', min: 0, max: 50, core: true },
+  { key: 'amb_buyer_pct', group: 'Ambassadors', sub: 'Earnings', label: 'Share on buyers they bring', help: 'Of everything Hoolam earns on each completed order of a buyer they brought.', type: 'percent', min: 0, max: 50, core: true },
+  { key: 'amb_seller_bonus', group: 'Ambassadors', sub: 'Earnings', label: 'Seller bonus', help: 'Paid once for each seller they bring, when that seller completes the number of orders below.', type: 'money', min: 0, max: 100_000, core: true },
+  { key: 'amb_bonus_orders', group: 'Ambassadors', sub: 'Earnings', label: 'Completed orders for the bonus', help: 'How many orders a new seller must complete before the ambassador gets the seller bonus.', type: 'number', min: 1, max: 20, core: true },
+  { key: 'amb_payout_day', group: 'Ambassadors', sub: 'Payouts', label: 'Payout day', help: 'The day of the month earnings from the month before are paid. 1 = the 1st.', type: 'number', min: 1, max: 28, core: true },
+  { key: 'amb_payout_min', group: 'Ambassadors', sub: 'Payouts', label: 'Minimum payout', help: 'Earnings below this wait for the next month. When an ambassador ends, they\'re paid whatever they\'re owed.', type: 'money', min: 0, max: 1_000_000, core: true },
+  { key: 'amb_term_3', group: 'Ambassadors', sub: 'Terms', label: '3-month term', help: 'Ambassadors can choose 3 months.', type: 'boolean', core: true },
+  { key: 'amb_term_6', group: 'Ambassadors', sub: 'Terms', label: '6-month term', help: 'Ambassadors can choose 6 months.', type: 'boolean', core: true },
+  { key: 'amb_term_12', group: 'Ambassadors', sub: 'Terms', label: '12-month term', help: 'Ambassadors can choose 12 months.', type: 'boolean', core: true },
+  { key: 'amb_notice_days', group: 'Ambassadors', sub: 'Terms', label: 'Notice before a term ends', help: 'Days before the end of a term that we ask them to renew, switch or end. No answer: it renews on the same term.', type: 'number', min: 1, max: 30, core: true },
+  { key: 'amb_apply_web', group: 'Ambassadors', sub: 'Joining', label: 'Applications on the website', help: 'People can apply on hoolam.com/ambassadors.', type: 'boolean', core: true },
+  { key: 'amb_apply_whatsapp', group: 'Ambassadors', sub: 'Joining', label: 'Applications in WhatsApp', help: 'People can apply from the WhatsApp menu.', type: 'boolean', core: true },
+  { key: 'amb_menu_after', group: 'Ambassadors', sub: 'Joining', label: 'Show in the menu after', help: 'Completed orders someone needs before "Become an ambassador" shows in their WhatsApp menu. Ambassadors and people who applied always see it.', type: 'number', min: 0, max: 50, core: true },
   { key: 'forms_enabled', group: 'WhatsApp', label: 'WhatsApp forms', help: 'Offer the buy and sell forms (needs Meta business verification).', type: 'boolean' },
 ];
 
@@ -75,6 +92,9 @@ export class Settings {
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
       whatsapp_number: this.c.WHATSAPP_PUBLIC_NUMBER.replace(/\D/g, ''),
       alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM, feature_seller_stats: false,
+      feature_ambassadors: false, amb_seller_pct: 20, amb_buyer_pct: 10, amb_seller_bonus: 1000, amb_bonus_orders: 3,
+      amb_payout_day: 1, amb_payout_min: 5000, amb_term_3: true, amb_term_6: true, amb_term_12: true, amb_notice_days: 7,
+      amb_apply_web: true, amb_apply_whatsapp: true, amb_menu_after: 1,
       contact_email: 'hello@hoolam.com', contact_phone: '',
       home_version: FIRST_VERSION, // the live home page version (Console → Settings → Website content)
       ...Object.fromEntries(COMPANY_SOCIAL_KINDS.map((k) => [`company_${k}`, ''])),
@@ -130,6 +150,8 @@ export class Settings {
     const next = { ...this.all(), ...changes };
     if ((next.fee_min as number) > (next.fee_max as number)) throw new Error('The minimum fee can\'t be above the maximum fee');
     if ((next.max_deal as number) > (next.max_deal_verified as number)) throw new Error('The largest order once verified can\'t be below the largest order without ID');
+    if (!next.amb_term_3 && !next.amb_term_6 && !next.amb_term_12) throw new Error('Keep at least one ambassador term (3, 6 or 12 months)');
+    for (const k of ['amb_bonus_orders', 'amb_payout_day', 'amb_notice_days', 'amb_menu_after']) if (k in changes && !Number.isInteger(changes[k])) throw new Error('Use a whole number');
     for (const [k, v] of Object.entries(changes)) {
       await q.query(
         `INSERT INTO settings (key, value, updated_by, updated_at) VALUES ($1,$2,$3,now())
@@ -168,6 +190,19 @@ export class Settings {
   alertsEnabled(): boolean { return this.get('alerts_enabled'); }
   formsEnabled(): boolean { return this.get('forms_enabled'); }
   waNumber(): string { return this.get<string>('whatsapp_number'); }
+  /** The ambassador programme's settings (Features → Ambassadors). Money in minor units. */
+  ambassadors() {
+    return {
+      on: this.get<boolean>('feature_ambassadors') === true,
+      sellerPct: this.get<number>('amb_seller_pct'), buyerPct: this.get<number>('amb_buyer_pct'),
+      bonusMinor: Math.round(this.get<number>('amb_seller_bonus') * this.unit), bonusOrders: this.get<number>('amb_bonus_orders'),
+      payoutDay: this.get<number>('amb_payout_day'), payoutMinMinor: Math.round(this.get<number>('amb_payout_min') * this.unit),
+      terms: ([3, 6, 12] as const).filter((n) => this.get<boolean>(`amb_term_${n}`) !== false),
+      noticeDays: this.get<number>('amb_notice_days'),
+      applyWeb: this.get<boolean>('amb_apply_web') !== false, applyWhatsApp: this.get<boolean>('amb_apply_whatsapp') !== false,
+      menuAfter: this.get<number>('amb_menu_after'),
+    };
+  }
   /** How people reach Hoolam: shown in the website footer and on the legal pages. */
   contact(): { email: string; phone: string; whatsapp: string; socials: NonNullable<ReturnType<typeof companySocialLink>>[] } {
     return {

@@ -10,7 +10,7 @@ export const ROLES: Role[] = ['OWNER', 'ADMIN', 'FINANCE', 'SUPPORT'];
 export interface StaffMember {
   id: string; email: string; name: string; role: Role; active: boolean; totp_enabled: boolean; created_at: Date; last_login_at: Date | null;
   /** Per-person support access (null = what the role allows; Owners always have both). */
-  access_whatsapp?: boolean | null; access_live?: boolean | null;
+  access_whatsapp?: boolean | null; access_live?: boolean | null; access_ambassadors?: boolean | null;
 }
 
 /** What each role may do. Viewing is open to every role; these are the actions. */
@@ -37,26 +37,31 @@ export const CAN: Record<string, Role[]> = {
   'brand.update': ['OWNER', 'ADMIN'],           // logo and website images
   'staff.manage': ['OWNER'],
   'audit.view': ['OWNER', 'ADMIN', 'FINANCE'],
+  'ambassadors.review': ['OWNER', 'ADMIN'],     // approve or decline applications, invite, remove a photo (reps can be given it in Team)
+  'ambassadors.manage': ['OWNER'],               // custom shares, pause or end, held earnings, payouts
 };
 export const can = (role: Role, action: string) => (CAN[action] ?? []).includes(role);
 export const permissionsFor = (role: Role) => Object.keys(CAN).filter((a) => can(role, a));
 
 /** The two kinds of support access a person can be given (or not), on top of their role. */
-export const SUPPORT_ACCESS = { whatsapp: ['support.reply', 'support.close'], live: ['livechat.reply', 'livechat.content'] } as const;
-/** Role defaults: Owner, Admin and Support answer both; Finance neither, unless switched on for them. */
-export const accessDefault = (role: Role, kind: 'whatsapp' | 'live') => role !== 'FINANCE';
-/** What this person may do: their role, with their own WhatsApp support and live chat switches applied. */
-export function permissionsOf(s: Pick<StaffMember, 'role' | 'access_whatsapp' | 'access_live'>): string[] {
+export const SUPPORT_ACCESS = { whatsapp: ['support.reply', 'support.close'], live: ['livechat.reply', 'livechat.content'], ambassadors: ['ambassadors.review'] } as const;
+export type AccessKind = keyof typeof SUPPORT_ACCESS;
+/** Role defaults: Owner, Admin and Support answer both kinds of support; Finance neither. Ambassador reviews: Owner and Admin. */
+export const accessDefault = (role: Role, kind: AccessKind) => kind === 'ambassadors' ? role === 'OWNER' || role === 'ADMIN' : role !== 'FINANCE';
+const flagOf = (s: Pick<StaffMember, 'access_whatsapp' | 'access_live' | 'access_ambassadors'>, kind: AccessKind) =>
+  kind === 'whatsapp' ? s.access_whatsapp : kind === 'live' ? s.access_live : s.access_ambassadors;
+/** What this person may do: their role, with their own WhatsApp support, live chat and ambassador switches applied. */
+export function permissionsOf(s: Pick<StaffMember, 'role' | 'access_whatsapp' | 'access_live' | 'access_ambassadors'>): string[] {
   const set = new Set(permissionsFor(s.role));
-  for (const kind of ['whatsapp', 'live'] as const) {
-    const flag = kind === 'whatsapp' ? s.access_whatsapp : s.access_live;
+  for (const kind of ['whatsapp', 'live', 'ambassadors'] as const) {
+    const flag = flagOf(s, kind);
     const on = s.role === 'OWNER' || (flag ?? accessDefault(s.role, kind));
     for (const a of SUPPORT_ACCESS[kind]) { if (on) set.add(a); else set.delete(a); }
   }
   return [...set];
 }
-export const hasAccess = (s: Pick<StaffMember, 'role' | 'access_whatsapp' | 'access_live'>, kind: 'whatsapp' | 'live') =>
-  s.role === 'OWNER' || ((kind === 'whatsapp' ? s.access_whatsapp : s.access_live) ?? accessDefault(s.role, kind));
+export const hasAccess = (s: Pick<StaffMember, 'role' | 'access_whatsapp' | 'access_live' | 'access_ambassadors'>, kind: AccessKind) =>
+  s.role === 'OWNER' || (flagOf(s, kind) ?? accessDefault(s.role, kind));
 
 const SESSION_DAYS = 7;
 const IDLE_HOURS = 12;
@@ -181,7 +186,7 @@ export class StaffAuth {
     if (!token) return null;
     const id = sha256(token);
     const r = await this.db.query(
-      `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, s.created_at, s.last_login_at, s.access_whatsapp, s.access_live, x.id AS session_id
+      `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, s.created_at, s.last_login_at, s.access_whatsapp, s.access_live, s.access_ambassadors, x.id AS session_id
        FROM staff_sessions x JOIN staff s ON s.id=x.staff_id
        WHERE x.id=$1 AND x.expires_at > now() AND x.last_seen > now() - make_interval(hours => $2) AND s.active`, [id, IDLE_HOURS]);
     if (!r.rows[0]) return null;
@@ -197,16 +202,17 @@ export class StaffAuth {
   }
 
   // ---------- team (owner only; checked by the caller) ----------
-  async invite(actor: Actor, input: { email: string; name: string; role: Role; access?: { whatsapp?: boolean; live?: boolean } }) {
+  async invite(actor: Actor, input: { email: string; name: string; role: Role; access?: { whatsapp?: boolean; live?: boolean; ambassadors?: boolean } }) {
     if (!ROLES.includes(input.role)) throw new AuthError('Pick a role.');
     if (!input.name?.trim()) throw new AuthError('Please enter their name.');
     const email = cleanEmail(input.email);
     const existing = (await this.db.query('SELECT id, totp_enabled FROM staff WHERE email=$1', [email])).rows[0];
     if (existing?.totp_enabled) throw new AuthError('Someone with that email is already on the team.', 409);
     const r = await this.db.query(
-      `INSERT INTO staff (email, name, role, access_whatsapp, access_live) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, access_whatsapp=EXCLUDED.access_whatsapp, access_live=EXCLUDED.access_live, active=true RETURNING id`,
-      [email, input.name.trim().slice(0, 60), input.role, typeof input.access?.whatsapp === 'boolean' ? input.access.whatsapp : null, typeof input.access?.live === 'boolean' ? input.access.live : null]);
+      `INSERT INTO staff (email, name, role, access_whatsapp, access_live, access_ambassadors) VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, access_whatsapp=EXCLUDED.access_whatsapp, access_live=EXCLUDED.access_live, access_ambassadors=EXCLUDED.access_ambassadors, active=true RETURNING id`,
+      [email, input.name.trim().slice(0, 60), input.role, typeof input.access?.whatsapp === 'boolean' ? input.access.whatsapp : null, typeof input.access?.live === 'boolean' ? input.access.live : null,
+        typeof input.access?.ambassadors === 'boolean' ? input.access.ambassadors : null]);
     const url = await this.newInvite(r.rows[0].id, actor.staffId);
     await audit(this.db, actor, { action: 'staff.invite', targetType: 'staff', targetId: r.rows[0].id, details: { email, name: input.name.trim(), role: input.role } });
     return { id: r.rows[0].id, inviteUrl: url };
@@ -249,14 +255,15 @@ export class StaffAuth {
   }
 
   /** WhatsApp support and live chat, switched on or off for one person (Owners always have both). */
-  async setAccess(actor: Actor, staffId: string, access: { whatsapp?: boolean; live?: boolean }) {
-    const before = (await this.db.query('SELECT role, access_whatsapp, access_live FROM staff WHERE id=$1', [staffId])).rows[0];
+  async setAccess(actor: Actor, staffId: string, access: { whatsapp?: boolean; live?: boolean; ambassadors?: boolean }) {
+    const before = (await this.db.query('SELECT role, access_whatsapp, access_live, access_ambassadors FROM staff WHERE id=$1', [staffId])).rows[0];
     if (!before) throw new AuthError('No such teammate.', 404);
-    if (before.role === 'OWNER') throw new AuthError('Owners always have both kinds of support.');
+    if (before.role === 'OWNER') throw new AuthError('Owners always have every kind of access.');
     const w = typeof access.whatsapp === 'boolean' ? access.whatsapp : before.access_whatsapp;
     const l = typeof access.live === 'boolean' ? access.live : before.access_live;
-    await this.db.query('UPDATE staff SET access_whatsapp=$2, access_live=$3 WHERE id=$1', [staffId, w, l]);
-    await audit(this.db, actor, { action: 'staff.access', targetType: 'staff', targetId: staffId, details: { whatsapp: w ?? accessDefault(before.role, 'whatsapp'), live: l ?? accessDefault(before.role, 'live') } });
+    const a = typeof access.ambassadors === 'boolean' ? access.ambassadors : before.access_ambassadors;
+    await this.db.query('UPDATE staff SET access_whatsapp=$2, access_live=$3, access_ambassadors=$4 WHERE id=$1', [staffId, w, l, a]);
+    await audit(this.db, actor, { action: 'staff.access', targetType: 'staff', targetId: staffId, details: { whatsapp: w ?? accessDefault(before.role, 'whatsapp'), live: l ?? accessDefault(before.role, 'live'), ambassadors: a ?? accessDefault(before.role, 'ambassadors') } });
   }
 
   async setActive(actor: Actor, staffId: string, active: boolean) {

@@ -3,6 +3,7 @@ import { kycFlowJson, kycFlowName } from './kyc-flow.js';
 import { createHash } from 'node:crypto';
 import { buyEditFlowJson, buyEditFlowName, buyFlowJson, buyFlowName, sellEditFlowJson, sellEditFlowName, sellFlowJson, sellFlowName } from './buy-flow.js';
 import { ordersFlowJson } from './orders-flow.js';
+import { ambApplyFlowJson, ambApplyFlowName, ambDetailsFlowJson } from './amb-flow.js';
 import type { Template } from './client.js';
 
 /**
@@ -265,12 +266,83 @@ export const DEAL_TEMPLATES = {
 } satisfies Record<string, TemplateDef & { label: string }>;
 export type DealTemplateKey = keyof typeof DEAL_TEMPLATES;
 
+/**
+ * Ambassador updates sent when they last wrote more than 24 hours ago. UTILITY: about their own ambassador account.
+ * Each mirrors a chat message in ambassadors.ts (amsg).
+ */
+export const AMB_TEMPLATES = {
+  approved: {
+    name: 'hoolam_ambassador_approved', label: 'Ambassador application approved',
+    body: 'Good news, {{1}}: your application to be a *Hoolam ambassador* is approved.\n\nTap Get started to finish setting up. It takes a few minutes.',
+    example: ['Tobi'], buttons: ['Get started'],
+  },
+  invited: {
+    name: 'hoolam_ambassador_added', label: 'Added as an ambassador by the team',
+    body: 'Hello {{1}}, the Hoolam team has added you as a *Hoolam ambassador*. You earn a share of what Hoolam makes on orders from the sellers and buyers you bring.\n\nTap Get started to set up.',
+    example: ['Tobi'], buttons: ['Get started'],
+  },
+  update: {
+    name: 'hoolam_ambassador_update', label: 'Ambassador update (someone joined, a bonus, the month)',
+    body: 'Update on your Hoolam ambassador account: {{1}}\n\nTap below to see your earnings.',
+    example: ['someone new joined Hoolam with your link.'], buttons: ['Ambassador'],
+  },
+  paid: {
+    name: 'hoolam_ambassador_paid', label: 'Ambassador payout sent',
+    body: 'We have paid *{{1}}* to your {{2}} account for your Hoolam ambassador earnings in {{3}}. Reference: {{4}}.\n\nThank you for growing Hoolam.',
+    example: ['₦12,400', 'GTBank', 'October 2026', 'HLA-7K2QF'], buttons: ['Ambassador'],
+  },
+  term: {
+    name: 'hoolam_ambassador_term', label: 'Ambassador term ends soon',
+    body: 'Your Hoolam ambassador term of {{1}} months ends on {{2}}. If you do nothing, it renews on the same term.\n\nWhatever term you choose, your share grows when you bring more active sellers and buyers.',
+    example: ['6', '14 Feb 2027'], buttons: ['Renew', 'Switch term', 'End'],
+  },
+  signIn: {
+    name: 'hoolam_ambassador_sign_in', label: 'Ambassador dashboard: signed in on a new device',
+    body: 'You signed in to your Hoolam ambassador dashboard on {{1}}. Not you? Tap Sign everyone out.',
+    example: ['Chrome on Android'], buttons: ['Sign everyone out'],
+  },
+} satisfies Record<string, TemplateDef & { label: string }>;
+export type AmbTemplateKey = keyof typeof AMB_TEMPLATES;
+
+export function ambTemplate(key: AmbTemplateKey, params: string[], buttonPayloads: string[] = []): Template {
+  const t: TemplateDef = AMB_TEMPLATES[key];
+  return {
+    name: t.name, language: 'en', params,
+    buttonPayloads: t.buttons?.length ? buttonPayloads.slice(0, t.buttons.length) : undefined,
+    buttonTitles: t.buttons,
+    preview: t.body.replace(/\{\{(\d+)\}\}/g, (_m, i) => params[Number(i) - 1] ?? ''),
+  };
+}
+
 /** Every template the server keeps on Meta, with a plain label for the console. */
 export const ALL_TEMPLATES: (TemplateDef & { label: string })[] = [
   { ...SELLER_ALERT, label: 'New order request (to a seller)' },
   { ...BUYER_ALERT, label: 'New order for you (to a buyer)' },
   ...Object.values(DEAL_TEMPLATES),
+  ...Object.values(AMB_TEMPLATES),
 ];
+
+/**
+ * The sign-in code for an ambassador's web dashboard: an AUTHENTICATION template (Meta's own wording,
+ * with a "Copy code" button). Used when they haven't written to Hoolam in the last 24 hours.
+ */
+export const SIGN_IN_CODE = { name: 'hoolam_sign_in_code', label: 'Sign-in code (ambassador dashboard)' };
+export async function ensureSignInTemplate(o: MetaSetupOptions): Promise<string | null> {
+  const found = await graph(o, 'GET', `${o.wabaId}/message_templates?name=${SIGN_IN_CODE.name}&fields=name,status`);
+  const existing = found.ok ? (found.json?.data ?? []).find((x: { name: string }) => x.name === SIGN_IN_CODE.name) : null;
+  if (existing) return existing.status;
+  const created = await graph(o, 'POST', `${o.wabaId}/message_templates`, {
+    name: SIGN_IN_CODE.name, language: 'en', category: 'AUTHENTICATION',
+    components: [
+      { type: 'BODY', add_security_recommendation: true },
+      { type: 'FOOTER', code_expiration_minutes: 10 },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP', otp_type: 'COPY_CODE', text: 'Copy code' }] },
+    ],
+  });
+  if (!created.ok) { o.log?.(`sign-in code template FAILED to create (HTTP ${created.status}): ${created.text}`); return null; }
+  o.log?.(`sign-in code template submitted to Meta: ${created.json?.status ?? 'PENDING'}`);
+  return created.json?.status ?? 'PENDING';
+}
 
 /** A ready-to-send deal update: the template, the values for {{1}}…, and what each button sends back. */
 export function dealTemplate(key: DealTemplateKey, params: string[], buttonPayloads: string[] = []): Template {
@@ -385,6 +457,16 @@ export async function ensureKycFlow(o: MetaSetupOptions, json = kycFlowJson()): 
 /** The seller's form filled in with their answers, for "Edit order". */
 export async function ensureSellEditFlow(o: MetaSetupOptions, json = sellEditFlowJson()): Promise<string | null> {
   return ensureFlow(o, json, sellEditFlowName(json), 'seller edit form');
+}
+
+/** The ambassador application (4 short screens). */
+export async function ensureAmbApplyFlow(o: MetaSetupOptions, json = ambApplyFlowJson()): Promise<string | null> {
+  return ensureFlow(o, json, ambApplyFlowName(json), 'ambassador application form');
+}
+/** The ambassador's Details (live: any month's earnings, their people, their account). */
+export async function ensureAmbDetailsFlow(o: MetaSetupOptions, endpointUri: string, json: object = ambDetailsFlowJson()): Promise<string | null> {
+  const name = 'hoolam_amb_details_' + createHash('sha256').update(JSON.stringify(json) + endpointUri).digest('hex').slice(0, 8);
+  return ensureFlow(o, json, name, 'ambassador details form', endpointUri);
 }
 
 /** The live "My orders" form: talks to our encrypted endpoint. */

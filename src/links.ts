@@ -60,7 +60,7 @@ export class CampaignLinks {
     const source = input.source as LinkSource;
     const campaign = input.campaign ? tidy(String(input.campaign)).slice(0, 60) || null : null;
     const page = String(input.page ?? '/') in LINK_PAGES ? String(input.page ?? '/') : '/';
-    const taken = await this.db.query('SELECT 1 FROM campaign_links WHERE slug=$1', [slug]);
+    const taken = await this.db.query('SELECT 1 FROM campaign_links WHERE slug=$1 UNION ALL SELECT 1 FROM ambassador_names WHERE slug=$1', [slug]);
     if (taken.rowCount) throw new LinkError(`hoolam.com/${slug} already exists.`);
     const r = await this.db.query(`INSERT INTO campaign_links (slug, source, campaign, page, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING created_at`,
       [slug, source, campaign, page, staffId]);

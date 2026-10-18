@@ -14,6 +14,8 @@ export const FORM_LABELS = {
   kyc: 'ID check',
   orders: 'My orders',
   order: 'One order (accept, dispatch, code, review)',
+  ambApply: 'Ambassador application',
+  ambDetails: 'Ambassador details (earnings by month)',
 } as const;
 export type FormKey = keyof typeof FORM_LABELS;
 export const FORM_KEYS = Object.keys(FORM_LABELS) as FormKey[];

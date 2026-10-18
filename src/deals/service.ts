@@ -8,6 +8,7 @@ import type { Messenger, Outbound, SendStatus, Template } from '../whatsapp/clie
 import { localPhone } from '../phone.js';
 import type { Media } from '../whatsapp/media.js';
 import type { Trust } from '../trust.js';
+import type { Ambassadors } from '../ambassadors.js';
 import type { Settings } from '../settings.js';
 import { namesMatch, type KycService } from '../kyc.js';
 import { renderBrandCard, renderReceipt, type ReceiptData } from '../receipt.js';
@@ -126,6 +127,8 @@ export interface DealServiceOptions {
   kyc?: KycService;           // ID checks (BVN/NIN): above the no-ID limit, and every seller before their payout
   acceptHours?: number;       // how long a seller has to accept a buyer's deal (default 48)
   orderPageBase?: string;     // where the private order pages live, e.g. https://hoolam.onrender.com
+  /** The ambassador programme: earnings when an order's money is released (see ambassadors.ts). */
+  ambassadors?: Pick<Ambassadors, 'onRelease'>;
   log?: (line: string) => void;
 }
 
@@ -1272,7 +1275,7 @@ export class DealService {
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
       if (!['FUNDED', 'SHIPPED'].includes(deal.status)) throw new DealError('NOT_ALLOWED');
       if (deal.status === 'FUNDED') await this.move(tx, deal, 'SHIPPED', 'buyer', 'Buyer confirmed before seller marked it sent');
-      const ids = await this.startRelease(tx, deal, 'buyer');
+      const ids = await this.startRelease(tx, deal, 'buyer', undefined, out);
       const seller = await this.sellerOf(tx, deal);
       out.push({ phone: buyer.phone, message: msg.buyerReleased(deal.code, firstName(seller.display_name) ?? 'the seller') });
       return ids;
@@ -1284,7 +1287,7 @@ export class DealService {
    * Pays the seller what's left: everything still held, minus Hoolam's fee. If a rider or driver was set to be
    * paid and hasn't been yet (no code was entered), they're paid first. Returns the payouts to send.
    */
-  private async startRelease(tx: Tx, deal: Deal, actor: string, note?: string): Promise<string[]> {
+  private async startRelease(tx: Tx, deal: Deal, actor: string, note?: string, out?: Outbox): Promise<string[]> {
     if (!deal.seller_account_id) throw new Error(`Order ${deal.code} has no seller bank account`);
     const courierPayout = await this.payCourier(tx, deal);
     await this.move(tx, deal, 'RELEASING', actor, note);
@@ -1300,6 +1303,11 @@ export class DealService {
         { account: 'revenue:fees', amountMinor: -fee },
       ],
     });
+    // the ambassadors of the seller and of the buyer earn their share of what Hoolam earned (and the seller bonus)
+    if (this.o.ambassadors) {
+      const notices = await this.o.ambassadors.onRelease(tx, { ...deal, is_test: (deal as Deal & { is_test?: boolean }).is_test }, fee);
+      for (const n of notices) out?.push({ phone: n.phone, message: n.message, fallback: n.fallback });
+    }
     const r = await tx.query(
       `INSERT INTO payouts (deal_id, kind, provider, reference, amount_minor, currency, bank_account_id) VALUES ($1,'SELLER',$2,$3,$4,$5,$6) RETURNING id`,
       [deal.id, this.o.provider.name, `${deal.code}-PAY-${randomUUID().slice(0, 6)}`, toSeller, deal.currency, deal.seller_account_id],
@@ -1387,12 +1395,12 @@ export class DealService {
   }
 
   async adminRelease(code: string, note: string): Promise<void> {
-    const payoutIds = await this.run(async (tx) => {
+    const payoutIds = await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.status !== 'DISPUTED' && deal.status !== 'SHIPPED' && deal.status !== 'FUNDED') throw new DealError('NOT_ALLOWED');
       if (deal.status === 'FUNDED') await this.move(tx, deal, 'SHIPPED', 'admin', note);
       await tx.query(`UPDATE disputes SET status='RESOLVED_RELEASE', resolution_note=$2, resolved_at=now() WHERE deal_id=$1 AND status='OPEN'`, [deal.id, note]);
-      return this.startRelease(tx, deal, 'admin', note);
+      return this.startRelease(tx, deal, 'admin', note, out);
     });
     for (const id of payoutIds) await this.submitPayout(id);
   }
@@ -1781,7 +1789,7 @@ export class DealService {
         const ids = await this.run(async (tx, out) => {
           const deal = await this.lockById(tx, row.id);
           if (deal.status !== 'SHIPPED' || !deal.handed_over_at) return [];
-          const ids = await this.startRelease(tx, deal, 'system', `No problem reported within ${waitText(this.autoReleaseMinutes())} of handover`);
+          const ids = await this.startRelease(tx, deal, 'system', `No problem reported within ${waitText(this.autoReleaseMinutes())} of handover`, out);
           const buyer = await this.userById(tx, deal.buyer_id!);
           out.push({ phone: buyer.phone, message: msg.autoReleased(deal.code, await this.who(tx, deal.seller_id)) });
           return ids;

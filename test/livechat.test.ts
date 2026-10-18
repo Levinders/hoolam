@@ -245,7 +245,7 @@ describe('live chat', () => {
   });
 
   it('support access is per person: switching live chat off for someone closes it to them', async () => {
-    expect((await con('owner', 'GET', '/auth/state')).json.me.access).toEqual({ whatsapp: true, live: true });
+    expect((await con('owner', 'GET', '/auth/state')).json.me.access).toEqual({ whatsapp: true, live: true, ambassadors: true });
     await con('owner', 'POST', `/team/${repId}/access`, { live: false });
     const r = await con('rep', 'GET', '/livechat');
     expect(r.status).toBe(403);

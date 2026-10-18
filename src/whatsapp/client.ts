@@ -26,6 +26,7 @@ export interface Template {
   maxParam?: number;         // longest value allowed (default 120; the support message allows 600)
   replyTo?: string;          // the person's message this answers (shown quoted)
   headerImage?: string;      // a media id for templates with a picture at the top
+  codeButton?: string;       // an authentication template's code, for its "Copy code" button
 }
 
 export type SendStatus = 'SENT' | 'DRY_RUN' | 'FAILED' | 'NEEDS_TEMPLATE';
@@ -179,6 +180,7 @@ export class Messenger {
           ...(t.headerImage && this.imageHeaders.has(t.name) ? [{ type: 'header', parameters: [{ type: 'image', image: { id: t.headerImage } }] }] : []),
           ...(t.params.length ? [{ type: 'body', parameters: t.params.map((p) => ({ type: 'text', text: templateText(p, t.maxParam ?? 120) })) }] : []),
           ...(t.buttonPayloads ?? []).map((p, i) => ({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: p }] })),
+          ...(t.codeButton ? [{ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: t.codeButton }] }] : []),
         ],
       },
     };

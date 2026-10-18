@@ -19,6 +19,8 @@ import { bankChoices, matchBank, parseBankInput } from './banks.js';
 import type { Bank } from '../payments/provider.js';
 import { dayText } from '../deals/service.js';
 import type { Trust } from '../trust.js';
+import type { Ambassadors } from '../ambassadors.js';
+import { AmbassadorChat, SENT_ME_RE } from './amb-flow.js';
 
 /**
  * The WhatsApp conversation. Each person has a small state (what we're waiting for from them)
@@ -34,7 +36,8 @@ type State =
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SELLER_COUNTER_REASON' | 'SHIP_PROOF'
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
   | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE' | 'BUYER_ADDRESS'
-  | 'KYC_METHOD' | 'KYC_DOB' | 'KYC_NUMBER' | 'PIN_NOTE';
+  | 'KYC_METHOD' | 'KYC_DOB' | 'KYC_NUMBER' | 'PIN_NOTE'
+  | 'AMB_NAME' | 'AMB_PHOTO' | 'AMB_ASK';
 
 /**
  * Where to pick up after an ID check: tap the same button again, carry on with the new order, ask the next
@@ -81,6 +84,14 @@ export interface FlowOptions {
   kycForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** Fetches photos people send (for a seller's page photo). */
   media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
+  /** The ambassador programme (menu row, applying, setup, the Ambassador screen, links from ambassadors). */
+  ambassadors?: Ambassadors;
+  /** Its WhatsApp forms: the application, and Details (live). */
+  ambApplyForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
+  ambDetailsForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
+  onAmbFormRefused?: (key: 'ambApply' | 'ambDetails', phone: string) => Promise<void> | void;
+  formSecret?: string;
+  siteUrl?: string;
   log?: (line: string) => void;
 }
 
@@ -126,7 +137,33 @@ const PHRASES: Record<string, MenuItem> = {
 };
 
 export class Conversation {
-  constructor(private readonly o: FlowOptions) {}
+  private readonly amb: AmbassadorChat | null;
+  constructor(private readonly o: FlowOptions) {
+    this.amb = o.ambassadors ? new AmbassadorChat(o.ambassadors, {
+      save: (phone, state, data = {}) => this.save(phone, state as State, data),
+      send: (phone, m) => this.send(phone, m),
+      startKyc: async (phone, user, next) => {
+        const fresh = (await this.userByPhone(phone)) ?? user;
+        return this.startKyc(phone, fresh, 'ambassador', next);
+      },
+      askBank: async (phone, then) => { await this.save(phone, 'ACCOUNT_BANK', { then }); return this.send(phone, msg.askBank()); },
+      menu: async (phone, user) => { await this.save(phone, 'IDLE'); return this.send(phone, await this.menuMsg(user, modeOf(user))); },
+      continueTo: async (phone, user, item) => this.openMenuItem(phone, user, item, true),
+      download: async (id) => (this.o.media ? (await this.o.media.download(id))?.bytes ?? null : null),
+      applyForm: () => this.o.ambApplyForm?.() ?? null,
+      detailsForm: () => this.o.ambDetailsForm?.() ?? null,
+      formRefused: (key, phone) => this.o.onAmbFormRefused?.(key, phone),
+      secret: o.formSecret ?? 'hoolam',
+      siteUrl: o.siteUrl ?? 'https://hoolam.com',
+      log: o.log,
+    }) : null;
+  }
+
+  /** The menu for this person: their side's options, and the ambassador row last when it applies to them. */
+  private async menuMsg(user: User, mode: MenuMode, note?: string): Promise<Outbound> {
+    const row = this.o.ambassadors ? await this.o.ambassadors.menuRow(user).catch(() => null) : null;
+    return msg.menu(user.display_name, mode, note, row);
+  }
 
   private async session(phone: string): Promise<Session> {
     const r = await this.o.db.query(
@@ -192,7 +229,13 @@ export class Conversation {
       const [action, code] = m.buttonId.split(':');
       switch (action) {
         case 'menu':
+          if (code === 'amb' && this.amb) return this.amb.open(m.phone, user);
           return this.openMenuItem(m.phone, user, (code === 'help' ? 'how' : code === 'deals' ? 'orders' : code) as MenuItem);
+        case 'amb': {
+          if (!this.amb) return this.send(m.phone, msg.didntUnderstand());
+          const [, what, arg] = m.buttonId.split(':');
+          return this.amb.button(m.phone, user, what ?? '', arg);
+        }
         case 'setup':
           if (code === 'wname' && s.state === 'SETUP_NAME') { // keep the name buyers already see
             await this.save(m.phone, 'SETUP_CITY', s.data);
@@ -327,6 +370,8 @@ export class Conversation {
       const token = String(m.form?.flow_token ?? '');
       if (token.startsWith('o1.')) return; // "My orders" closed: everything it did was already sent in the chat
       if (token.startsWith('kyc')) return this.kycFormSubmitted(m, s, user);
+      if (token.startsWith('amb') && this.amb) return this.amb.formSubmitted(m.phone, user, m.form ?? {});
+      if (token.startsWith('a1.')) return; // Details closed: nothing to do
       const side: Side = token.startsWith('sell') ? 'sell' : 'buy';
       // an edited order keeps its photos unless new ones were added
       const kept = /^(buyedit|selledit)/.test(token) && Array.isArray(s.data.photos) ? s.data.photos : [];
@@ -343,6 +388,16 @@ export class Conversation {
       this.o.provider.pay(ref);
       await this.o.deals.handleCollection(ref);
       return;
+    }
+
+    // ----- someone arriving from an ambassador's link: "Hi Hoolam, I want to buy safely. Tobi sent me (TOBI)" -----
+    const sentMe = !m.buttonId ? text.match(SENT_ME_RE) : null;
+    if (sentMe && this.amb) {
+      await this.amb.arrived(user, sentMe[1]!);
+      if (/\bsell/i.test(text)) return this.openMenuItem(m.phone, user, 'sell', true);
+      if (/\bbuy/i.test(text)) return this.openMenuItem(m.phone, user, 'buy', true);
+      await this.save(m.phone, 'IDLE');
+      return this.send(m.phone, msg.welcome(user.display_name));
     }
 
     // ----- the very first message from someone new: tell the story once, unless they already know what they want -----
@@ -387,12 +442,15 @@ export class Conversation {
       if (s.state === 'DISPATCH' && s.data.method && s.data.method !== 'pickup' && s.data.phone && s.data.fee !== undefined && !s.data.location) {
         return this.dispatchStep(m.phone, user, { ...s.data, location: place ?? 'Shared location (see the map)', pin });
       }
-      return this.send(m.phone, s.state === 'IDLE' ? msg.menu(user.display_name, modeOf(user)) : msg.didntUnderstand());
+      return this.send(m.phone, s.state === 'IDLE' ? await this.menuMsg(user, modeOf(user)) : msg.didntUnderstand());
     }
 
     // ----- typed answers, depending on what we asked -----
     switch (s.state) {
       case 'PIN_NOTE': return this.pinNote(m.phone, user, s, text);
+      case 'AMB_NAME': case 'AMB_PHOTO': case 'AMB_ASK':
+        if (!this.amb) { await this.save(m.phone, 'IDLE'); return this.send(m.phone, await this.menuMsg(user, modeOf(user))); }
+        return this.amb.typed(m.phone, user, s.state, s.data, { type: m.type, text, mediaId: m.mediaId });
       case 'SELL_FORM': // (older sessions) typed instead of opening the form: carry on in the chat
       case 'SELL_ITEM': {
         if (text.length < 2) return this.send(m.phone, msg.askItem());
@@ -601,14 +659,16 @@ export class Conversation {
         return this.send(m.phone, msg.askRefundBank());
       }
       default:
-        return this.send(m.phone, s.state === 'IDLE' ? msg.menu(user.display_name, modeOf(user)) : msg.didntUnderstand());
+        return this.send(m.phone, s.state === 'IDLE' ? await this.menuMsg(user, modeOf(user)) : msg.didntUnderstand());
     }
   }
 
   private maxDeal(user?: User): number { return user ? this.o.deals.capFor(user) : this.o.deals.maxDealMinor; }
 
   /** Everything the menus (and the slash commands) can do. */
-  private async openMenuItem(phone: string, user: User, item: MenuItem): Promise<unknown> {
+  private async openMenuItem(phone: string, user: User, item: MenuItem, asked = false): Promise<unknown> {
+    // before someone's very first order: "Did an ambassador send you?" (once)
+    if (!asked && (item === 'buy' || item === 'sell') && this.amb && (await this.amb.maybeAsk(phone, user, item))) return;
     switch (item) {
       case 'sell':
         if (!user.seller_since) return this.startSetup(phone, user, 'sell');
@@ -653,7 +713,7 @@ export class Conversation {
         const changed = modeOf(user) !== to;
         await this.o.deals.setMenuMode(user, to);
         await this.save(phone, 'IDLE');
-        return this.send(phone, msg.menu(user.display_name, to, changed ? msg.switchedTo(to) : undefined));
+        return this.send(phone, await this.menuMsg(user, to, changed ? msg.switchedTo(to) : undefined));
       }
     }
     await this.save(phone, 'IDLE');
@@ -663,7 +723,7 @@ export class Conversation {
     }
     if (item === 'how') return this.send(phone, msg.help());
     if (item === 'fees') return this.send(phone, this.feesMessage());
-    return this.send(phone, msg.menu(user.display_name, modeOf(user)));
+    return this.send(phone, await this.menuMsg(user, modeOf(user)));
   }
 
   // ===== ID CHECK (KYC): once per person =====
@@ -795,7 +855,7 @@ export class Conversation {
       if (r === 'mismatch') return; // we've asked for an account in their own name
       if (r === 'released') { await this.save(phone, 'IDLE'); return; } // "You've been paid" follows
       await this.save(phone, 'IDLE');
-      return this.send(phone, msg.menu(user.display_name, modeOf(user)));
+      return this.send(phone, await this.menuMsg(user, modeOf(user)));
     }
     if (next.kind === 'draft') return this.continueBuying(phone, next.draft as BuyDraft);
     if (next.kind === 'ask') { await this.save(phone, next.state as State, next.data); return this.send(phone, next.message); }
@@ -1389,6 +1449,8 @@ export class Conversation {
       await this.save(phone, 'IDLE');
       await this.send(phone, msg.accountSaved(acct.bank_name, acct.account_number.slice(-4)));
       await this.o.deals.releaseHeldPayouts(user.id); // payouts waiting for an account in their own name go now
+      // asked for it as a step of something else (an ambassador's setup): carry on there
+      if (typeof rest.then === 'string' && /^amb:/.test(rest.then)) return this.handle({ id: `form-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: rest.then, mediaId: null });
       return;
     }
     await this.save(phone, 'IDLE');

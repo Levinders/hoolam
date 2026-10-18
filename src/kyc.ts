@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import type { Db } from './db.js';
 
 /**
@@ -156,6 +157,13 @@ export interface KycServiceOptions {
    * ID name, so that match is skipped until real payments (Monnify) come on. Then it applies by itself.
    */
   skipAccountMatch?: boolean;
+  /** Key for the one-way code of each checked ID number (users.kyc_id_hash), so two accounts of one person can be spotted. */
+  idSecret?: string;
+}
+
+/** A one-way code of an ID number: the same number always gives the same code, and the number can't be read back. */
+export function idHash(secret: string, method: KycMethod, number: string): string {
+  return createHmac('sha256', secret).update(`${method}:${number.replace(/\D/g, '')}`).digest('hex').slice(0, 40);
 }
 
 export class KycService {
@@ -241,7 +249,8 @@ export class KycService {
     await record('VERIFIED', a.reference);
     await this.db.query(
       `UPDATE users SET kyc_status='VERIFIED', kyc_verified_at=now(), kyc_method=$2, kyc_name=$3, kyc_last4=$4, kyc_ref=$5,
-              kyc_review_reason=NULL, kyc_review_at=NULL, kyc_flag=NULL, kyc_declined_at=NULL WHERE id=$1`, [userId, method, name, last4, a.reference]);
+              kyc_review_reason=NULL, kyc_review_at=NULL, kyc_flag=NULL, kyc_declined_at=NULL, kyc_id_hash=$6 WHERE id=$1`,
+      [userId, method, name, last4, a.reference, this.opts.idSecret ? idHash(this.opts.idSecret, method, number) : null]);
     return { ok: true, name };
   }
 
@@ -263,7 +272,7 @@ export class KycService {
   /** Staff: take the verification away (they'd verify again). */
   async remove(userId: string): Promise<void> {
     await this.db.query(
-      `UPDATE users SET kyc_status='UNVERIFIED', kyc_verified_at=NULL, kyc_method=NULL, kyc_name=NULL, kyc_last4=NULL, kyc_ref=NULL,
+      `UPDATE users SET kyc_status='UNVERIFIED', kyc_verified_at=NULL, kyc_method=NULL, kyc_name=NULL, kyc_last4=NULL, kyc_ref=NULL, kyc_id_hash=NULL,
               kyc_review_reason=NULL, kyc_review_at=NULL, kyc_flag=NULL, kyc_declined_at=NULL WHERE id=$1`, [userId]);
   }
 

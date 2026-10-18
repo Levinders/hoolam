@@ -7,7 +7,7 @@ import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
 import { FakeKycChecker, KycService, NoKycChecker, PremblyChecker, type KycChecker } from './kyc.js';
-import { ALL_TEMPLATES, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureAmbApplyFlow, ensureAmbDetailsFlow, ensureSignInTemplate, SIGN_IN_CODE, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { FormRegistry, type FormKey, type FormUse } from './whatsapp/forms.js';
@@ -15,6 +15,9 @@ import { COMPANY } from './receipt.js';
 import { Media } from './whatsapp/media.js';
 import { isBot, Trust } from './trust.js';
 import { CampaignLinks } from './links.js';
+import { Ambassadors } from './ambassadors.js';
+import { AmbassadorDetailsFlow } from './whatsapp/amb-flow.js';
+import { registerAmbassadorRoutes } from './amb-routes.js';
 import { Settings } from './settings.js';
 import { MediaError, SiteMedia } from './site-media.js';
 import { homeVersions } from './site-versions.js';
@@ -65,16 +68,22 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const checker: KycChecker = c.KYC === 'prembly'
     ? new PremblyChecker({ apiKey: c.PREMBLY_X_API_KEY, appId: c.PREMBLY_APP_ID || undefined, baseUrl: c.PREMBLY_BASE_URL, bvnPath: c.PREMBLY_BVN_PATH, ninPath: c.PREMBLY_NIN_PATH, log })
     : c.KYC === 'fake' ? new FakeKycChecker() : new NoKycChecker();
-  const kyc = new KycService(db, checker, log, { skipAccountMatch });
+  const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
+  const kyc = new KycService(db, checker, log, { skipAccountMatch, idSecret: formSecret });
+  // the ambassador programme (Console → Settings → Features → Ambassadors)
+  const ambassadors = new Ambassadors({
+    db, settings, messenger, currency: c.CURRENCY, countTest: c.TRUST_COUNT_TEST_DEALS, siteUrl: c.SITE_URL || 'https://hoolam.com',
+    publicBaseUrl: c.PUBLIC_BASE_URL, secret: formSecret, onSiteChange: () => siteSync.changed(), log,
+  });
   if (skipAccountMatch) log('ID checks are real but money is pretend: payout account names are not matched to the ID until real payments are on');
   const deals = new DealService({
     db, provider, messenger, media, trust, settings, kyc, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
-    acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, log,
+    acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, ambassadors, log,
   });
   // Every WhatsApp form, once it exists on Meta (see setupMeta), sent in the state Meta reports. A form WhatsApp
   // refuses rests for 30 minutes on its own; meanwhile the chat asks the same questions. Console → Settings → WhatsApp shows them.
   const forms = new FormRegistry(30, Date.now, log);
-  if (c.WHATSAPP_DRY_RUN) for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order'] as FormKey[]) forms.off(k, 'WhatsApp is in dry run (WHATSAPP_DRY_RUN)');
+  if (c.WHATSAPP_DRY_RUN) for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails'] as FormKey[]) forms.off(k, 'WhatsApp is in dry run (WHATSAPP_DRY_RUN)');
   /** A form to send, if the console switch is on and the form is ready. */
   const formFor = (key: FormKey): FormUse | null => (settings.formsEnabled() ? forms.use(key) : null);
   /** WhatsApp refused a form we sent: rest that one form, with Meta's reason (saved with the failed message). */
@@ -84,7 +93,6 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   };
   const backupForms = { list: false, one: false }; // true when Meta refused the main forms and the backups are in use
   let keys: FlowKeys | null = null;
-  const formSecret = c.WHATSAPP_APP_SECRET || c.ADMIN_TOKEN;
   const setChatState = async (phone: string, state: string, data: Record<string, unknown>) => {
     await db.query(`INSERT INTO chat_sessions (phone, state, data) VALUES ($1,$2,$3) ON CONFLICT (phone) DO UPDATE SET state=$2, data=$3, updated_at=now()`, [phone, state, JSON.stringify(data)]);
   };
@@ -145,7 +153,10 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return { name: 'Hoolam', phone, org: COMPANY.legalName, email: settings.contact().email || undefined, url: (c.SITE_URL || 'https://hoolam.com').replace(/\/$/, '') };
     },
     hoolamNumber: () => settings.waNumber(),
+    ambassadors, ambApplyForm: () => formFor('ambApply'), ambDetailsForm: () => formFor('ambDetails'),
+    onAmbFormRefused: (key, phone) => formRefused(key, phone), formSecret, siteUrl: c.SITE_URL || 'https://hoolam.com',
   });
+  const ambDetails = new AmbassadorDetailsFlow(ambassadors, formSecret, log);
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -197,6 +208,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       images: siteMedia.forVersion(c.PUBLIC_BASE_URL, settings.homeVersion()),
       versions: Object.fromEntries(homeVersions().map((v) => [v.version, { date: v.date, images: siteMedia.forVersion(c.PUBLIC_BASE_URL, v.version) }])),
       links: await links.forSite(), // campaign links: the website builds hoolam.com/<slug> for each
+      // the ambassador programme: whether it's on (menu link, the page), the rates shown on hoolam.com/ambassadors, and each link (hoolam.com/a/<name>)
+      ambassadors: (() => { const a = ambassadors.cfg(); return { on: a.on, applyWeb: a.applyWeb, sellerPct: a.sellerPct, buyerPct: a.buyerPct, bonus: a.bonusMinor / unit, bonusOrders: a.bonusOrders, payoutDay: a.payoutDay, payoutMin: a.payoutMinMinor / unit, terms: a.terms, api: c.PUBLIC_BASE_URL.replace(/\/+$/, '') }; })(),
+      ambassadorLinks: ambassadors.on() ? await ambassadors.forSite() : [],
     });
   });
   // a campaign link's page on the website counts the tap here (navigator.sendBeacon), then moves the visitor on
@@ -205,6 +219,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     if (/^[a-z0-9-]{2,40}$/.test(slug) && !isBot(req.headers['user-agent'])) await links.tap(slug).catch((e) => log(`link tap: ${(e as Error).message}`));
     return reply.header('access-control-allow-origin', '*').code(204).send();
   });
+  registerAmbassadorRoutes(app, { ambassadors, markUrl: () => siteMedia.url(c.PUBLIC_BASE_URL.replace(/\/+$/, ''), 'mark'), waNumber: () => settings.waNumber(), secure: c.PUBLIC_BASE_URL.startsWith('https://'), log });
   // Logo and website pictures uploaded in the console. Versioned URLs (?v=) are cached for a year.
   app.get('/media/:slot', async (req, reply) => {
     const { slot } = req.params as { slot: string };
@@ -429,7 +444,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       log(`forms endpoint: can't decrypt (${(e as Error).message}). Meta will refresh the key.`);
       return reply.code(e instanceof FlowDecryptError ? 421 : 400).send('cannot decrypt');
     }
-    const answer = await orders.handle(dec.body);
+    const answer = String((dec.body as { flow_token?: string }).flow_token ?? '').startsWith('a1.') ? await ambDetails.handle(dec.body) : await orders.handle(dec.body);
     return reply.type('text/plain').send(encryptResponse(answer, dec.aesKey, dec.iv));
   });
 
@@ -603,6 +618,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     if (c.WHATSAPP_DRY_RUN || !c.WHATSAPP_WABA_ID) return;
     const st = await fetchTemplateStatuses({ token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, log });
     if (!st) return;
+    messenger.setTemplateStatus(SIGN_IN_CODE.name, st[SIGN_IN_CODE.name] ?? null);
     for (const t of ALL_TEMPLATES) {
       const before = messenger.templateStatus(t.name);
       messenger.setTemplateStatus(t.name, st[t.name] ?? null);
@@ -618,7 +634,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (c.WHATSAPP_SYNC_MENU) await syncMenu();
       if (!c.WHATSAPP_WABA_ID) {
         log('buyer form + seller alerts need WHATSAPP_WABA_ID in Render. Buyers answer in the chat until then.');
-        for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
+        for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
         return;
       }
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, log };
@@ -629,6 +645,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       } });
       // the alerts and the deal updates used outside WhatsApp's 24-hour window (submitted once; used after Meta approves)
       for (const t of ALL_TEMPLATES) messenger.setTemplateStatus(t.name, await ensureTemplate(o, t, t.label));
+      messenger.setTemplateStatus(SIGN_IN_CODE.name, await ensureSignInTemplate(o)); // ambassadors' sign-in codes
       // reworded templates: keep using the earlier approved version until Meta approves the new wording
       await refreshTemplates();
       if (c.WHATSAPP_BUY_FORM) {
@@ -637,7 +654,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         await ensureSellFlow(into('sell'));
         await ensureSellEditFlow(into('sellEdit'));
         await ensureKycFlow(into('kyc'));
-      } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
+        await ensureAmbApplyFlow(into('ambApply'));
+      } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'ambApply'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
       if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {
         keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
         log(`forms key: ${keys.source === 'env' ? 'from FLOWS_PRIVATE_KEY' : keys.source === 'new' ? 'made a new one (kept in the database)' : 'loaded from the database'}`);
@@ -649,8 +667,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
           if (!id) { id = await ensureOrdersFlow(into('orders', true), endpoint, ordersFlowJson('FILTER', true, ex)); backupForms.list = !!id; if (id) log('orders form: using the backup version'); }
           let one = await ensureOrderFlow(into('order'), endpoint, ordersFlowJson('ORDER', false, ex));
           if (!one) { one = await ensureOrderFlow(into('order', true), endpoint, ordersFlowJson('ORDER', true, ex)); backupForms.one = !!one; if (one) log('order form: using the backup version'); }
-        } else for (const k of ['orders', 'order'] as FormKey[]) forms.failed(k, 'Meta didn\'t accept the forms key, so the live forms can\'t start (see the Render log)');
-      } else for (const k of ['orders', 'order'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_ORDERS_FORM=false) or no PUBLIC_BASE_URL');
+          await ensureAmbDetailsFlow(into('ambDetails'), endpoint);
+        } else for (const k of ['orders', 'order', 'ambDetails'] as FormKey[]) forms.failed(k, 'Meta didn\'t accept the forms key, so the live forms can\'t start (see the Render log)');
+      } else for (const k of ['orders', 'order', 'ambDetails'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_ORDERS_FORM=false) or no PUBLIC_BASE_URL');
     } catch (e) {
       log(`WhatsApp setup failed: ${(e as Error).message}`);
     }
@@ -661,7 +680,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const liveChat = new LiveChat({ db, settings, messenger, currency: c.CURRENCY, siteUrl: c.SITE_URL || 'https://hoolam.com', log });
   registerLiveChatRoutes(app, liveChat, db, log);
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL });
-  registerConsoleApi(app, { config: c, db, deals, trust, links, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -678,13 +697,16 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const r = await deals.sweep({ nudgeAfterHours: settings.nudgeHours() });
       if (r.nudged || r.expired) log(`sweep: nudged ${r.nudged}, expired ${r.expired}`);
       await trust.purgeSeen().catch((e) => log(`seller page stats: ${(e as Error).message}`)); // the one-way visitor codes last 2 days
+      // ambassadors: term notices and rollovers, the monthly payouts, month-end summaries
+      const a = await ambassadors.sweep().catch((e) => { log(`ambassadors: ${(e as Error).message}`); return null; });
+      if (a && (a.notices || a.rolled || a.payouts || a.summaries)) log(`ambassadors: ${a.notices} notice(s), ${a.rolled} term(s) renewed, ${a.payouts} payout(s) made, ${a.summaries} summary(ies)`);
     }
   }
 
   const load = async () => { await settings.load(); await siteMedia.load(); };
   app.addHook('onClose', async () => siteSync.stop());
   return {
-    app, load, deals, chat, liveChat, messenger, trust, links, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
+    app, load, deals, chat, liveChat, messenger, trust, links, ambassadors, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
     forms,
     setBuyForm: (f: FormUse | null) => forms.set('buy', f), setSellForm: (f: FormUse | null) => forms.set('sell', f),
     setOrdersForm: (f: FormUse | null) => forms.set('orders', f), setOrderForm: (f: FormUse | null) => forms.set('order', f), backupForms,
