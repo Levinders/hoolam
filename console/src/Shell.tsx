@@ -1,4 +1,4 @@
-import { ChartColumn, Handshake, Inbox, Landmark, LogOut, Menu, ScrollText, Search, Settings2, ShieldCheck, Scale, Users } from 'lucide-react';
+import { ChartColumn, Handshake, Inbox, Landmark, LogOut, Megaphone, Menu, ScrollText, Search, Settings2, ShieldCheck, Scale, Users } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
@@ -13,7 +13,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const [palette, setPalette] = useState(false);
   const [menu, setMenu] = useState(false);
   const loc = useLocation();
-  const counts = useData<{ counts: { inbox: number; disputes: number; support: number } }>('/inbox');
+  const counts = useData<{ counts: { inbox: number; disputes: number; support: number; ambassadors?: number } }>('/inbox');
   usePoll(() => counts.reload(), 30_000);
   useEffect(() => { setMenu(false); counts.reload(); /* refresh counts after navigation */ }, [loc.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -44,6 +44,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {item('/money', 'Money', Landmark)}
           <div className="nav-group">People</div>
           {item('/people', 'Buyers & sellers', Users)}
+          {item('/ambassadors', 'Ambassadors', Megaphone, c?.ambassadors, true)}
           <div className="nav-group">Business</div>
           {item('/insights', 'Insights', ChartColumn)}
           {can('settings.view') && item('/settings', 'Settings', Settings2)}

@@ -99,6 +99,19 @@ export const PAYOUT: Record<string, { label: string; tone: Tone }> = {
 
 /** Plain words for audit-trail actions. */
 export const ACTIONS: Record<string, string> = {
+  'ambassador.approve': 'Approved an ambassador application',
+  'ambassador.decline': 'Declined an ambassador application',
+  'ambassador.invite': 'Invited an ambassador',
+  'ambassador.pause': 'Paused an ambassador',
+  'ambassador.resume': 'Resumed an ambassador',
+  'ambassador.end': 'Ended an ambassador',
+  'ambassador.share': 'Set an ambassador\'s share',
+  'ambassador.name': 'Changed an ambassador\'s link name',
+  'ambassador.photo.remove': 'Removed an ambassador\'s photo',
+  'ambassador.payout.paid': 'Marked an ambassador payout as paid',
+  'ambassador.payout.run': 'Made the ambassador payouts for a month',
+  'ambassador.earning.approve': 'Approved a held ambassador earning',
+  'ambassador.earning.void': 'Cancelled a held ambassador earning',
   'deal.release': 'Released money to the seller',
   'deal.refund': 'Refunded the buyer',
   'deal.cancel': 'Cancelled the order',

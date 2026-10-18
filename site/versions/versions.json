@@ -1,8 +1,8 @@
 {
-  "about": "Versions of the home page. Each is a frozen copy (site/versions/<version>.html) with its own images. The live one is chosen in Console → Settings → Website content. site/index.html is the working draft (previewed at /v/draft/). footerPages: the footer links to About and Contact us; liveChat: the website chat (the draft always has both). A version is only added here after the owner confirms a round of changes is complete.",
+  "about": "Versions of the home page. Each is a frozen copy (site/versions/<version>.html) with its own images. The live one is chosen in Console → Settings → Website content. site/index.html is the working draft (previewed at /v/draft/). footerPages: the footer links to About and Contact us; liveChat: the website chat; ambassadors: \"Ambassador\" in the top menu and \"Become an ambassador\" in the phone menu and footer when the programme is on, and the footer's Product list without How it works, Pricing and Why trust us (added 18 Oct 2026). The draft always has all of them. A version is only added here after the owner confirms a round of changes is complete.",
   "versions": [
     { "version": "1.0.0", "date": "2026-10-11", "notes": "The home page as it was when versions began: the order card in the hero.", "from": null },
     { "version": "1.1.0", "date": "2026-10-11", "notes": "Hero inside a phone: one picture (buyer, Hoolam, seller and the money held).", "from": "1.0.0" },
-    { "version": "1.2.0", "date": "2026-10-11", "notes": "Hero inside a phone: three moments (order, money held, delivered, seller paid). Footer links to About and Contact us (added 13 Oct 2026).", "from": "1.0.0", "footerPages": true, "liveChat": true }
+    { "version": "1.2.0", "date": "2026-10-11", "notes": "Hero inside a phone: three moments (order, money held, delivered, seller paid). Footer links to About and Contact us (added 13 Oct 2026).", "from": "1.0.0", "footerPages": true, "liveChat": true, "ambassadors": true }
   ]
 }

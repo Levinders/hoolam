@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, BarChart3, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -59,83 +59,62 @@ function useDraft(keys: string[]) {
 
 type Draft = ReturnType<typeof useDraft>;
 
-/** One page of values: rows on the left, an explainer on the right, a save bar when something changed. */
-function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 'applies to new orders', stacked = [], after }: {
-  applies?: string; stacked?: string[]; after?: ReactNode; title: string; lede: ReactNode; keys: string[]; aside?: (s: Draft) => ReactNode;
-  render?: Partial<Record<string, (s: Draft, editable: boolean) => ReactNode>>; confirmExtra?: (s: Draft) => ReactNode;
-}) {
-  const { can } = useAuth();
+/** One setting: its label, help and "changed by" line on the left, the control on the right. */
+function SettingRow({ s, k, editable, custom, stacked }: { s: Draft; k: string; editable: boolean; custom?: (s: Draft, editable: boolean) => ReactNode; stacked?: boolean }) {
+  const data = s.data!;
+  const d = s.def(k)!;
+  const v = s.draft[k] ?? data.values[k]!;
+  const upd = data.updated[k];
+  const isChanged = s.changed.includes(k);
+  return (
+    <div className={`setting-row${isChanged ? ' changed' : ''}${d.type === 'boolean' ? ' toggle' : ''}${stacked ? ' stacked' : ''}`}>
+      <div className="sr-text">
+        <label htmlFor={`f-${k}`}>{d.label}{!editable && <span className="owner-tag"><Lock />Owner</span>}</label>
+        <p>{d.help}</p>
+        <span className="sr-meta">{isChanged ? <>Was {showValue(d, data.values[k]!, data.currency)}</> : upd ? `Changed by ${upd.by ?? 'someone'} ${ago(upd.at)}` : `Default: ${showValue(d, data.defaults[k]!, data.currency)}`}</span>
+      </div>
+      <div className="sr-control">
+        {custom ? custom(s, editable) : d.type === 'boolean'
+          ? <Switch on={!!v} onChange={(x) => editable && s.setDraft({ ...s.draft, [k]: x })} label={d.label} />
+          : d.type === 'email' || d.type === 'social' ? (
+            <input id={`f-${k}`} className="input" style={{ width: "100%", maxWidth: 440 }} type={d.type === "email" ? "email" : "text"} inputMode={d.type === 'email' ? 'email' : 'url'} autoComplete="off" spellCheck={false}
+              disabled={!editable} value={String(v ?? '')} placeholder={d.type === 'email' ? 'hello@hoolam.com' : d.social === 'linkedin' ? 'linkedin.com/company/…' : '@username or link'}
+              onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value })} />
+          ) : (
+            <div className={`affix${d.type === 'money' ? ' pre' : ' post'}`}>
+              {d.type === 'money' && <span>{data.currency === 'NGN' ? '₦' : 'CFA'}</span>}
+              <input id={`f-${k}`} className="input num" type="number" inputMode="decimal" disabled={!editable}
+                min={d.min} max={d.max} step={d.type === 'percent' ? 0.1 : 1}
+                value={String(v ?? '')} onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value === '' ? '' : Number(e.target.value) })} />
+              {d.type === 'percent' && <span>%</span>}
+              {d.type === 'hours' && <span>hours</span>}
+              {d.type === 'minutes' && <span>minutes</span>}
+            </div>
+          )}
+          {d.type === 'minutes' && (
+            <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
+              {MINUTE_PICKS.map((n) => (
+                <button key={n} type="button" className={`chip-btn${Number(v) === n ? ' on' : ''}`} disabled={!editable} onClick={() => s.setDraft({ ...s.draft, [k]: n })}>{minutesText(n)}</button>
+              ))}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+/** The bar that appears when something changed, and the confirm step (with a reason for the audit trail). */
+function SaveBar({ s, keys, applies, confirmExtra }: { s: Draft; keys: string[]; applies: string; confirmExtra?: (s: Draft) => ReactNode }) {
   const toast = useToast();
-  const s = useDraft(keys);
   const [confirm, setConfirm] = useState(false);
-  const canEdit = (d?: Def) => can(d?.core ? 'settings.core' : 'settings.update');
-  if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
-  if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><div className="settings-grid"><Skeleton h={320} /><Skeleton h={220} /></div></div>;
-  const data = s.data;
-  const lockedKeys = keys.filter((k) => !canEdit(s.def(k)));
-  const lockedCore = lockedKeys.some((k) => s.def(k)?.core);
+  const data = s.data!;
   const invalid = s.changed.find((k) => {
     const d = s.def(k); const v = s.draft[k];
     if (d?.type === 'bands') return !!bandsError(v as Band[]);
     return d && !['boolean', 'phone', 'email', 'social'].includes(d.type) && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max));
   });
-
   return (
     <>
-      <SectionHead title={title} lede={lede} />
-      {lockedKeys.length > 0 && <div className="banner gold lock-banner"><Lock /><div>{lockedCore
-        ? <><b>Owner only.</b> {lockedKeys.length === keys.length ? 'You can view these, but only an owner can change fees, limits and Hoolam\'s WhatsApp number.' : 'Items marked Owner are view only for you. Only an owner can change fees, limits and Hoolam\'s WhatsApp number.'}</>
-        : 'You can see these settings, but your role can\'t change them.'}</div></div>}
-      <div className={`settings-grid${aside ? '' : ' single'}`}>
-        <section className="panel setting-list">
-          {keys.map((k) => {
-            const d = s.def(k)!;
-            const v = s.draft[k] ?? data.values[k]!;
-            const upd = data.updated[k];
-            const isChanged = s.changed.includes(k);
-            const custom = render?.[k];
-            const editable = canEdit(d);
-            return (
-              <div key={k} className={`setting-row${isChanged ? ' changed' : ''}${d.type === 'boolean' ? ' toggle' : ''}${stacked.includes(k) ? ' stacked' : ''}`}>
-                <div className="sr-text">
-                  <label htmlFor={`f-${k}`}>{d.label}{!editable && <span className="owner-tag"><Lock />Owner</span>}</label>
-                  <p>{d.help}</p>
-                  <span className="sr-meta">{isChanged ? <>Was {showValue(d, data.values[k]!, data.currency)}</> : upd ? `Changed by ${upd.by ?? 'someone'} ${ago(upd.at)}` : `Default: ${showValue(d, data.defaults[k]!, data.currency)}`}</span>
-                </div>
-                <div className="sr-control">
-                  {custom ? custom(s, editable) : d.type === 'boolean'
-                    ? <Switch on={!!v} onChange={(x) => editable && s.setDraft({ ...s.draft, [k]: x })} label={d.label} />
-                    : d.type === 'email' || d.type === 'social' ? (
-                      <input id={`f-${k}`} className="input" style={{ width: "100%", maxWidth: 440 }} type={d.type === "email" ? "email" : "text"} inputMode={d.type === 'email' ? 'email' : 'url'} autoComplete="off" spellCheck={false}
-                        disabled={!editable} value={String(v ?? '')} placeholder={d.type === 'email' ? 'hello@hoolam.com' : d.social === 'linkedin' ? 'linkedin.com/company/…' : '@username or link'}
-                        onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value })} />
-                    ) : (
-                      <div className={`affix${d.type === 'money' ? ' pre' : ' post'}`}>
-                        {d.type === 'money' && <span>{data.currency === 'NGN' ? '₦' : 'CFA'}</span>}
-                        <input id={`f-${k}`} className="input num" type="number" inputMode="decimal" disabled={!editable}
-                          min={d.min} max={d.max} step={d.type === 'percent' ? 0.1 : 1}
-                          value={String(v ?? '')} onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value === '' ? '' : Number(e.target.value) })} />
-                        {d.type === 'percent' && <span>%</span>}
-                        {d.type === 'hours' && <span>hours</span>}
-                        {d.type === 'minutes' && <span>minutes</span>}
-                      </div>
-                    )}
-                    {d.type === 'minutes' && (
-                      <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
-                        {MINUTE_PICKS.map((n) => (
-                          <button key={n} type="button" className={`chip-btn${Number(v) === n ? ' on' : ''}`} disabled={!editable} onClick={() => s.setDraft({ ...s.draft, [k]: n })}>{minutesText(n)}</button>
-                        ))}
-                      </div>
-                    )}
-                </div>
-              </div>
-            );
-          })}
-        </section>
-        {aside && <aside className="stack">{aside(s)}</aside>}
-      </div>
-      {after}
-
       <div className={`savebar${s.changed.length ? ' show' : ''}`} aria-hidden={!s.changed.length}>
         <div className="savebar-in">
           <span className="dot" />
@@ -145,7 +124,6 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
           <Button icon={Save} variant="primary" disabled={!!invalid} onClick={() => setConfirm(true)} tabIndex={s.changed.length ? 0 : -1}>Save changes</Button>
         </div>
       </div>
-
       {confirm && <ConfirmAction icon={Save} tone="gold" title={`Save ${s.changed.length} change${s.changed.length === 1 ? '' : 's'}?`} confirmLabel="Save changes"
         description="They apply from now on. Orders already running keep their fee and limits."
         extra={<>
@@ -159,6 +137,37 @@ function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 
           toast({ kind: 'ok', title: 'Saved', body: 'In use from now on.' });
           s.reload();
         }} />}
+    </>
+  );
+}
+
+/** One page of values: rows on the left, an explainer on the right, a save bar when something changed. */
+function ValuesPage({ title, lede, keys, aside, render, confirmExtra, applies = 'applies to new orders', stacked = [], after }: {
+  applies?: string; stacked?: string[]; after?: ReactNode; title: string; lede: ReactNode; keys: string[]; aside?: (s: Draft) => ReactNode;
+  render?: Partial<Record<string, (s: Draft, editable: boolean) => ReactNode>>; confirmExtra?: (s: Draft) => ReactNode;
+}) {
+  const { can } = useAuth();
+  const s = useDraft(keys);
+  const canEdit = (d?: Def) => can(d?.core ? 'settings.core' : 'settings.update');
+  if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
+  if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><div className="settings-grid"><Skeleton h={320} /><Skeleton h={220} /></div></div>;
+  const lockedKeys = keys.filter((k) => !canEdit(s.def(k)));
+  const lockedCore = lockedKeys.some((k) => s.def(k)?.core);
+
+  return (
+    <>
+      <SectionHead title={title} lede={lede} />
+      {lockedKeys.length > 0 && <div className="banner gold lock-banner"><Lock /><div>{lockedCore
+        ? <><b>Owner only.</b> {lockedKeys.length === keys.length ? 'You can view these, but only an owner can change fees, limits and Hoolam\'s WhatsApp number.' : 'Items marked Owner are view only for you. Only an owner can change fees, limits and Hoolam\'s WhatsApp number.'}</>
+        : 'You can see these settings, but your role can\'t change them.'}</div></div>}
+      <div className={`settings-grid${aside ? '' : ' single'}`}>
+        <section className="panel setting-list">
+          {keys.map((k) => <SettingRow key={k} s={s} k={k} editable={canEdit(s.def(k))} custom={render?.[k]} stacked={stacked.includes(k)} />)}
+        </section>
+        {aside && <aside className="stack">{aside(s)}</aside>}
+      </div>
+      {after}
+      <SaveBar s={s} keys={keys} applies={applies} confirmExtra={confirmExtra} />
     </>
   );
 }
@@ -454,18 +463,88 @@ function TemplatesPanel() {
 
 // ---------------------------------------------------------------------------------------------
 
-/** Settings → Features: things the owner turns on when they're ready. Counting and the like keep running while a feature is off. */
+/** The ambassador programme's settings, in the order and groups they show under its card. */
+const AMB_GROUPS: { title: string; help: string; keys: string[] }[] = [
+  { title: 'Earnings', help: 'What ambassadors earn. Changes apply to orders completed from now on. You can set a different share for one ambassador on their page.', keys: ['amb_seller_pct', 'amb_buyer_pct', 'amb_seller_bonus', 'amb_bonus_orders'] },
+  { title: 'Payouts', help: 'When and from how much we pay them.', keys: ['amb_payout_day', 'amb_payout_min'] },
+  { title: 'Terms', help: 'The terms they can choose. It rolls over by itself; whatever the term, their share can grow with what they bring.', keys: ['amb_term_3', 'amb_term_6', 'amb_term_12', 'amb_notice_days'] },
+  { title: 'Joining', help: 'Where people can apply, and who sees "Become an ambassador" in WhatsApp.', keys: ['amb_apply_web', 'amb_apply_whatsapp', 'amb_menu_after'] },
+];
+
+/**
+ * Settings → Features: things the owner turns on when they're ready. Each is a compact card with its switch;
+ * a feature's own settings (and anything else about it) sit under it, folded away until opened.
+ * Counting and the like keep running while a feature is off.
+ */
 export function FeaturesPage() {
-  return <ValuesPage title="Features" lede="Turn new things on when you're ready for people to see them." keys={['feature_seller_stats']} applies="applies right away"
-    aside={() => (
-      <section className="panel"><div className="panel-body stack" style={{ gap: 10 }}>
-        <div className="aside-ic"><BarChart3 /></div>
-        <h3>Seller page stats</h3>
-        <p className="small muted">Views of sellers' public pages and taps on their <b>Buy</b> button are always counted, on our own server: daily totals only, never who the visitor was.</p>
-        <p className="small muted"><b>On:</b> sellers see their last 30 days under <b>My page</b> in WhatsApp. Buyers see a seller's page views on their public page and trust card once the page has <b>50</b> or more.</p>
-        <p className="small muted"><b>Off:</b> nobody sees the numbers. Turn it on any time and the full history shows.</p>
-      </div></section>
-    )} after={<TopSellerPages />} />;
+  const { can } = useAuth();
+  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys)];
+  const s = useDraft(keys);
+  if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
+  if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={120} /><Skeleton h={120} /></div>;
+  const editable = can('settings.core');
+  const on = (k: string) => !!(s.draft[k] ?? s.data!.values[k]);
+  return (
+    <>
+      <SectionHead title="Features" lede="Turn new things on when you're ready for people to see them." />
+      {!editable && <div className="banner gold lock-banner"><Lock /><div><b>Owner only.</b> You can see these, but only an owner can turn features on or off and change their settings.</div></div>}
+      <div className="features">
+        <FeatureCard s={s} k="feature_seller_stats" icon={BarChart3} title="Seller page stats" editable={editable}
+          line="Page views and Buy taps on sellers' public pages, for sellers and (from 50 views) for buyers."
+          more="Details" open={on('feature_seller_stats')}>
+          <div className="feature-more-body stack" style={{ gap: 10 }}>
+            <p className="small muted">Views of sellers' public pages and taps on their <b>Buy</b> button are always counted, on our own server: daily totals only, never who the visitor was.</p>
+            <p className="small muted"><b>On:</b> sellers see their last 30 days under <b>My page</b> in WhatsApp. Buyers see a seller's page views on their public page and trust card once the page has <b>50</b> or more. <b>Off:</b> nobody sees the numbers; turn it on any time and the full history shows.</p>
+            <TopSellerPages />
+          </div>
+        </FeatureCard>
+        <FeatureCard s={s} k="feature_ambassadors" icon={Megaphone} title="Ambassadors" editable={editable}
+          line="People you approve bring new sellers and buyers, and earn a share of what Hoolam makes on their orders."
+          more="Settings" open={on('feature_ambassadors')}
+          link={<Link className="btn sm ghost" to="/ambassadors">Manage ambassadors<ArrowUpRight /></Link>}>
+          <div className="feature-groups">
+            {AMB_GROUPS.map((g) => (
+              <div key={g.title} className="feature-group">
+                <div className="fg-head"><h3>{g.title}</h3><p>{g.help}</p></div>
+                <div className="setting-list">{g.keys.map((k) => <SettingRow key={k} s={s} k={k} editable={editable} />)}</div>
+              </div>
+            ))}
+          </div>
+        </FeatureCard>
+      </div>
+      <SaveBar s={s} keys={keys} applies="applies right away" />
+    </>
+  );
+}
+
+/** A feature: icon, name, one line and its switch; once on, its settings fold out under "Settings" (closed to start). */
+function FeatureCard({ s, k, icon: Icon, title, line, editable, more, open, link, children }: {
+  s: Draft; k: string; icon: typeof BarChart3; title: string; line: string; editable: boolean; more: string; open: boolean; link?: ReactNode; children: ReactNode;
+}) {
+  const [shown, setShown] = useState(false);
+  const v = !!(s.draft[k] ?? s.data!.values[k]);
+  const changed = s.changed.includes(k);
+  const upd = s.data!.updated[k];
+  return (
+    <section className={`panel feature${v ? ' on' : ''}${changed ? ' changed' : ''}`}>
+      <div className="feature-head">
+        <div className="feature-ic"><Icon /></div>
+        <div className="feature-text">
+          <h2>{title}{v ? <span className="pill green plain">On</span> : <span className="pill grey plain">Off</span>}</h2>
+          <p>{line}</p>
+          <span className="sr-meta">{changed ? <>Was {s.data!.values[k] ? 'on' : 'off'}: save to apply</> : upd ? `Changed by ${upd.by ?? 'someone'} ${ago(upd.at)}` : 'Off until you turn it on'}</span>
+        </div>
+        <Switch on={v} onChange={(x) => editable && s.setDraft({ ...s.draft, [k]: x })} label={title} />
+      </div>
+      {open && (
+        <div className="feature-foot">
+          <button type="button" className="feature-toggle" aria-expanded={shown} onClick={() => setShown(!shown)}><ChevronDown className={shown ? 'up' : ''} />{more}</button>
+          {link}
+        </div>
+      )}
+      {open && shown && <div className="feature-more">{children}</div>}
+    </section>
+  );
 }
 
 const compact = (n: number) => n < 1000 ? String(n) : n < 1_000_000 ? `${(Math.floor(n / 100) / 10).toFixed(1).replace(/\.0$/, '')}k` : `${(Math.floor(n / 100_000) / 10).toFixed(1).replace(/\.0$/, '')}m`;

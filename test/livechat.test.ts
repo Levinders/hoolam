@@ -249,8 +249,8 @@ describe('live chat', () => {
     await con('owner', 'POST', `/team/${repId}/access`, { live: false });
     const r = await con('rep', 'GET', '/livechat');
     expect(r.status).toBe(403);
-    expect((await con('rep', 'GET', '/auth/state')).json.me.access).toEqual({ whatsapp: true, live: false });
-    expect((await con('owner', 'GET', '/team')).json.rows.find((x: any) => x.id === repId).access).toEqual({ whatsapp: true, live: false });
+    expect((await con('rep', 'GET', '/auth/state')).json.me.access).toEqual({ whatsapp: true, live: false, ambassadors: false });
+    expect((await con('owner', 'GET', '/team')).json.rows.find((x: any) => x.id === repId).access).toEqual({ whatsapp: true, live: false, ambassadors: false });
     await con('owner', 'POST', `/team/${repId}/access`, { live: true });
     expect((await con('rep', 'GET', '/livechat')).status).toBe(200);
   });

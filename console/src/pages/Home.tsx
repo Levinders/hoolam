@@ -1,4 +1,4 @@
-import { BadgeCheck, CalendarClock, IdCard, Check, CircleCheck, Hourglass, KeyRound, LifeBuoy, Scale, ShieldAlert, ThumbsDown, TriangleAlert, Wallet, Banknote, HandCoins, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, CalendarClock, Megaphone, IdCard, Check, CircleCheck, Hourglass, KeyRound, LifeBuoy, Scale, ShieldAlert, ThumbsDown, TriangleAlert, Wallet, Banknote, HandCoins, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { post } from '../api';
@@ -10,7 +10,7 @@ import { ConfirmAction, ErrorBanner, Seg, Skeleton, SkeletonRows, useToast } fro
 type Item = { key: string; kind: string; severity: 'high' | 'medium' | 'low'; title: string; detail: string; at: string; link: string; cta: string; dismissible?: boolean };
 
 const ICONS: Record<string, LucideIcon> = {
-  dispute: Scale, payout: KeyRound, payment: TriangleAlert, support: LifeBuoy, overdue: Hourglass, rating: ThumbsDown, expiring: CalendarClock, template: ShieldAlert, system: ShieldAlert, kyc: IdCard,
+  dispute: Scale, payout: KeyRound, payment: TriangleAlert, support: LifeBuoy, overdue: Hourglass, rating: ThumbsDown, expiring: CalendarClock, template: ShieldAlert, system: ShieldAlert, kyc: IdCard, ambassador: Megaphone,
 };
 
 export function MoneyStrip() {

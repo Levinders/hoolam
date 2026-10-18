@@ -11,6 +11,7 @@ import { Deal } from './pages/Deal';
 import { Disputes } from './pages/Disputes';
 import { Money } from './pages/Money';
 import { People, Person } from './pages/People';
+import { AmbassadorsPage, AmbassadorPage } from './pages/Ambassadors';
 import { openSupport } from './support/hub';
 import { Insights } from './pages/Insights';
 import { Settings } from './pages/Settings';
@@ -47,6 +48,8 @@ function Gate() {
               <Route path="/money" element={<Money />} />
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<Person />} />
+              <Route path="/ambassadors" element={<AmbassadorsPage />} />
+              <Route path="/ambassadors/:id" element={<AmbassadorPage />} />
               <Route path="/support" element={<OpenSupport />} />
               <Route path="/insights" element={<Insights />} />
               <Route path="/settings" element={<Navigate to="/settings/fees" replace />} />

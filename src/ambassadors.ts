@@ -512,6 +512,11 @@ export class Ambassadors {
           fallback: ambTemplate('term', [String(a.next_term_months ?? a.term_months), dayText(ends)], ['amb:renew', 'amb:switch', 'amb:end']) });
       }
     }
+    // tidy up: declined applications after 12 months, expired sign-in codes, old dashboard sessions (Privacy policy)
+    await this.o.db.query(`DELETE FROM ambassador_applications a WHERE status='DECLINED' AND decided_at < now() - interval '12 months'
+      AND NOT EXISTS (SELECT 1 FROM ambassadors x WHERE x.application_id=a.id)`);
+    await this.o.db.query(`DELETE FROM ambassador_codes WHERE expires_at < now() - interval '1 day'`);
+    await this.o.db.query(`DELETE FROM ambassador_sessions WHERE expires_at < now() - interval '7 days' OR revoked_at < now() - interval '7 days'`);
     // the monthly payout run, on the payout day (or after, if the server was asleep), for the month before
     if (lagosDay(now) >= cfg.payoutDay) res.payouts = await this.payoutRun(shiftMonth(monthKey(now), -1));
     // month-end summaries, on the last day of the month

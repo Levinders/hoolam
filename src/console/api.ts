@@ -186,10 +186,20 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       for (const r of expiring.rows) items.push({ key: `expiring:${r.code}`, kind: 'expiring', severity: 'low', title: `${r.code} closes soon`, detail: `${r.item} · seller hasn't accepted · closes ${until(r.accept_by)}`, at: r.accept_by, link: `/deals/${r.code}`, cta: 'Extend', dismissible: true });
       for (const r of templates.rows) items.push({ key: `template:${r.id}`, kind: 'template', severity: 'low', title: `Message not delivered (24-hour rule)`, detail: `To …${String(r.phone).slice(-4)}: ${String(r.text ?? '').slice(0, 90)}`, at: r.created_at, link: `/support?tab=messages`, cta: 'See', dismissible: true });
       for (const r of kycReview.rows) items.push({ key: `kyc:${r.id}:${new Date(r.kyc_review_at ?? 0).getTime()}`, kind: 'kyc', severity: r.kyc_flag ? 'high' : 'medium', title: `${r.kyc_flag ? 'ID flagged' : 'ID check needs review'}: ${r.business_name ?? r.display_name ?? r.phone}`, detail: String(r.kyc_review_reason ?? ''), at: r.kyc_review_at, link: `/people/${r.id}`, cta: 'Review' });
+      // the ambassador programme: applications waiting, earnings held for a look, payouts to send
+      let ambCount = 0;
+      if (d.ambassadors) {
+        const st = await d.ambassadors.stats();
+        const due = (await d.ambassadors.payouts('DUE'));
+        ambCount = st.pending + st.held + due.length;
+        if (st.pending) items.push({ key: `amb-apps:${st.pending}`, kind: 'ambassador', severity: 'medium', title: `${st.pending} ambassador application${st.pending === 1 ? '' : 's'} waiting`, detail: 'We promise a reply within 24 hours.', at: new Date().toISOString(), link: '/ambassadors', cta: 'Review' });
+        if (st.held) items.push({ key: `amb-held:${st.held}`, kind: 'ambassador', severity: 'medium', title: `${st.held} ambassador earning${st.held === 1 ? '' : 's'} on hold`, detail: 'Something looked wrong (their own order, the same ID or bank account). Approve or cancel.', at: new Date().toISOString(), link: '/ambassadors?tab=held', cta: 'Check' });
+        if (due.length) items.push({ key: `amb-pay:${due.length}`, kind: 'ambassador', severity: 'low', title: `${due.length} ambassador payout${due.length === 1 ? '' : 's'} to send`, detail: `${money(due.reduce((t, p) => t + p.amountMinor, 0), 'NGN')} in all. Transfer, then mark each as paid.`, at: new Date().toISOString(), link: '/ambassadors?tab=payouts', cta: 'Pay' });
+      }
       for (const r of stuck.rows) items.push({ key: `webhook:${r.id}`, kind: 'system', severity: 'medium', title: `A ${r.source} update keeps failing`, detail: `${r.attempts} tries · ${String(r.last_error ?? '').slice(0, 100)}`, at: r.received_at, link: `/audit`, cta: 'Details', dismissible: true });
       const order = { high: 0, medium: 1, low: 2 };
       const open = items.filter((i) => !gone.has(i.key)).sort((a, b) => order[a.severity] - order[b.severity] || +new Date(a.at) - +new Date(b.at));
-      return { items: open, counts: { inbox: open.length, disputes: disputes.rowCount, support: support.rowCount } };
+      return { items: open, counts: { inbox: open.length, disputes: disputes.rowCount, support: support.rowCount, ambassadors: ambCount } };
     });
 
     api.post('/inbox/dismiss', async (req) => {

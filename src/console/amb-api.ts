@@ -95,7 +95,7 @@ export function registerAmbassadorConsole(api: FastifyInstance, h: AmbConsoleHel
     const held = (await a.held()).filter((x) => x.userId === userId);
     const trail = (await a.db.query(`SELECT action, actor, reason, details, at FROM audit_log WHERE target_id=$1 AND action LIKE 'ambassador.%' ORDER BY id DESC LIMIT 30`, [userId])).rows;
     return {
-      ...o, held, trail, labels, canReview: h.can(req, 'ambassadors.review'), canManage: h.can(req, 'ambassadors.manage'),
+      ...o, held, trail, labels, defaults: { seller: a.cfg().sellerPct, buyer: a.cfg().buyerPct }, canReview: h.can(req, 'ambassadors.review'), canManage: h.can(req, 'ambassadors.manage'),
       application: app ? { id: Number(app.id), source: app.source, state: app.state, city: app.city, community: app.community, knows: app.knows, channels: app.channels, handle: app.handle, reach: app.reach, sellsOnline: app.sells_online, why: app.why, email: app.email, createdAt: app.created_at } : null,
     };
   });

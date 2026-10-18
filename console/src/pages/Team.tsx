@@ -1,4 +1,4 @@
-import { Copy, Headset, KeyRound, MessageCircle, ShieldCheck, ThumbsDown, ThumbsUp, UserMinus, UserPlus, UserCheck } from 'lucide-react';
+import { Copy, Headset, KeyRound, Megaphone, MessageCircle, ShieldCheck, ThumbsDown, ThumbsUp, UserMinus, UserPlus, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 import { post } from '../api';
 import { useAuth } from '../auth';
@@ -7,7 +7,7 @@ import { useData } from '../hooks';
 import { Avatar, Button, ConfirmAction, ErrorBanner, Modal, SkeletonRows, Switch, useCopy, useToast } from '../ui';
 
 /** Support access on top of the role: Owner, Admin and Support start with both; Finance with neither. */
-const accessFor = (role: string) => ({ whatsapp: role !== 'FINANCE', live: role !== 'FINANCE' });
+const accessFor = (role: string) => ({ whatsapp: role !== 'FINANCE', live: role !== 'FINANCE', ambassadors: role === 'OWNER' || role === 'ADMIN' });
 
 const ROLE_TEXT: Record<string, { name: string; does: string }> = {
   OWNER: { name: 'Owner', does: 'Everything: the team, fees, limits and Hoolam\'s WhatsApp number.' },
@@ -66,6 +66,7 @@ export function Team() {
           <div className="panel-body stack" style={{ gap: 14 }}>
             {Object.entries(ROLE_TEXT).map(([r, t]) => <div key={r}><span className={`role ${r}`}>{t.name}</span><p className="small" style={{ marginTop: 6, color: 'var(--ink-2)' }}>{t.does}</p></div>)}
             <div><span className="role"><Headset style={{ width: 13, marginRight: 4 }} />Support access</span><p className="small" style={{ marginTop: 6, color: 'var(--ink-2)' }}>Who answers WhatsApp support and the website's live chat. Owners always have both. Admin and Support start with both, Finance with neither. Switch either on or off for anyone.</p></div>
+            <div><span className="role"><Megaphone style={{ width: 13, marginRight: 4 }} />Ambassador reviews</span><p className="small" style={{ marginTop: 6, color: 'var(--ink-2)' }}>Who approves or declines ambassador applications, invites ambassadors and removes an unsuitable photo. Owners and Admins start with it; switch it on for any rep. Shares, pausing, ending and payouts stay with Owners.</p></div>
             <p className="small muted">Every role can see orders, people and insights. Every action anyone takes is in the audit trail with their name and the time.</p>
           </div>
         </section>
@@ -111,6 +112,7 @@ function InviteModal({ onClose, onDone }: { onClose: () => void; onDone: (name: 
               <div className="stack" style={{ gap: 8 }}>
                 <div className="row" style={{ gap: 10 }}><Switch on={f.access.whatsapp} label="WhatsApp support" onChange={(v) => setF({ ...f, access: { ...f.access, whatsapp: v } })} /><div><b>WhatsApp support</b><div className="small muted">Replies to “Talk to a rep” on WhatsApp.</div></div></div>
                 <div className="row" style={{ gap: 10 }}><Switch on={f.access.live} label="Live chat" onChange={(v) => setF({ ...f, access: { ...f.access, live: v } })} /><div><b>Live chat</b><div className="small muted">Answers the chat on hoolam.com and edits what it shows.</div></div></div>
+                <div className="row" style={{ gap: 10 }}><Switch on={f.access.ambassadors} label="Ambassador reviews" onChange={(v) => setF({ ...f, access: { ...f.access, ambassadors: v } })} /><div><b>Ambassador reviews</b><div className="small muted">Approves or declines ambassador applications and invites ambassadors.</div></div></div>
               </div>
             )}
           </div>
@@ -136,22 +138,23 @@ function LinkModal({ name, url, onClose }: { name: string; url: string; onClose:
 /** WhatsApp support and live chat for one person: switches for the owner, labels for everyone else. */
 function SupportAccess({ s, editable, onChanged }: { s: any; editable: boolean; onChanged: () => void }) {
   const toast = useToast();
-  const set = async (kind: 'whatsapp' | 'live', v: boolean) => {
+  const set = async (kind: 'whatsapp' | 'live' | 'ambassadors', v: boolean) => {
     try {
       await post(`/team/${s.id}/access`, { [kind]: v });
-      toast({ kind: 'ok', title: `${kind === 'live' ? 'Live chat' : 'WhatsApp support'} ${v ? 'on' : 'off'} for ${s.name.split(' ')[0]}` });
+      toast({ kind: 'ok', title: `${kind === 'live' ? 'Live chat' : kind === 'ambassadors' ? 'Ambassador reviews' : 'WhatsApp support'} ${v ? 'on' : 'off'} for ${s.name.split(' ')[0]}` });
       onChanged();
     } catch (x) { toast({ kind: 'error', title: 'Not changed', body: (x as Error).message }); }
   };
-  const a = s.access ?? { whatsapp: false, live: false };
+  const a = s.access ?? { whatsapp: false, live: false, ambassadors: false };
   if (!editable) {
-    const on = [a.whatsapp && 'WhatsApp', a.live && 'Live chat'].filter(Boolean);
+    const on = [a.whatsapp && 'WhatsApp', a.live && 'Live chat', a.ambassadors && 'Ambassadors'].filter(Boolean);
     return <span className="small muted">{on.length ? on.join(' · ') : 'None'}</span>;
   }
   return (
     <div className="stack" style={{ gap: 6 }}>
       <label className="row small" style={{ gap: 8 }}><Switch on={a.whatsapp} label={`WhatsApp support for ${s.name}`} onChange={(v) => set('whatsapp', v)} /><MessageCircle style={{ width: 14 }} className="faint" />WhatsApp</label>
       <label className="row small" style={{ gap: 8 }}><Switch on={a.live} label={`Live chat for ${s.name}`} onChange={(v) => set('live', v)} /><Headset style={{ width: 14 }} className="faint" />Live chat</label>
+      <label className="row small" style={{ gap: 8 }}><Switch on={!!a.ambassadors} label={`Ambassador reviews for ${s.name}`} onChange={(v) => set('ambassadors', v)} /><Megaphone style={{ width: 14 }} className="faint" />Ambassadors</label>
     </div>
   );
 }

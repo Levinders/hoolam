@@ -132,6 +132,15 @@ export function Person() {
           </section>
         </div>
         <div className="stack">
+          {data.ambassador && (data.ambassador.broughtBy || data.ambassador.ambassador) && (
+            <section className="panel">
+              <div className="panel-head"><h2>Ambassador</h2></div>
+              <div className="panel-body stack" style={{ gap: 10 }}>
+                {data.ambassador.ambassador && <div className="row" style={{ gap: 10 }}><span className="pill teal plain">{({ ACTIVE: 'Active', PAUSED: 'Paused', ENDED: 'Ended', SETUP: 'Setting up' } as Record<string, string>)[data.ambassador.ambassador.status]}</span><span style={{ flex: 1 }}>{name.split(' ')[0]} is an ambassador{data.ambassador.ambassador.slug ? <> · <span className="mono">hoolam.com/a/{data.ambassador.ambassador.slug}</span></> : null}</span><Link className="btn sm" to={`/ambassadors/${id}`}>Open<ArrowUpRight /></Link></div>}
+                {data.ambassador.broughtBy && <p className="small" style={{ margin: 0 }}>Brought by <Link to={`/ambassadors/${data.ambassador.broughtBy.userId}`}>{data.ambassador.broughtBy.name}</Link> ({data.ambassador.broughtBy.via === 'link' ? 'their link' : data.ambassador.broughtBy.via === 'code' ? 'typed their name' : 'the team'}, {dateOnly(data.ambassador.broughtBy.at)}). They earn a share of what Hoolam makes on this person's orders.</p>}
+              </div>
+            </section>
+          )}
           {can('support.reply') && <SupportMessage endpoint={`/people/${id}/message`} title="Message them"
             note={data.deals?.[0] ? `Sent as an update about their latest order, ${data.deals[0].code}. Works any time; their reply comes to Support.` : 'They have no orders yet, so it goes as a chat message: only if they messaged Hoolam in the last 24 hours.'} />}
           {s && (s.photoVersion || s.socials.length > 0 || u.profile_slug) && (

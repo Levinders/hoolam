@@ -54,7 +54,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
 .logo b { font: 600 1.4rem var(--font-display); letter-spacing: -0.02em; }
 .menu { display: flex; align-items: center; gap: clamp(18px, 2.4vw, 34px); }
 .menu a { position: relative; color: var(--soft); text-decoration: none; font-weight: 500; font-size: .96rem; padding: 6px 0; transition: color .25s; }
-.menu a:hover { color: var(--ink); }
+.menu a:hover, .menu a[aria-current] { color: var(--ink); }
 .bar-r { display: flex; align-items: center; gap: 8px; }
 .wa-slot { display: inline-flex; width: 1.25em; height: 1.25em; flex: none; }
 .wa-slot .ic { width: 100%; height: 100%; }
@@ -321,7 +321,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
   <div class="wrap">
     <div class="bar">
       <a class="logo" href="/" aria-label="Hoolam home"><span class="fb"><span class="logo-mark" data-slot="mark" data-alt=""><svg class="fb"><use href="#mark"/></svg></span><b>Hoolam</b></span></a>
-      <nav class="menu" aria-label="Main"><a href="/#journey">How it works</a><a href="/#pricing">Pricing</a><a href="/#trust">Why trust us</a></nav>
+      <nav class="menu" aria-label="Main"><a href="/#journey">How it works</a><a href="/#pricing">Pricing</a><a href="/#trust">Why trust us</a>{{MENU_AMB}}</nav>
       <div class="bar-r">
         <a class="btn btn-main" href="{{WA_HREF}}" data-wa target="_blank" rel="noopener" aria-label="Chat on WhatsApp"><span class="wa-slot" data-slot="whatsapp" data-alt=""><span class="fb" style="display:contents"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg></span></span><span class="t">Start an order</span></a>
         <button class="icon-btn" id="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="sheet"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
@@ -339,7 +339,7 @@ header.top.on, header.top.open { background: color-mix(in srgb, var(--bg) 88%, t
     <a href="/#journey">How it works<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
     <a href="/#pricing">Pricing<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
     <a href="/#trust">Why trust us<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
-    <a href="/about/"{{HERE_ABOUT}}>About<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+{{DRAWER_AMB}}    <a href="/about/"{{HERE_ABOUT}}>About<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
     <a href="/contact/"{{HERE_CONTACT}}>Contact us<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
   </nav>
   <div class="dr-foot"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg><span>Safe orders on WhatsApp<br><small>{{LEGAL_NAME}}<br>RC {{RC}}</small></span></div>

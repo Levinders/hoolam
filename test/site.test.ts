@@ -93,6 +93,19 @@ describe('landing page ↔ server', () => {
     expect(readFileSync('dist-site/index.html', 'utf8')).toContain('<section class="voices" hidden>');
   });
 
+  it('keeps the ambassador programme off the site while it is off; the footer drops How it works, Pricing and Why trust us from 1.2.0 on', () => {
+    execFileSync('node', ['site/build.mjs'], { env: { ...process.env, SITE_OFFLINE: '1', SITE_URL: 'https://hoolam.example' } });
+    const read = (p: string) => readFileSync(`dist-site/${p}`, 'utf8');
+    expect(() => read('ambassadors/index.html')).toThrow();
+    for (const p of ['v/1.2.0/index.html', 'v/draft/index.html', 'about/index.html']) {
+      expect(read(p), p).not.toContain('/ambassadors/');
+      expect(read(p), p).not.toContain('<li><a href="/#pricing">Pricing</a></li>');
+      expect(read(p), p).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    }
+    expect(read('v/1.0.0/index.html')).toContain('<li><a href="/#pricing">Pricing</a></li>');
+    expect(read('legal/ambassadors/index.html')).toContain('Ambassador agreement');
+  });
+
   it('builds About and Contact us: indexed, with the company as search engines read it, linked from the footer (not the older home versions)', () => {
     execFileSync('node', ['site/build.mjs'], { env: { ...process.env, SITE_OFFLINE: '1', WHATSAPP_PUBLIC_NUMBER: '2348117663890', SITE_URL: 'https://hoolam.example' } });
     const about = readFileSync('dist-site/about/index.html', 'utf8');

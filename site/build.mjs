@@ -48,7 +48,7 @@ const COMPANY = {
   scuml: '',
 };
 // The date the legal pages took effect. Change it (and say what changed) whenever their wording changes.
-const LEGAL_EFFECTIVE = '14 October 2026'; // Google Analytics with consent (cookies: the banner, _ga, hoolam_consent; privacy: analytics)
+const LEGAL_EFFECTIVE = '18 October 2026'; // the ambassador programme (Ambassador agreement; terms, privacy and cookies: ambassadors). Before: 14 Oct 2026, Google Analytics with consent
 
 // What the console has, or these if the server can't be reached. Keep in step with src/pricing.ts and src/config.ts.
 const DEFAULTS = {
@@ -147,6 +147,11 @@ const contact = { ...DEFAULTS.contact, ...((ok && live.contact) || {}) };
 const wa = baked.whatsapp ?? fallbackWa;
 const waLink = wa ? `https://wa.me/${wa}?text=${encodeURIComponent('Hi Hoolam')}` : `${app}/chat`;
 const hours = (h) => `${h} hour${+h === 1 ? '' : 's'}`;
+// the ambassador programme (Console → Settings → Features): the menu link, hoolam.com/ambassadors and the links show only while it's on
+const amb = ok && live.ambassadors?.on ? live.ambassadors : null;
+const ambLinks = amb && Array.isArray(live.ambassadorLinks) ? live.ambassadorLinks.filter((l) => /^[a-z0-9-]{2,40}$/.test(l.slug)) : [];
+const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+const pctText = (n) => `${Number(Number(n).toFixed(2))}%`;
 
 // ---------- the footer ----------
 const contactItems = [
@@ -172,8 +177,11 @@ const shared = {
 // About and Contact us sit at the end of the footer's Product list: on every page except the home versions
 // made before they existed (versions.json "footerPages")
 const FOOTER_MORE = '\n          <li><a href="/about/">About</a></li>\n          <li><a href="/contact/">Contact us</a></li>';
+// the home versions made before 18 Oct 2026 (no "ambassadors" in versions.json) keep How it works, Pricing and Why trust us in the footer
+const PRODUCT_TOP_OLD = '          <li><a href="/#journey">How it works</a></li>\n          <li><a href="/#pricing">Pricing</a></li>\n          <li><a href="/#trust">Why trust us</a></li>\n';
+const FOOTER_AMB = '\n          <li><a href="/ambassadors/">Become an ambassador</a></li>';
 const footerSrc = read('partials/footer.html');
-const footerFor = (more) => fill(footerSrc, { ...shared, CONTACT_ITEMS: contactItems, FOOTER_MORE: more ? FOOTER_MORE : '' });
+const footerFor = (more, modern = true) => fill(footerSrc, { ...shared, CONTACT_ITEMS: contactItems, FOOTER_MORE: more ? FOOTER_MORE : '', PRODUCT_TOP: modern ? '' : PRODUCT_TOP_OLD, FOOTER_AMB: modern && amb ? FOOTER_AMB : '' });
 const footer = footerFor(true);
 // the website chat (site/assets/chat.js): on About, Contact us, the legal pages and the home versions with "liveChat"
 const chatJs = read('assets/chat.js');
@@ -189,6 +197,12 @@ const iconTags = (prefix, imgs = baked.images) => imgs?.mark?.src
 const NOINDEX = '<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">\n<meta name="googlebot" content="noindex, nofollow">';
 const footerPages = (v) => !!manifest.versions.find((x) => x.version === v)?.footerPages;
 const hasChat = (v) => !!manifest.versions.find((x) => x.version === v)?.liveChat;
+const hasAmb = (v) => !!manifest.versions.find((x) => x.version === v)?.ambassadors;
+/** "Ambassador" in the top menu and "Become an ambassador" in the phone menu (home versions from 1.2.0, while the programme is on). */
+function withAmbMenu(h) {
+  h = h.replace(/(<nav class="menu" aria-label="Main">[\s\S]*?)(<\/nav>)/, '$1<a href="/ambassadors/">Ambassador</a>$2');
+  return h.replace(/(\n\s*)(<a href="\/about\/"[^>]*>About)/, '$1<a href="/ambassadors/">Become an ambassador<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>$1$2');
+}
 function homePage(src, version, preview, draft = false) {
   const imgs = versionImages[version] ?? baked.images;
   const pageBaked = { ...baked, images: imgs, version };
@@ -199,7 +213,8 @@ function homePage(src, version, preview, draft = false) {
     .replaceAll('{{SITE_URL}}/', site ? `${site}/` : '/')
     .replace('/*{{BAKED}}*/{}', JSON.stringify(pageBaked).replace(/</g, '\\u003c'))
     .replace('/*{{FOOTER_CSS}}*/', footerCss)
-    .replace('<!--{{FOOTER}}-->', footerFor(draft || footerPages(version)));
+    .replace('<!--{{FOOTER}}-->', footerFor(draft || footerPages(version), draft || hasAmb(version)));
+  if (amb && (draft || hasAmb(version))) h = withAmbMenu(h);
   h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, BANK_SHORT: String(shared.BANK_PARTNER).replace(/\s*Microfinance Bank$/, ' MFB'), INCORPORATED: shared.INCORPORATED });
   if (draft || hasChat(version)) h = h.replace('</body>', `${chatTag(imgs?.mark?.src)}\n</body>`);
   h = h.replace(/<link rel="icon" href="\/?assets\/favicon\.svg" type="image\/svg\+xml">\n<link rel="apple-touch-icon" href="\/?assets\/icon-180\.png">/, iconTags('/', imgs));
@@ -232,6 +247,7 @@ const LEGAL_PAGES = [
   { slug: 'money', title: 'Where the money sits', blurb: 'The bank, the accounts, and every step your money takes.' },
   { slug: 'cookies', title: 'Cookies', blurb: 'What this website stores on your device. (Very little.)' },
   { slug: 'delete-your-data', title: 'Delete your data', blurb: 'How to ask us to delete your details, and what we must keep.' },
+  { slug: 'ambassadors', title: 'Ambassador agreement', blurb: 'How Hoolam ambassadors earn, get paid, and the rules they follow.' },
 ];
 const layout = read('legal/_layout.html');
 const imagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => k === 'mark').map(([k, v]) => [k, v.src])));
@@ -291,11 +307,120 @@ const organization = {
 };
 // the logo icon and the WhatsApp icon set in Console → Settings → Brand, as on the home page's top bar
 const pageImagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => ['mark', 'whatsapp'].includes(k)).map(([k, v]) => [k, v.src])));
+/** What hoolam.com/ambassadors shows: the live shares and payout rules, an example month, and the application form. */
+function ambVars() {
+  const a = amb;
+  const feeAt = (price) => { let f = (price * fees.rate) / 100; f = Math.min(fees.max, Math.max(fees.min, f)); const r = fees.roundTo || 1; f = Math.round(f / r) * r; const band = txn.seller.find((b) => b.upTo == null || price <= b.upTo) ?? txn.seller[txn.seller.length - 1]; return f + band.fee; };
+  const rev = feeAt(20000);
+  const share = Math.floor((rev * a.sellerPct) / 100), buyer = Math.floor((rev * a.buyerPct) / 100);
+  return {
+    SELLER_PCT: pctText(a.sellerPct), BUYER_PCT: pctText(a.buyerPct), BONUS: naira(a.bonus), BONUS_ORDERS: String(a.bonusOrders),
+    PAYOUT_DAY: ordinal(a.payoutDay), PAYOUT_MIN: naira(a.payoutMin),
+    EX_REV: naira(rev), EX_SHARE: naira(share), EX_BUYER: naira(buyer), EX_SELLER_MONTH: naira(share * 10), EX_TWENTY: naira(share * 10 * 20),
+    EX_MONTH: naira(share * 10 * 6 + a.bonus * 2 + buyer * 8),
+    FORM: a.applyWeb ? ambForm(a.api) : `<div class="card closed"><h3>Apply in WhatsApp</h3><p class="sec-p">Applications on the website are closed for now. Open the menu in our WhatsApp chat and tap <b>Become an ambassador</b>.</p><p style="margin-top:16px"><a class="btn" data-wa href="${esc(waLink)}" target="_blank" rel="noopener">Open WhatsApp</a></p></div>`,
+  };
+}
+/** The application: 4 short steps, answers kept if the page reloads, sent to the server. */
+function ambForm(api) {
+  const STATES = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT (Abuja)', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'];
+  const chips = (name, o) => Object.entries(o).map(([v, t]) => `<label><input type="checkbox" name="${name}" value="${v}"><span>${esc(t)}</span></label>`).join('');
+  const radios = (name, o) => Object.entries(o).map(([v, t]) => `<label><input type="radio" name="${name}" value="${v}"><span>${esc(t)}</span></label>`).join('');
+  const KNOWS = { vendors: 'Online vendors / sellers', students: 'Students', traders: 'Market traders', shoppers: 'Shoppers', riders: 'Riders and dispatch' };
+  const CHANNELS = { status: 'WhatsApp status', groups: 'WhatsApp groups', instagram: 'Instagram', tiktok: 'TikTok', x: 'X', facebook: 'Facebook', in_person: 'In person', flyers: 'Flyers' };
+  const REACH = { under_500: 'Under 500', '500_2000': '500 to 2,000', '2000_10000': '2,000 to 10,000', over_10000: 'Over 10,000' };
+  return `<form class="card form" id="amb-form" novalidate data-api="${esc(api)}">
+  <div class="prog" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></div>
+  <p class="step-of" id="step-of">Step 1 of 4</p>
+  <div data-step="1"><h3>About you</h3><p class="hint">So we know who you are and how to reach you.</p><div class="fields">
+    <div class="f"><label for="a-name">Full name</label><input type="text" id="a-name" name="name" autocomplete="name" maxlength="80" required><p class="err-msg">Enter your full name.</p></div>
+    <div class="f"><label for="a-phone">WhatsApp number</label><input type="tel" id="a-phone" name="phone" autocomplete="tel" inputmode="tel" placeholder="08031234567" required><small>We reply here, and you sign in to your dashboard with it.</small><p class="err-msg">Enter your WhatsApp number, like 08031234567.</p></div>
+    <div class="f"><label for="a-email">Email <span class="opt">(optional)</span></label><input type="email" id="a-email" name="email" autocomplete="email" inputmode="email"><p class="err-msg">That email doesn’t look right.</p></div>
+  </div></div>
+  <div data-step="2" hidden><h3>Where you are</h3><p class="hint">Where you’ll find sellers and buyers.</p><div class="fields">
+    <div class="f"><label for="a-state">State</label><select id="a-state" name="state" required><option value="">Choose your state</option>${STATES.map((x) => `<option>${esc(x)}</option>`).join('')}</select><p class="err-msg">Choose your state.</p></div>
+    <div class="f"><label for="a-city">City or area</label><input type="text" id="a-city" name="city" maxlength="60" placeholder="Yaba" required><p class="err-msg">Enter your city or area.</p></div>
+    <div class="f"><label for="a-community">Campus, market or community <span class="opt">(optional)</span></label><input type="text" id="a-community" name="community" maxlength="80" placeholder="UNILAG, Balogun Market…"><small>Shown on your link if you’re approved, like “Tobi · UNILAG”.</small></div>
+  </div></div>
+  <div data-step="3" hidden><h3>Your reach</h3><p class="hint">Who you know and where you’ll share Hoolam.</p><div class="fields">
+    <fieldset class="f"><legend>Who do you know well?</legend><div class="chips">${chips('knows', KNOWS)}</div><p class="err-msg">Tick at least one.</p></fieldset>
+    <fieldset class="f"><legend>Where will you share Hoolam?</legend><div class="chips">${chips('channels', CHANNELS)}</div><p class="err-msg">Tick at least one.</p></fieldset>
+    <div class="f"><label for="a-handle">Your main social handle <span class="opt">(optional)</span></label><input type="text" id="a-handle" name="handle" maxlength="60" placeholder="@tobi.styles"></div>
+    <fieldset class="f"><legend>Roughly how many people can you reach?</legend><div class="chips">${radios('reach', REACH)}</div><p class="err-msg">Choose one.</p></fieldset>
+    <fieldset class="f"><legend>Do you sell online yourself?</legend><div class="chips">${radios('sells', { yes: 'Yes', no: 'No' })}</div><p class="err-msg">Choose one.</p></fieldset>
+  </div></div>
+  <div data-step="4" hidden><h3>Check and send</h3><p class="hint">Tap Change to fix anything.</p>
+    <dl class="review" id="a-review"></dl>
+    <div class="fields"><div class="f"><label for="a-why">Why do you want to be a Hoolam ambassador? <span class="opt">(optional)</span></label><textarea id="a-why" name="why" maxlength="600"></textarea></div></div>
+    <label class="agree"><input type="checkbox" name="agree" id="a-agree"><span>I agree to the <a href="/legal/ambassadors/" target="_blank" rel="noopener">Ambassador agreement</a>.</span></label>
+  </div>
+  <div class="hp" aria-hidden="true"><label>Leave this empty<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+  <div class="form-err" id="a-err" role="alert"></div>
+  <div class="nav"><button type="button" class="btn ghost" id="a-back" hidden>Back</button><button type="submit" class="btn" id="a-next">Next</button></div>
+</form>
+<script>
+(function () {
+  var f = document.getElementById('amb-form'); if (!f) return;
+  var KEY = 'hoolam:amb-apply', step = 1, N = 4, sent = false;
+  var steps = f.querySelectorAll('[data-step]'), bars = f.querySelectorAll('.prog i'), of = document.getElementById('step-of');
+  var back = document.getElementById('a-back'), next = document.getElementById('a-next'), err = document.getElementById('a-err');
+  var LABEL = ${JSON.stringify({ knows: KNOWS, channels: CHANNELS, reach: REACH })};
+  function vals() { var d = {}; ['name', 'phone', 'email', 'state', 'city', 'community', 'handle', 'why'].forEach(function (k) { d[k] = (f.elements[k].value || '').trim(); });
+    d.knows = [].map.call(f.querySelectorAll('[name=knows]:checked'), function (x) { return x.value; }); d.channels = [].map.call(f.querySelectorAll('[name=channels]:checked'), function (x) { return x.value; });
+    var r = f.querySelector('[name=reach]:checked'), s = f.querySelector('[name=sells]:checked'); d.reach = r ? r.value : ''; d.sells = s ? s.value : ''; d.agree = f.elements.agree.checked; d.website = f.elements.website.value; return d; }
+  function save() { try { var d = vals(); delete d.website; localStorage.setItem(KEY, JSON.stringify({ d: d, step: step })); } catch (e) {} }
+  function restore() { try { var j = JSON.parse(localStorage.getItem(KEY) || 'null'); if (!j) return; var d = j.d || {};
+    ['name', 'phone', 'email', 'state', 'city', 'community', 'handle', 'why'].forEach(function (k) { if (d[k]) f.elements[k].value = d[k]; });
+    (d.knows || []).forEach(function (v) { var x = f.querySelector('[name=knows][value="' + v + '"]'); if (x) x.checked = true; });
+    (d.channels || []).forEach(function (v) { var x = f.querySelector('[name=channels][value="' + v + '"]'); if (x) x.checked = true; });
+    ['reach', 'sells'].forEach(function (k) { var x = d[k] && f.querySelector('[name=' + k + '][value="' + d[k] + '"]'); if (x) x.checked = true; });
+    if (d.agree) f.elements.agree.checked = true; if (j.step > 1 && j.step <= N) show(j.step, true); } catch (e) {} }
+  function bad(el, on) { var w = el.closest('.f'); if (w) w.classList.toggle('bad', on); return on; }
+  function check(n) { var d = vals(), wrong = false, first = null;
+    function t(name, cond) { var el = f.elements[name]; var b = bad(el.length ? el[0] : el, cond); if (b && !first) first = el.length ? el[0] : el; wrong = wrong || b; }
+    if (n === 1) { t('name', d.name.replace(/\\s+/g, ' ').length < 3); t('phone', !/^(\\+?234|0)?[789][01]\\d{8}$/.test(d.phone.replace(/[\\s-]/g, ''))); t('email', !!d.email && !/^[^\\s@]+@[^\\s@]+\\.[a-z]{2,}$/i.test(d.email)); }
+    if (n === 2) { t('state', !d.state); t('city', d.city.length < 2); }
+    if (n === 3) { t('knows', !d.knows.length); t('channels', !d.channels.length); t('reach', !d.reach); t('sells', !d.sells); }
+    if (first) first.focus(); return !wrong; }
+  function review() { var d = vals(), rows = [
+      ['Name', d.name, 1], ['WhatsApp', d.phone, 1], ['Email', d.email || '—', 1], ['Where', [d.community, d.city, d.state].filter(Boolean).join(', '), 2],
+      ['Knows', d.knows.map(function (k) { return LABEL.knows[k]; }).join(', '), 3], ['Shares on', d.channels.map(function (k) { return LABEL.channels[k]; }).join(', '), 3],
+      ['Reach', (LABEL.reach[d.reach] || '') + (d.handle ? ' · ' + d.handle : ''), 3], ['Sells online', d.sells === 'yes' ? 'Yes' : 'No', 3]];
+    var dl = document.getElementById('a-review'); dl.innerHTML = '';
+    rows.forEach(function (r) { var div = document.createElement('div'); var dt = document.createElement('dt'); dt.textContent = r[0]; var dd = document.createElement('dd'); dd.textContent = r[1];
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = 'Change'; b.setAttribute('aria-label', 'Change ' + r[0].toLowerCase()); b.onclick = function () { show(r[2]); };
+      div.appendChild(dt); div.appendChild(dd); div.appendChild(b); dl.appendChild(div); }); }
+  function show(n, quiet) { step = n; steps.forEach(function (s) { s.hidden = Number(s.getAttribute('data-step')) !== n; });
+    bars.forEach(function (b, i) { b.classList.toggle('on', i < n); }); of.textContent = 'Step ' + n + ' of ' + N;
+    back.hidden = n === 1; next.textContent = n === N ? 'Send application' : 'Next'; err.classList.remove('on');
+    if (n === N) review(); save();
+    if (!quiet) { var top = f.getBoundingClientRect().top; if (top < 70) f.scrollIntoView({ behavior: 'smooth', block: 'start' }); var h = steps[n - 1].querySelector('h3'); if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); } } }
+  back.onclick = function () { if (step > 1) show(step - 1); };
+  f.addEventListener('input', save); f.addEventListener('change', function (e) { var w = e.target.closest('.f'); if (w) w.classList.remove('bad'); save(); });
+  f.addEventListener('submit', function (e) {
+    e.preventDefault(); if (sent) return;
+    if (step < N) { if (check(step)) show(step + 1); return; }
+    var d = vals(); if (!d.agree) { err.textContent = 'Please tick that you agree to the Ambassador agreement.'; err.classList.add('on'); return; }
+    next.disabled = true; next.textContent = 'Sending…'; err.classList.remove('on');
+    fetch(f.getAttribute('data-api') + '/ambassadors/apply', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(d) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.'); return j; }); })
+      .then(function (j) { sent = true; try { localStorage.removeItem(KEY); } catch (x) {}
+        if (window.gtag) gtag('event', 'ambassador_apply', { already: !!j.already });
+        f.innerHTML = '<div class="done"><i><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></i><h3>' + (j.already ? 'We already have your application' : 'Application sent') + '</h3><p>We’ll reply on WhatsApp within 24 hours. Keep an eye on your chats.</p></div>'; })
+      .catch(function (x) { next.disabled = false; next.textContent = 'Send application'; err.textContent = x.message || 'Something went wrong. Please try again.'; err.classList.add('on'); });
+  });
+  restore();
+})();
+</script>`;
+}
+
 const INFO_PAGES = [
   { slug: 'about', type: 'AboutPage', title: 'About Hoolam: safe buying and selling on WhatsApp',
     description: 'Hoolam holds the buyer’s money until the item arrives, then pays the seller. Who we are, why we built it, and what keeps your money safe.' },
   { slug: 'contact', type: 'ContactPage', title: 'Contact Hoolam: WhatsApp, email and live reps',
     description: 'Reach Hoolam on WhatsApp any time, or talk to a live rep from 9am to 5pm, every day. Email, phone and our registered office in Nigeria.' },
+  ...(amb ? [{ slug: 'ambassadors', type: 'WebPage', title: 'Become a Hoolam ambassador: earn from every safe order you bring',
+    description: 'Bring sellers and buyers to Hoolam and earn a share of what Hoolam makes on their completed orders, paid monthly. Free to join; we reply within 24 hours.' }] : []),
 ];
 for (const p of INFO_PAGES) {
   const path = `/${p.slug}/`;
@@ -305,6 +430,9 @@ for (const p of INFO_PAGES) {
     // the registration number is added once it's set in COMPANY.scuml
     SCUML_ROW: `<div><dt>Anti-money laundering</dt><dd>Registration with the EFCC’s Special Control Unit against Money Laundering (SCUML)${COMPANY.scuml ? `, no. ${esc(COMPANY.scuml)}` : ''}</dd></div>\n        `,
     HERE_ABOUT: p.slug === 'about' ? ' class="here" aria-current="page"' : '', HERE_CONTACT: p.slug === 'contact' ? ' class="here" aria-current="page"' : '',
+    MENU_AMB: amb ? `<a href="/ambassadors/"${p.slug === 'ambassadors' ? ' aria-current="page"' : ''}>Ambassador</a>` : '',
+    DRAWER_AMB: amb ? `    <a href="/ambassadors/"${p.slug === 'ambassadors' ? ' class="here" aria-current="page"' : ''}>Become an ambassador<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>\n` : '',
+    ...(p.slug === 'ambassadors' ? ambVars() : {}),
     WA_BIG: wa ? `<a class="big" data-wa href="${esc(waLink)}" target="_blank" rel="noopener">${esc(phoneText(wa))}</a>` : '',
     PHONE_CARD: contact.phone && contact.phone !== wa
       ? `<div class="way card"><i><svg class="ic" aria-hidden="true"><use href="#sf-phone"/></svg></i><h2>Call us</h2><a class="big" href="tel:+${esc(contact.phone)}">${esc(phoneText(contact.phone))}</a><p>From 9am to 5pm, every day.</p></div>` : '',
@@ -382,7 +510,7 @@ ${wa ? `- WhatsApp (orders and help, any time): ${phoneText(wa)} (https://wa.me/
 ${site ? `
 - [Home](${site}/): what Hoolam is, how an order works, fees and questions
 - [About](${site}/about/): who we are, why we built Hoolam, the company behind it
-- [Contact us](${site}/contact/): WhatsApp, live reps, email and office
+- [Contact us](${site}/contact/): WhatsApp, live reps, email and office${amb ? `\n- [Become an ambassador](${site}/ambassadors/): bring sellers and buyers to Hoolam and earn a share of what Hoolam makes on their completed orders` : ''}
 - [Where the money sits](${site}/legal/money/): the bank, the accounts, and every step the money takes
 - [If something goes wrong](${site}/legal/disputes/): reporting a problem and how refunds work
 - [Terms of service](${site}/legal/terms/)
@@ -390,11 +518,11 @@ ${site ? `
 ` : ''}`;
 writeFileSync(join(out, 'llms.txt'), llms);
 
-const pages = ['/', '/about/', '/contact/', '/legal/', ...LEGAL_PAGES.map((p) => `/legal/${p.slug}/`)];
+const pages = ['/', '/about/', '/contact/', ...(amb ? ['/ambassadors/'] : []), '/legal/', ...LEGAL_PAGES.map((p) => `/legal/${p.slug}/`)];
 writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\n${site ? `Sitemap: ${site}/sitemap.xml\n` : ''}`);
 // when each page last changed: the newest commit touching the files it's built from (left out if git isn't there)
 const lastChanged = (files) => { try { return execFileSync('git', ['log', '-1', '--format=%cs', '--', ...files.map((f) => join(here, f))], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; } };
-const sources = (p) => p === '/' ? [`versions/${liveVersion}.html`, 'versions/versions.json', 'partials'] : p === '/about/' || p === '/contact/' ? [`pages${p.slice(0, -1)}.html`, 'pages/_layout.html', 'partials'] : p === '/legal/' ? ['legal/_layout.html', 'partials'] : [`legal${p.slice(6, -1)}.html`, 'legal/_layout.html'];
+const sources = (p) => p === '/' ? [`versions/${liveVersion}.html`, 'versions/versions.json', 'partials'] : p === '/about/' || p === '/contact/' || p === '/ambassadors/' ? [`pages${p.slice(0, -1)}.html`, 'pages/_layout.html', 'partials'] : p === '/legal/' ? ['legal/_layout.html', 'partials'] : [`legal${p.slice(6, -1)}.html`, 'legal/_layout.html'];
 // the pictures on each page, for Google Images: the images uploaded for the live version (the drawings are drawn in code, so they aren't image files)
 const pageImages = (p) => p === '/' ? Object.entries(baked.images ?? {}).filter(([k]) => k !== 'whatsapp').map(([, v]) => v.src)
   : baked.images?.mark ? [baked.images.mark.src] : [];
@@ -423,6 +551,90 @@ for (const l of campaignLinks) {
   linksBuilt++;
 }
 
+// ---------- ambassadors' links: hoolam.com/a/<name> ----------
+// A small welcome page for the people an ambassador shares it with: their photo and first name, what Hoolam is,
+// and "I'm buying" / "I'm selling", each opening WhatsApp with "… Tobi sent me (TOBI)" typed in, so they're linked to
+// the ambassador. The tap is counted on the server. Never in search results. An old name moves to the new one;
+// an ended or paused ambassador's link still works, without their name.
+let ambBuilt = 0;
+for (const l of ambLinks) {
+  const dir = join(out, 'a', l.slug);
+  mkdirSync(dir, { recursive: true });
+  if (l.to) {
+    writeFileSync(join(dir, 'index.html'), `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta http-equiv="refresh" content="0; url=/a/${esc(l.to)}/"><title>Hoolam</title><script>location.replace('/a/${l.to}/'+location.search)</script></head><body><a href="/a/${esc(l.to)}/">Continue to Hoolam</a></body></html>\n`);
+    continue;
+  }
+  writeFileSync(join(dir, 'index.html'), ambLinkPage(l));
+  ambBuilt++;
+}
+function ambLinkPage(l) {
+  const name = l.active && l.name ? l.name : null;
+  const code = name ? ` ${name} sent me (${l.slug.toUpperCase()})` : '';
+  const go = (what) => wa ? `https://wa.me/${wa}?text=${encodeURIComponent(`Hi Hoolam, I want to ${what} safely.${code}`)}` : `${app}/chat?text=${encodeURIComponent(`Hi Hoolam, I want to ${what} safely.${code}`)}`;
+  const title = name ? `${name} invited you to Hoolam` : 'Buy and sell safely with Hoolam';
+  const desc = 'Buy and sell on WhatsApp safely. Your money is held until you get what you ordered.';
+  const og = l.photo || (site ? `${site}/assets/og.png` : '/assets/og.png');
+  const mark = baked.images?.mark?.src;
+  return `<!doctype html>
+<html lang="en-NG"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#0E5C63">
+${iconTags('/')}
+<meta property="og:type" content="website"><meta property="og:site_name" content="Hoolam"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">
+<meta property="og:image" content="${esc(og)}">${l.photo ? '<meta property="og:image:width" content="800"><meta property="og:image:height" content="800"><meta name="twitter:card" content="summary">' : '<meta name="twitter:card" content="summary_large_image">'}
+${site ? `<meta property="og:url" content="${esc(`${site}/a/${l.slug}/`)}">` : ''}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap">
+<style>
+:root{--teal:#0E5C63;--teal-3:#083E43;--gold:#C9992E;--green:#2E8B57;--bg:#F7F3EC;--card:#FFFDF9;--ink:#1B2321;--soft:#58615E;--rule:#E8E1D5;--mint:#E2EFEA}
+*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--ink);font:400 16px/1.6 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column}
+.w{width:100%;max-width:460px;margin:0 auto;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
+.top{display:flex;align-items:center;gap:10px;height:52px;color:var(--ink);text-decoration:none}.top b{font:600 1.25rem Poppins,Inter,sans-serif;letter-spacing:-.02em}
+.mk{width:34px;height:34px;border-radius:11px;background:var(--teal);display:grid;place-items:center;overflow:hidden}.mk img{width:100%;height:100%;object-fit:contain}.mk.img{background:none}
+.card{margin-top:12px;background:var(--card);border-radius:28px;box-shadow:inset 0 0 0 1px var(--rule),0 24px 50px -32px rgba(8,62,67,.55);overflow:hidden;text-align:center}
+.cov{height:96px;background:radial-gradient(120% 140% at 85% -20%,rgba(201,153,46,.5),transparent 55%),linear-gradient(135deg,#12737b,var(--teal) 55%,var(--teal-3))}
+.av{width:112px;height:112px;margin:-60px auto 0;border-radius:50%;background:#EAF3F3;box-shadow:0 0 0 5px var(--card),0 0 0 7px var(--gold);overflow:hidden;display:grid;place-items:center;font:700 2.6rem Poppins,Inter,sans-serif;color:var(--teal);position:relative}
+.av img{width:100%;height:100%;object-fit:cover}
+.in{padding:16px 22px 24px}h1{font:700 1.6rem/1.2 Poppins,Inter,sans-serif;letter-spacing:-.03em}
+.ver{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:5px 11px;border-radius:99px;background:#E7F4EC;color:var(--green);font-size:.82rem;font-weight:600}
+.ver svg{width:15px;height:15px}
+.lead{margin-top:14px;color:var(--soft);font-size:1.02rem}
+.btns{display:grid;gap:10px;margin-top:20px}
+.b{display:flex;align-items:center;justify-content:center;gap:10px;min-height:56px;border-radius:16px;font:600 1.02rem Inter,sans-serif;text-decoration:none;transition:transform .15s,background .2s}
+.b:active{transform:scale(.98)}.b svg{width:20px;height:20px}
+.b.buy{background:var(--teal);color:#fff;box-shadow:0 14px 28px -14px rgba(14,92,99,.8)}.b.buy:hover{background:#0A464B}
+.b.sell{background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--rule)}.b.sell:hover{box-shadow:inset 0 0 0 1.5px var(--teal)}
+.how{margin-top:14px;display:grid;gap:8px;text-align:left}
+.how div{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 1px var(--rule);font-size:.95rem}
+.how i{width:34px;height:34px;border-radius:11px;background:var(--mint);color:var(--teal);display:grid;place-items:center;flex:none}.how i svg{width:18px;height:18px}
+.foot{margin-top:18px;text-align:center;color:var(--soft);font-size:.8rem;line-height:1.5}.foot a{color:var(--teal);font-weight:600;text-decoration:none}
+a:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+</style></head>
+<body><div class="w">
+<a class="top" href="/"><span class="mk${mark ? ' img' : ''}">${mark ? `<img src="${esc(mark)}" alt="">` : '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="8.5" r="3.7" fill="#C9992E"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>'}</span><b>Hoolam</b></a>
+<main class="card">
+  <div class="cov" aria-hidden="true"></div>
+  <div class="av">${l.photo ? `<img src="${esc(l.photo)}" alt="${esc(name ?? '')}">` : esc((name ?? 'H')[0].toUpperCase())}</div>
+  <div class="in">
+    <h1>${name ? `${esc(name)} invited you to Hoolam` : 'Buy and sell safely on WhatsApp'}</h1>
+    ${name ? `<span class="ver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>Verified Hoolam ambassador${l.area ? ` · ${esc(l.area)}` : ''}</span>` : ''}
+    <p class="lead">Buy and sell on WhatsApp safely. Your money is held until you get what you ordered.</p>
+    <div class="btns">
+      <a class="b buy" data-wa href="${esc(go('buy'))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>I’m buying</a>
+      <a class="b sell" data-wa href="${esc(go('sell'))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/></svg>I’m selling</a>
+    </div>
+  </div>
+</main>
+<div class="how">
+  <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg></i><span>The buyer pays Hoolam, not the seller</span></div>
+  <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></i><span>Held safely with a licensed bank</span></div>
+  <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></i><span>The seller is paid once the buyer is happy</span></div>
+</div>
+<p class="foot">No app to download. Everything happens in WhatsApp.<br>${COMPANY.legalName} · RC ${COMPANY.rc} · <a href="/">hoolam.com</a></p>
+</div>
+<script>(function(){try{navigator.sendBeacon&&navigator.sendBeacon(${JSON.stringify(`${app}/a/${l.slug}/tap`)})}catch(e){}})();</script>
+</body></html>
+`;
+}
+
 // ---------- Google Analytics (with consent) ----------
 // On the live pages only (never the /v/ previews or the draft). Every consent starts "denied": until a visitor taps Accept
 // on the banner (site/assets/analytics.js), Google gets only cookieless pings. GA_MEASUREMENT_ID can override the ID; GA_OFF=1 turns it off.
@@ -436,7 +648,8 @@ gtag('js',new Date());gtag('config','${GA_ID}',{content_group:'Website'});</scri
 <script async src="https://www.googletagmanager.com/gtag/js?id=${GA_ID}"></script>
 `;
   const tail = `<script src="/assets/analytics.js?v=${analyticsVer}" defer></script>\n`;
-  const live = ['index.html', '404.html', join('about', 'index.html'), join('contact', 'index.html'), join('legal', 'index.html'), ...LEGAL_PAGES.map((p) => join('legal', p.slug, 'index.html'))];
+  const live = ['index.html', '404.html', join('about', 'index.html'), join('contact', 'index.html'), join('legal', 'index.html'), ...LEGAL_PAGES.map((p) => join('legal', p.slug, 'index.html')),
+    ...(amb ? [join('ambassadors', 'index.html'), ...ambLinks.filter((l) => !l.to).map((l) => join('a', l.slug, 'index.html'))] : [])];
   for (const f of live) {
     const file = join(out, f);
     const html = readFileSync(file, 'utf8');
@@ -446,4 +659,4 @@ gtag('js',new Date());gtag('config','${GA_ID}',{content_group:'Website'});</scri
 }
 
 const n = Object.keys(baked.images ?? {}).length;
-console.log(`Site built → dist-site/  (${pages.length} pages, home page ${liveVersion} live, ${VERSIONS.length} versions + draft to preview; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}, ${linksBuilt} campaign link${linksBuilt === 1 ? '' : 's'}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);
+console.log(`Site built → dist-site/  (${pages.length} pages, home page ${liveVersion} live, ${VERSIONS.length} versions + draft to preview; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}, ${linksBuilt} campaign link${linksBuilt === 1 ? '' : 's'}${amb ? `, ambassadors on (${ambBuilt} link${ambBuilt === 1 ? '' : 's'})` : ''}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);

@@ -1,0 +1,268 @@
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></symbol><symbol id="i-gift" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></symbol><symbol id="i-calculator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></symbol><symbol id="i-trending-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></symbol><symbol id="i-graduation-cap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></symbol><symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="i-bike" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></symbol></defs></svg>
+<style>
+/* ---------- ambassadors ---------- */
+.amb-hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: clamp(28px, 5vw, 64px); align-items: center; }
+@media (max-width: 900px) { .amb-hero { grid-template-columns: 1fr; } }
+.label { display: inline-flex; align-items: center; gap: 8px; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--teal); }
+.label .ic { width: 16px; height: 16px; color: var(--gold); }
+.amb-hero h1 { margin-top: 14px; max-width: 13ch; }
+.amb-hero h1 span { color: var(--teal); }
+.acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 22px; color: var(--soft); font-size: .92rem; font-weight: 500; }
+.facts span { display: inline-flex; align-items: center; gap: 7px; }
+.facts .ic { width: 18px; height: 18px; color: var(--green); }
+
+/* the example dashboard */
+.dash { position: relative; padding: 18px; border-radius: 28px; background: var(--teal); box-shadow: 0 30px 60px -30px rgba(8, 62, 67, .7); overflow: hidden; }
+.dash::after { content: ""; position: absolute; right: -70px; top: -90px; width: 260px; height: 260px; border-radius: 50%; background: var(--teal-3); opacity: .6; }
+.dash > * { position: relative; z-index: 1; }
+.dash-top { display: flex; align-items: center; gap: 12px; color: #fff; }
+.dash-av { width: 46px; height: 46px; border-radius: 50%; background: var(--gold); color: var(--teal-3); display: grid; place-items: center; font: 700 1.1rem var(--font-display); box-shadow: 0 0 0 3px rgba(255,255,255,.18); }
+.dash-top b { display: block; font: 600 1.05rem var(--font-display); }
+.dash-top small { display: inline-flex; align-items: center; gap: 5px; color: #CFE3E4; font-size: .8rem; }
+.dash-top small .ic { width: 14px; height: 14px; color: var(--gold); }
+.dash-top .ex { margin-left: auto; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--teal-3); background: var(--gold); padding: 4px 9px; border-radius: 99px; }
+.dash-earn { margin-top: 18px; color: #fff; }
+.dash-earn small { color: #CFE3E4; font-size: .85rem; }
+.dash-earn b { display: block; font: 700 clamp(2.1rem, 4.5vw, 2.8rem) var(--font-display); letter-spacing: -0.03em; line-height: 1.1; }
+.bars { display: flex; align-items: flex-end; gap: 6px; height: 64px; margin-top: 14px; }
+.bars i { flex: 1; border-radius: 5px 5px 2px 2px; background: rgba(255,255,255,.18); }
+.bars i:last-child { background: var(--gold); }
+.dash-list { margin-top: 16px; background: var(--card); border-radius: 18px; padding: 6px 14px; }
+.dash-list div { display: flex; align-items: center; gap: 12px; padding: 11px 0; }
+.dash-list div + div { border-top: 1px solid var(--rule); }
+.dash-list i { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--mint); color: var(--teal); flex: none; }
+.dash-list i.g { background: var(--gold-tint); color: #8A6418; }
+.dash-list i .ic { width: 17px; height: 17px; }
+.dash-list p { flex: 1; min-width: 0; font-size: .9rem; line-height: 1.35; }
+.dash-list p b { display: block; font-weight: 600; }
+.dash-list p small { color: var(--soft); font-size: .8rem; }
+.dash-list em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* how you earn */
+.earn { margin-top: 30px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 860px) { .earn { grid-template-columns: 1fr; } }
+.earn .card { padding: clamp(22px, 3vw, 28px); display: flex; flex-direction: column; gap: 8px; }
+.earn .big { font: 700 clamp(2.4rem, 5vw, 3.2rem) var(--font-display); letter-spacing: -0.04em; line-height: 1; color: var(--teal); }
+.earn .card.gold .big { color: #9C7520; }
+.earn h3 { font-size: 1.1rem; font-weight: 600; }
+.earn p { color: var(--soft); font-size: .95rem; line-height: 1.55; }
+.earn .card.dark { background: var(--teal); box-shadow: none; }
+.earn .card.dark .big, .earn .card.dark h3 { color: #fff; }
+.earn .card.dark p { color: #CFE3E4; }
+.example { margin-top: 14px; display: flex; gap: 14px; align-items: flex-start; padding: 18px 20px; border-radius: 18px; background: var(--gold-tint); }
+.example .ic { color: #8A6418; width: 22px; height: 22px; margin-top: 2px; }
+.example p { color: #4F3A0D; }
+.example b { font-weight: 600; }
+.grow { margin-top: 14px; display: flex; gap: 14px; align-items: flex-start; padding: 18px 20px; border-radius: 18px; background: var(--teal-tint); }
+.grow .ic { color: var(--teal); width: 22px; height: 22px; margin-top: 2px; }
+.grow p { font-weight: 500; }
+
+/* steps */
+.steps { list-style: none; margin: 30px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; counter-reset: s; }
+@media (max-width: 980px) { .steps { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .steps { grid-template-columns: 1fr; } }
+.steps li { counter-increment: s; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
+.steps li::before { content: counter(s); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--teal); color: #fff; font: 600 .95rem var(--font-display); margin-bottom: 6px; }
+.steps b { font: 600 1.02rem var(--font-display); letter-spacing: -0.01em; }
+.steps p { color: var(--soft); font-size: .92rem; line-height: 1.5; }
+
+/* who it's for */
+.who-for { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; }
+.who-for span { display: inline-flex; align-items: center; gap: 9px; padding: 11px 16px; border-radius: 99px; background: var(--card); box-shadow: inset 0 0 0 1px var(--rule); font-weight: 500; }
+.who-for .ic { width: 18px; height: 18px; color: var(--teal); }
+
+/* rules */
+.rules2 { margin-top: 26px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 760px) { .rules2 { grid-template-columns: 1fr; } }
+.rules2 .card { padding: clamp(22px, 3vw, 28px); }
+.rules2 h3 { display: flex; align-items: center; gap: 10px; font-size: 1.12rem; font-weight: 600; }
+.rules2 h3 .ic { width: 22px; height: 22px; color: var(--teal); }
+.rules2 .card.no h3 .ic { color: var(--red); }
+.rules2 .ticks li .ic.x { color: var(--red); }
+
+/* the application */
+.apply { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: clamp(28px, 5vw, 56px); align-items: start; }
+@media (max-width: 900px) { .apply { grid-template-columns: 1fr; } }
+.apply-side .sec-p + .sec-p { margin-top: 10px; }
+.form { padding: clamp(20px, 3vw, 30px); scroll-margin-top: calc(var(--bar-h) + 20px); }
+.prog { display: flex; gap: 6px; }
+.prog i { flex: 1; height: 5px; border-radius: 99px; background: var(--rule); transition: background .3s; }
+.prog i.on { background: var(--teal); }
+.step-of { margin-top: 12px; font-size: .82rem; font-weight: 600; color: var(--soft); }
+.form h3 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
+.form .hint { color: var(--soft); font-size: .95rem; margin-top: 4px; }
+.fields { display: grid; gap: 16px; margin-top: 20px; }
+.f label, .f legend { display: block; font-weight: 600; font-size: .95rem; margin-bottom: 7px; padding: 0; }
+.f .opt { color: var(--soft); font-weight: 400; }
+.f input[type=text], .f input[type=tel], .f input[type=email], .f select, .f textarea { width: 100%; min-height: 52px; padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--rule); background: #fff; font: 400 1rem var(--font-body); color: var(--ink); transition: border-color .2s, box-shadow .2s; }
+.f textarea { min-height: 96px; resize: vertical; }
+.f select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--soft) 50%), linear-gradient(135deg, var(--soft) 50%, transparent 50%); background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 40px; }
+.f input:focus, .f select:focus, .f textarea:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 4px rgba(201, 153, 46, .2); }
+.f .err-msg { display: none; color: var(--red); font-size: .85rem; margin-top: 6px; }
+.f.bad input, .f.bad select { border-color: var(--red); }
+.f.bad .err-msg { display: block; }
+.f small { display: block; color: var(--soft); font-size: .84rem; margin-top: 6px; }
+fieldset.f { border: 0; margin: 0; padding: 0; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips label { margin: 0; font-weight: 500; font-size: .93rem; }
+.chips input { position: absolute; opacity: 0; pointer-events: none; }
+.chips span { display: inline-flex; align-items: center; gap: 7px; min-height: 42px; padding: 0 15px; border-radius: 99px; background: #fff; box-shadow: inset 0 0 0 1.5px var(--rule); cursor: pointer; transition: background .2s, box-shadow .2s, color .2s; user-select: none; }
+.chips span::before { content: ""; width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--soft); transition: all .2s; }
+.chips input:checked + span { background: var(--teal-tint); color: var(--teal); box-shadow: inset 0 0 0 1.5px var(--teal); font-weight: 600; }
+.chips input:checked + span::before { background: var(--teal); box-shadow: none; }
+.chips input:focus-visible + span { outline: 3px solid var(--gold); outline-offset: 2px; }
+.review { margin-top: 18px; border-radius: 16px; background: var(--bg); padding: 4px 16px; }
+.review div { display: flex; gap: 12px; padding: 11px 0; align-items: baseline; }
+.review div + div { border-top: 1px solid var(--rule); }
+.review dt { width: 108px; flex: none; color: var(--soft); font-size: .86rem; }
+.review dd { margin: 0; flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.review button { border: 0; background: none; color: var(--teal); font: 600 .86rem var(--font-body); cursor: pointer; padding: 4px; margin-left: auto; }
+.agree { display: flex; gap: 12px; align-items: flex-start; margin-top: 18px; font-size: .95rem; cursor: pointer; }
+.agree input { width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--teal); flex: none; }
+.nav { display: flex; gap: 10px; margin-top: 24px; }
+.nav .btn { flex: 1; }
+.nav .btn.ghost { flex: 0 0 auto; }
+.nav .btn[hidden], .form [data-step][hidden] { display: none; }
+.form-err { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #F8E1DD; color: #7A2318; font-size: .92rem; }
+.form-err.on { display: block; }
+.done { text-align: center; padding: clamp(16px, 4vw, 40px) 0; }
+.done i { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 16px; background: var(--green-tint); color: var(--green); }
+.done i .ic { width: 34px; height: 34px; }
+.done h3 { font-size: 1.5rem; }
+.done p { color: var(--soft); margin: 8px auto 0; max-width: 40ch; }
+.closed { padding: clamp(20px, 3vw, 30px); }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+/* questions */
+.faq { margin-top: 26px; display: grid; gap: 10px; max-width: 820px; }
+.faq details { background: var(--card); border-radius: 18px; box-shadow: inset 0 0 0 1px var(--rule); }
+.faq summary { cursor: pointer; list-style: none; padding: 18px 52px 18px 20px; font: 600 1.02rem var(--font-display); position: relative; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; position: absolute; right: 20px; top: 50%; transform: translateY(-50%); font: 400 1.4rem var(--font-body); color: var(--teal); transition: transform .2s; }
+.faq details[open] summary::after { transform: translateY(-50%) rotate(45deg); }
+.faq details p { padding: 0 20px 18px; color: var(--soft); }
+</style>
+
+<section class="hero">
+  <div class="wrap amb-hero">
+    <div>
+      <span class="label"><svg class="ic" aria-hidden="true"><use href="#i-sparkles"/></svg>Hoolam ambassadors</span>
+      <h1>Earn from every safe order <span>you bring.</span></h1>
+      <p class="lede">Bring sellers and buyers to Hoolam. Each time one of their orders is complete, you earn a share of what Hoolam makes on it. Paid to your bank every month.</p>
+      <div class="acts">
+        <a class="btn" href="#apply">Apply now<svg class="ic" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+        <a class="btn ghost" href="#earn">How you earn</a>
+      </div>
+      <div class="facts"><span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Free to join</span><span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Reply within 24 hours</span><span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Paid monthly</span></div>
+    </div>
+    <div data-nosnippet class="dash" role="img" aria-label="Example: an ambassador's month on Hoolam, with earnings from sellers and a new-seller bonus">
+      <div class="dash-top"><span class="dash-av" aria-hidden="true">T</span><div><b>Tobi</b><small><svg class="ic" aria-hidden="true"><use href="#i-badge-check"/></svg>Verified ambassador · UNILAG</small></div><span class="ex">Example</span></div>
+      <div class="dash-earn"><small>Earned this month</small><b>{{EX_MONTH}}</b></div>
+      <div class="bars" aria-hidden="true"><i style="height:22%"></i><i style="height:30%"></i><i style="height:28%"></i><i style="height:44%"></i><i style="height:52%"></i><i style="height:61%"></i><i style="height:74%"></i><i style="height:100%"></i></div>
+      <div class="dash-list">
+        <div><i><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg></i><p><b>Mama Bella Shoes</b><small>{{SELLER_PCT}} of {{EX_REV}} Hoolam earned</small></p><em>{{EX_SHARE}}</em></div>
+        <div><i class="g"><svg class="ic" aria-hidden="true"><use href="#i-gift"/></svg></i><p><b>Ada Wigs</b><small>New seller bonus, {{BONUS_ORDERS}} orders done</small></p><em>{{BONUS}}</em></div>
+        <div><i><svg class="ic" aria-hidden="true"><use href="#i-shopping-bag"/></svg></i><p><b>Chidi</b><small>{{BUYER_PCT}} of {{EX_REV}} Hoolam earned</small></p><em>{{EX_BUYER}}</em></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="earn">
+  <div class="wrap">
+    <h2 class="sec-h">How you earn</h2>
+    <p class="sec-p">You earn on <b>completed orders</b> from the people you bring: the buyer got their item and is happy. For as long as you are an ambassador.</p>
+    <div class="grid earn">
+      <div class="card dark"><span class="big">{{SELLER_PCT}}</span><h3>On sellers you bring</h3><p>Of everything Hoolam earns on each of their completed orders. Sellers bring the most orders, so they matter most.</p></div>
+      <div class="card"><span class="big">{{BUYER_PCT}}</span><h3>On buyers you bring</h3><p>Of everything Hoolam earns on each of their completed orders.</p></div>
+      <div class="card gold"><span class="big">{{BONUS}}</span><h3>For each new seller</h3><p>Once a seller you bring completes {{BONUS_ORDERS}} orders. On top of your share.</p></div>
+    </div>
+    <div class="example"><svg class="ic" aria-hidden="true"><use href="#i-calculator"/></svg><p><b>For example:</b> a seller you bring does 10 orders of ₦20,000 in a month. Hoolam earns about {{EX_REV}} on each, so you earn about <b>{{EX_SELLER_MONTH}}</b> that month from that one seller. Bring 20 sellers like that and it’s about <b>{{EX_TWENTY}}</b> a month.</p></div>
+    <div class="grow"><svg class="ic" aria-hidden="true"><use href="#i-trending-up"/></svg><p>You choose a term of 3, 6 or 12 months, and it renews by itself. <b>Whatever term you pick, your share grows</b> when you bring more active sellers and buyers.</p></div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <h2 class="sec-h">How it works</h2>
+    <ol class="steps">
+      <li class="card"><b>Apply</b><p>4 short steps, about 2 minutes. Below, or in our WhatsApp chat.</p></li>
+      <li class="card"><b>We reply in 24 hours</b><p>On WhatsApp. If you're approved, you finish setting up there.</p></li>
+      <li class="card"><b>Set up once</b><p>A quick ID check, the bank account we pay you into, your term and your link name.</p></li>
+      <li class="card"><b>Share your link</b><p>hoolam.com/a/your-name, on your status, in your groups and to vendors you know.</p></li>
+      <li class="card"><b>Get paid monthly</b><p>On the {{PAYOUT_DAY}} of every month, from {{PAYOUT_MIN}}. See every naira in your dashboard.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <h2 class="sec-h">Who it’s for</h2>
+    <p class="sec-p">Anyone in Nigeria with people who buy and sell online, and who will tell them about Hoolam honestly.</p>
+    <div class="who-for">
+      <span><svg class="ic" aria-hidden="true"><use href="#i-graduation-cap"/></svg>Campus reps</span>
+      <span><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg>Vendor group admins</span>
+      <span><svg class="ic" aria-hidden="true"><use href="#i-bike"/></svg>Riders and dispatch</span>
+      <span><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg>Market traders and leaders</span>
+      <span><svg class="ic" aria-hidden="true"><use href="#i-sparkles"/></svg>Fashion, gadget and food creators</span>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <h2 class="sec-h">The fair rules</h2>
+    <div class="grid rules2">
+      <div class="card"><h3><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>How it counts</h3>
+        <ul class="ticks">
+          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Only people <b>new to Hoolam</b> can be linked to you, and each person to one ambassador, for good.</span></li>
+          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Only <b>completed orders</b> earn. Refunds and cancelled orders don’t.</span></li>
+          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Anything that looks wrong waits for our team to check, and you see why.</span></li>
+          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>End any time. You are paid everything you are owed, whatever the amount.</span></li>
+        </ul>
+      </div>
+      <div class="card no"><h3><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg>What you never do</h3>
+        <ul class="ticks">
+          <li><svg class="ic x" aria-hidden="true"><use href="#i-x"/></svg><span><b>Never collect money</b> for Hoolam or for an order. All money goes through Hoolam only.</span></li>
+          <li><svg class="ic x" aria-hidden="true"><use href="#i-x"/></svg><span>Never ask anyone for a PIN, OTP or password.</span></li>
+          <li><svg class="ic x" aria-hidden="true"><use href="#i-x"/></svg><span>Never pretend to be Hoolam staff.</span></li>
+          <li><svg class="ic x" aria-hidden="true"><use href="#i-x"/></svg><span>No fake orders, and no earning from your own orders.</span></li>
+        </ul>
+      </div>
+    </div>
+    <p class="sec-p">The full rules are in the <a href="/legal/ambassadors/">Ambassador agreement</a>.</p>
+  </div>
+</section>
+
+<section class="sec" id="apply">
+  <div class="wrap apply">
+    <div class="apply-side">
+      <h2 class="sec-h">Apply in about 2 minutes</h2>
+      <p class="sec-p">4 short steps. We reply on WhatsApp within 24 hours.</p>
+      <p class="sec-p">Your ID check and bank account come later, only once you’re approved, so we never hold details we don’t need.</p>
+    </div>
+    {{FORM}}
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <h2 class="sec-h">Questions</h2>
+    <div class="faq">
+      <details><summary>Do I need to sell on Hoolam to be an ambassador?</summary><p>No. You don’t have to buy or sell anything. You just need people who buy and sell online, and you must use your own WhatsApp number, ID and bank account.</p></details>
+      <details><summary>Does it cost anything?</summary><p>No. Joining is free, and the people you bring pay nothing extra because of you. Your earnings come out of what Hoolam earns.</p></details>
+      <details><summary>How do I know what I’ve earned?</summary><p>In WhatsApp (open Ambassador in the menu) and on your private dashboard on the web, which shows every naira, any month, with the order it came from and how it was worked out.</p></details>
+      <details><summary>What if someone I invite already uses Hoolam?</summary><p>Only people new to Hoolam can be linked to you. Someone who already used Hoolam, or came through another ambassador, isn’t counted for you.</p></details>
+      <details><summary>Can I choose my link name?</summary><p>Yes, when you set up, like hoolam.com/a/tobi. A name is first come, first served, and once it’s yours nobody else can ever use it.</p></details>
+      <details><summary>When and how am I paid?</summary><p>On the {{PAYOUT_DAY}} of every month, for the month before, to a bank account in your own name, once you’re owed at least {{PAYOUT_MIN}}. Less than that waits for the next month. We send you the reference on WhatsApp.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="band">
+    <div><h2>Bring people. Get paid for every safe order.</h2><p>Free to join. We reply within 24 hours.</p></div>
+    <div class="acts"><a class="btn light" href="#apply">Apply now</a></div>
+  </div>
+</section>
