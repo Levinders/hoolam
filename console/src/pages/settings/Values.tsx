@@ -571,3 +571,20 @@ function TopSellerPages() {
     </section>
   );
 }
+
+export function SecurityPage() {
+  return <ValuesPage title="Security" lede="How the team signs in to the console." keys={['two_step_login']} applies="applies from the next sign-in"
+    confirmExtra={(s) => s.draft.two_step_login === true
+      ? <p className="small">From the next sign-in, everyone needs the 6-digit code from their authenticator app. Anyone without one is shown a QR code to set it up after their password. People already signed in stay signed in.</p>
+      : <p className="small">From the next sign-in, the email and password are enough. Everyone's authenticator stays set up for when you turn this back on. People already signed in stay signed in.</p>}
+    aside={(s) => (
+      <section className="panel"><div className="panel-body stack" style={{ gap: 10 }}>
+        <div className="aside-ic"><KeyRound /></div>
+        <h3>{s.draft.two_step_login ? 'Email, password and a code' : 'Email and password'}</h3>
+        {s.draft.two_step_login
+          ? <p className="small muted">The code changes every 30 seconds in Google Authenticator, Microsoft Authenticator or any authenticator app, so a stolen password alone can't get in.</p>
+          : <p className="small muted">Quicker for the team, but anyone with a teammate's password can sign in. Turn the code on before more people join, or if a password may have leaked.</p>}
+        <p className="small muted">Either way: 5 wrong passwords lock the account for a while, sessions end after 12 idle hours, and every sign-in is in the <Link to="/audit">audit trail</Link>. Lost a password or phone? <Link to="/team">Team</Link> → Reset login sends a new invite link.</p>
+      </div></section>
+    )} />;
+}

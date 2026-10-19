@@ -10,7 +10,7 @@ import { hashPassword, totpCode } from '../src/console/crypto.js';
 const PORT = Number(process.env.DEMO_PORT ?? 4000);
 const OWNER = { email: 'owner@hoolam.demo', password: 'HoolamDemo2026', name: 'Raphael Levinders', secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
 
-const h = await startHarness({ quiet: true, env: { TRUST_COUNT_TEST_DEALS: 'true', PUBLIC_BASE_URL: `http://localhost:${PORT}` } });
+const h = await startHarness({ quiet: true, twoStep: false, env: { TRUST_COUNT_TEST_DEALS: 'true', PUBLIC_BASE_URL: `http://localhost:${PORT}` } });
 const sellers = [
   ['+2348031110001', 'Bayo Adeyemi', 'Bayo Kicks'], ['+2348031110002', 'Kemi Okafor', 'Kemi Wigs & Hair'], ['+2348031110003', 'Chidi Eze', 'Chidi Gadgets'],
   ['+2348031110004', 'Amaka Nwosu', 'Amaka Thrift'], ['+2290190000005', 'Koffi Mensah', 'Koffi Wax Prints'],
@@ -96,6 +96,6 @@ await h.db.query(`INSERT INTO audit_log (staff_id, actor, action, target_type, t
 await h.app.app.listen({ port: PORT, host: '127.0.0.1' });
 console.log(`\nHoolam Console demo: http://localhost:${PORT}/console`);
 console.log(`Email: ${OWNER.email}   Password: ${OWNER.password}`);
-console.log(`Two-step code right now: ${totpCode(OWNER.secret)}  (or add secret ${OWNER.secret} to an authenticator app)`);
+console.log(`Authenticator code (only when it's on in Settings → Security): ${totpCode(OWNER.secret)}  (or add secret ${OWNER.secret} to an authenticator app)`);
 console.log('Press Ctrl+C to stop. Everything is deleted when it stops.');
 process.on('SIGINT', async () => { await h.stop(); process.exit(0); });

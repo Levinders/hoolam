@@ -21,7 +21,7 @@ import type { Messenger } from '../whatsapp/client.js';
 import { msg, STATUS_WORDS } from '../whatsapp/messages.js';
 import { ALL_TEMPLATES } from '../whatsapp/automation.js';
 import { audit, type Actor } from './audit.js';
-import { accessDefault, AuthError, hasAccess, permissionsFor, permissionsOf, ROLES, type Role, type StaffAuth, type StaffMember } from './staff.js';
+import { accessDefault, AuthError, hasAccess, permissionsFor, permissionsOf, ROLES, type Role, type SignInStep, type StaffAuth, type StaffMember } from './staff.js';
 
 /**
  * The console's API, under /console/api. Every route needs a signed-in staff member, except the sign-in steps.
@@ -114,16 +114,22 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     api.get('/auth/brand', async () => ({ mark: d.siteMedia.url('', 'mark') }));
     api.get('/auth/state', async (req) => ({
       setupNeeded: !(await d.auth.hasOwner()),
+      twoStep: d.auth.twoStep(),
       me: req.staff ? meOf(req.staff) : null,
     }));
-    api.post('/auth/setup', async (req) => {
+    // after a password: { ok } when signed in (the cookie is set), { ticket } for the code, or { enroll } to set up an authenticator
+    const step = (reply: FastifyReply, r: SignInStep) => {
+      if ('session' in r) { setCookie(reply, r.session.token, r.session.maxAgeSeconds); return { ok: true }; }
+      if ('enroll' in r) return { enroll: true, ticket: r.enroll.ticket, secret: r.enroll.secret, qr: r.enroll.qr };
+      return { ticket: r.ticket };
+    };
+    api.post('/auth/setup', async (req, reply) => {
       const b = req.body as { setupToken: string; name: string; email: string; password: string };
-      const r = await d.auth.setupOwner(b, req.ip ?? null);
-      return { ticket: r.ticket, secret: r.secret, qr: r.qr };
+      return step(reply, await d.auth.setupOwner(b, meta(req)));
     });
-    api.post('/auth/login', async (req) => {
+    api.post('/auth/login', async (req, reply) => {
       const b = req.body as { email: string; password: string };
-      return d.auth.login(b.email, b.password, req.ip ?? null);
+      return step(reply, await d.auth.login(b.email, b.password, meta(req)));
     });
     api.post('/auth/code', async (req, reply) => {
       const b = req.body as { ticket: string; code: string };
@@ -139,11 +145,10 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     });
     api.get('/auth/invite/:token', async (req) => {
       const i = await d.auth.inviteInfo((req.params as { token: string }).token);
-      return { email: i.email, name: i.name, role: i.role };
+      return { email: i.email, name: i.name, role: i.role, twoStep: d.auth.twoStep() };
     });
-    api.post('/auth/invite/:token', async (req) => {
-      const r = await d.auth.acceptInvite((req.params as { token: string }).token, (req.body as { password: string }).password, req.ip ?? null);
-      return { ticket: r.ticket, secret: r.secret, qr: r.qr };
+    api.post('/auth/invite/:token', async (req, reply) => {
+      return step(reply, await d.auth.acceptInvite((req.params as { token: string }).token, (req.body as { password: string }).password, meta(req)));
     });
     api.post('/auth/logout', async (req, reply) => {
       if (req.staff) await d.auth.logout(cookieOf(req), actorOf(req));
@@ -985,13 +990,14 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // =====================================================================================
     api.get('/team', async () => {
       const r = await db.query(
-        `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, s.created_at, s.last_login_at, s.access_whatsapp, s.access_live, s.access_ambassadors,
+        `SELECT s.id, s.email, s.name, s.role, s.active, s.totp_enabled, (s.password_hash IS NOT NULL) AS joined, s.created_at, s.last_login_at, s.access_whatsapp, s.access_live, s.access_ambassadors,
                 (SELECT max(at) FROM audit_log a WHERE a.staff_id=s.id) AS last_action_at,
                 (SELECT count(*)::int FROM audit_log a WHERE a.staff_id=s.id AND a.at > now() - interval '30 days') AS actions_30d,
                 (SELECT count(*)::int FROM chat_threads t WHERE t.rated_staff=s.id AND t.rating='UP' AND t.rated_at > now() - interval '90 days') AS chat_up,
                 (SELECT count(*)::int FROM chat_threads t WHERE t.rated_staff=s.id AND t.rating='DOWN' AND t.rated_at > now() - interval '90 days') AS chat_down
          FROM staff s ORDER BY s.active DESC, s.role, s.name`);
       return {
+        twoStep: d.auth.twoStep(),
         rows: r.rows.map((x) => ({ ...x, access: { whatsapp: hasAccess(x, 'whatsapp'), live: hasAccess(x, 'live'), ambassadors: hasAccess(x, 'ambassadors') } })),
         roles: ROLES.map((role) => ({ role, name: roleName(role), can: permissionsFor(role), access: { whatsapp: role === 'OWNER' || accessDefault(role, 'whatsapp'), live: role === 'OWNER' || accessDefault(role, 'live'), ambassadors: role === 'OWNER' || accessDefault(role, 'ambassadors') } })),
       };

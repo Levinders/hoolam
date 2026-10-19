@@ -34,7 +34,7 @@ export interface Harness {
 
 let n = 0;
 
-export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: string, text: string) => void; env?: Record<string, string> } = {}): Promise<Harness> {
+export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: string, text: string) => void; env?: Record<string, string>; twoStep?: boolean } = {}): Promise<Harness> {
   const port = 55000 + Math.floor(Math.random() * 4000);
   const dir = join(process.platform === 'win32' ? tmpdir() : '/var/tmp', `hoolam-pg-${process.pid}-${port}`);
   const pg = new EmbeddedPostgres({ databaseDir: dir, user: 'postgres', password: 'hoolam', port, persistent: false, onLog: () => {}, onError: () => {} });
@@ -43,6 +43,8 @@ export async function startHarness(opts: { quiet?: boolean; onMessage?: (phone: 
   await pg.createDatabase('hoolam');
   const db = createPool(`postgres://postgres:hoolam@localhost:${port}/hoolam`);
   await migrate(db);
+  // the console's authenticator code (Settings → Security; off on a real install): on in tests unless asked
+  if (opts.twoStep !== false) await db.query(`INSERT INTO settings (key, value) VALUES ('two_step_login', 'true')`);
 
   const transcript: { phone: string; text: string }[] = [];
   const log = (line: string) => {

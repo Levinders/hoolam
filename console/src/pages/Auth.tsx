@@ -46,6 +46,11 @@ function CodeStep({ title, lead, onSubmit, children }: { title: string; lead: st
   );
 }
 
+/** What the server says after a password: signed in, the code step, or setting up an authenticator. */
+type Step = { ok?: true; ticket?: string; enroll?: true; secret?: string; qr?: string };
+type Enroll = { ticket: string; secret: string; qr: string };
+const enrollOf = (r: Step): Enroll | null => (r.enroll ? { ticket: r.ticket!, secret: r.secret!, qr: r.qr! } : null);
+
 function Enrollment({ secret, qr, ticket, onDone }: { secret: string; qr: string; ticket: string; onDone: () => void }) {
   const { copied, copy } = useCopy();
   return (
@@ -68,23 +73,31 @@ export function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [ticket, setTicket] = useState<string | null>(null);
+  const [enroll, setEnroll] = useState<Enroll | null>(null);
+  const [twoStep, setTwoStep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { api<{ twoStep?: boolean }>('/auth/state').then((s) => setTwoStep(!!s.twoStep)).catch(() => {}); }, []);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr(null);
-    try { setTicket((await post<{ ticket: string }>('/auth/login', { email, password })).ticket); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+    try {
+      const r = await post<Step>('/auth/login', { email, password });
+      if (r.ok) await refresh();
+      else if (r.enroll) setEnroll(enrollOf(r));
+      else setTicket(r.ticket ?? null);
+    } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
   };
   return (
     <AuthLayout>
-      {ticket ? (
+      {enroll ? <Enrollment {...enroll} onDone={refresh} /> : ticket ? (
         <CodeStep title="Enter your code" lead="Open your authenticator app and type the 6-digit code for Hoolam Console."
           onSubmit={async (code) => { await post('/auth/code', { ticket, code }); await refresh(); }}>
           <button type="button" className="btn ghost sm" style={{ alignSelf: 'flex-start' }} onClick={() => setTicket(null)}>Use a different account</button>
         </CodeStep>
       ) : (
         <form onSubmit={submit} className="stack" style={{ gap: 16 }}>
-          <div><h2>Sign in</h2><p className="muted" style={{ marginTop: 4 }}>Staff only. You'll need your authenticator app.</p></div>
+          <div><h2>Sign in</h2><p className="muted" style={{ marginTop: 4 }}>{twoStep ? 'Staff only. You\'ll need your authenticator app.' : 'Staff only. Sign in with your work email and password.'}</p></div>
           <div className="field"><label htmlFor="email">Work email</label><input id="email" className="input" type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
           <div className="field"><label htmlFor="pw">Password</label><input id="pw" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
           {err && <ErrorBanner error={err} />}
@@ -99,14 +112,16 @@ export function Login() {
 export function Setup() {
   const { refresh } = useAuth();
   const [f, setF] = useState({ setupToken: '', name: '', email: '', password: '' });
-  const [enroll, setEnroll] = useState<{ ticket: string; secret: string; qr: string } | null>(null);
+  const [enroll, setEnroll] = useState<Enroll | null>(null);
+  const [twoStep, setTwoStep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { api<{ twoStep?: boolean }>('/auth/state').then((s) => setTwoStep(!!s.twoStep)).catch(() => {}); }, []);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr(null);
-    try { setEnroll(await post('/auth/setup', f)); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+    try { const r = await post<Step>('/auth/setup', f); if (r.ok) await refresh(); else setEnroll(enrollOf(r)); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
   };
   return (
     <AuthLayout>
@@ -122,7 +137,7 @@ export function Setup() {
           <div className="field"><label htmlFor="em">Work email</label><input id="em" className="input" type="email" value={f.email} onChange={set('email')} required /></div>
           <div className="field"><label htmlFor="pw">Password</label><input id="pw" className="input" type="password" autoComplete="new-password" value={f.password} onChange={set('password')} required /><span className="hint">At least 10 characters, with letters and a number.</span></div>
           {err && <ErrorBanner error={err} />}
-          <Button variant="primary" size="lg" busy={busy} icon={Smartphone}>Continue to two-step sign-in</Button>
+          <Button variant="primary" size="lg" busy={busy} icon={twoStep ? Smartphone : Lock}>{twoStep ? 'Continue to two-step sign-in' : 'Set up and sign in'}</Button>
         </form>
       )}
     </AuthLayout>
@@ -133,16 +148,19 @@ export function AcceptInvite() {
   const { token } = useParams();
   const { refresh } = useAuth();
   const nav = useNavigate();
-  const [info, setInfo] = useState<{ name: string; email: string; role: string } | null>(null);
+  const [info, setInfo] = useState<{ name: string; email: string; role: string; twoStep?: boolean } | null>(null);
   const [password, setPassword] = useState('');
-  const [enroll, setEnroll] = useState<{ ticket: string; secret: string; qr: string } | null>(null);
+  const [enroll, setEnroll] = useState<Enroll | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => { api(`/auth/invite/${token}`).then(setInfo).catch((e) => setErr(e.message)); }, [token]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr(null);
-    try { setEnroll(await post(`/auth/invite/${token}`, { password })); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+    try {
+      const r = await post<Step>(`/auth/invite/${token}`, { password });
+      if (r.ok) { await refresh(); nav('/', { replace: true }); } else setEnroll(enrollOf(r));
+    } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
   };
   return (
     <AuthLayout>
@@ -153,7 +171,7 @@ export function AcceptInvite() {
           <div><h2>Welcome, {info.name.split(' ')[0]}</h2><p className="muted" style={{ marginTop: 4 }}>You're joining Hoolam Console as <b>{info.role.charAt(0) + info.role.slice(1).toLowerCase()}</b>, signing in as {info.email}.</p></div>
           <div className="field"><label htmlFor="pw">Choose a password</label><input id="pw" className="input" type="password" autoComplete="new-password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} required /><span className="hint">At least 10 characters, with letters and a number.</span></div>
           {err && <ErrorBanner error={err} />}
-          <Button variant="primary" size="lg" busy={busy} icon={Smartphone}>Continue to two-step sign-in</Button>
+          <Button variant="primary" size="lg" busy={busy} icon={info.twoStep ? Smartphone : Lock}>{info.twoStep ? 'Continue to two-step sign-in' : 'Join and sign in'}</Button>
         </form>
       )}
     </AuthLayout>

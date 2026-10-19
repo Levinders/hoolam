@@ -73,18 +73,35 @@ export class AuthError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
 
+/** What comes after a password: signed in, the code step, or setting up an authenticator. */
+export type SignInStep =
+  | { session: { token: string; maxAgeSeconds: number } }
+  | { ticket: string }
+  | { enroll: { ticket: string; secret: string; qr: string } };
+
 /**
- * Staff accounts. Every login needs a password AND a code from an authenticator app.
+ * Staff accounts. Signing in needs the email and password, plus a code from an authenticator app while
+ * Settings → Security → "Authenticator code at sign-in" is on (off by default). Authenticators are kept when it's off.
  * Sessions live in the database (only a hash of the cookie is stored), expire after 7 days or 12 idle hours.
  */
 export class StaffAuth {
   /** Short-lived steps between "password OK" and "code OK", or during setup. Kept in memory on purpose. */
   private tickets = new Map<string, { staffId: string; kind: 'login' | 'enroll'; secret?: string; expires: number }>();
 
-  constructor(private readonly db: Db, private readonly o: { setupToken: string; baseUrl: string }) {}
+  constructor(private readonly db: Db, private readonly o: { setupToken: string; baseUrl: string; twoStep?: () => boolean }) {}
+
+  /** Whether signing in needs the authenticator code right now. */
+  twoStep(): boolean { return this.o.twoStep ? this.o.twoStep() : true; }
 
   async hasOwner(): Promise<boolean> {
-    return ((await this.db.query(`SELECT 1 FROM staff WHERE role='OWNER' AND active AND totp_enabled LIMIT 1`)).rowCount ?? 0) > 0;
+    return ((await this.db.query(`SELECT 1 FROM staff WHERE role='OWNER' AND active AND (totp_enabled OR password_hash IS NOT NULL) LIMIT 1`)).rowCount ?? 0) > 0;
+  }
+
+  /** After the password: straight in (code off), the code step, or setting up an authenticator (code on, none yet). */
+  private async next(s: { id: string; name: string; role: string; email: string; totp_enabled: boolean }, meta: { ip: string | null; ua: string | null }): Promise<SignInStep> {
+    if (!this.twoStep()) return { session: await this.startSession(s, meta) };
+    if (!s.totp_enabled) return { enroll: await this.enrollment(s.id, s.email) };
+    return { ticket: this.ticket(s.id, 'login') };
   }
 
   private ticket(staffId: string, kind: 'login' | 'enroll', secret?: string): string {
@@ -108,7 +125,8 @@ export class StaffAuth {
   }
 
   /** The very first owner. Proven with the ADMIN_TOKEN from Render, then sets up their authenticator. */
-  async setupOwner(input: { setupToken: string; name: string; email: string; password: string }, ip: string | null) {
+  async setupOwner(input: { setupToken: string; name: string; email: string; password: string }, meta: { ip: string | null; ua: string | null }): Promise<SignInStep> {
+    const ip = meta.ip;
     if (await this.hasOwner()) throw new AuthError('The console is already set up. Please sign in.', 409);
     const a = Buffer.from(input.setupToken ?? ''), b = Buffer.from(this.o.setupToken);
     if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AuthError('That setup key is not right. Copy ADMIN_TOKEN from Render → Environment.', 401);
@@ -121,11 +139,12 @@ export class StaffAuth {
        ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name, role='OWNER', password_hash=EXCLUDED.password_hash, active=true RETURNING id`,
       [email, input.name.trim().slice(0, 60), await hashPassword(input.password)]);
     await audit(this.db, { staffId: r.rows[0].id, name: input.name.trim(), role: 'OWNER', ip }, { action: 'console.setup', targetType: 'staff', targetId: r.rows[0].id });
-    return this.enrollment(r.rows[0].id, email);
+    return this.next({ id: r.rows[0].id, name: input.name.trim(), role: 'OWNER', email, totp_enabled: false }, meta);
   }
 
-  /** Step 1 of signing in: email + password. Returns a ticket for the authenticator code. */
-  async login(emailIn: string, password: string, ip: string | null): Promise<{ ticket: string }> {
+  /** Step 1 of signing in: email + password. Then straight in, or on to the authenticator code (see next()). */
+  async login(emailIn: string, password: string, meta: { ip: string | null; ua: string | null }): Promise<SignInStep> {
+    const ip = meta.ip;
     const email = cleanEmail(emailIn);
     const r = await this.db.query('SELECT id, name, role, password_hash, active, totp_enabled, failed_logins, locked_until FROM staff WHERE email=$1', [email]);
     const s = r.rows[0];
@@ -142,9 +161,9 @@ export class StaffAuth {
       return fail();
     }
     if (s.locked_until && new Date(s.locked_until) > new Date()) throw new AuthError(`Too many tries. Try again in ${LOCK_MINUTES} minutes.`, 429);
+    if (!s.password_hash) { await hashPassword('timing-equaliser'); return fail('That email and password don\'t match. New to the team, or had your login reset? Use the invite link the owner sent you.'); }
     if (!(await verifyPassword(password ?? '', s.password_hash))) return fail();
-    if (!s.totp_enabled) throw new AuthError('Your account isn\'t finished. Open your invite link to set it up.', 403);
-    return { ticket: this.ticket(s.id, 'login') };
+    return this.next({ ...s, email }, meta);
   }
 
   /** Step 2: the 6-digit code. Returns a session token for the cookie. */
@@ -206,8 +225,8 @@ export class StaffAuth {
     if (!ROLES.includes(input.role)) throw new AuthError('Pick a role.');
     if (!input.name?.trim()) throw new AuthError('Please enter their name.');
     const email = cleanEmail(input.email);
-    const existing = (await this.db.query('SELECT id, totp_enabled FROM staff WHERE email=$1', [email])).rows[0];
-    if (existing?.totp_enabled) throw new AuthError('Someone with that email is already on the team.', 409);
+    const existing = (await this.db.query('SELECT id, totp_enabled, password_hash FROM staff WHERE email=$1', [email])).rows[0];
+    if (existing?.totp_enabled || existing?.password_hash) throw new AuthError('Someone with that email is already on the team.', 409);
     const r = await this.db.query(
       `INSERT INTO staff (email, name, role, access_whatsapp, access_live, access_ambassadors) VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, access_whatsapp=EXCLUDED.access_whatsapp, access_live=EXCLUDED.access_live, access_ambassadors=EXCLUDED.access_ambassadors, active=true RETURNING id`,
@@ -234,7 +253,8 @@ export class StaffAuth {
     return r.rows[0] as { id: string; email: string; name: string; role: Role };
   }
 
-  async acceptInvite(token: string, password: string, ip: string | null) {
+  async acceptInvite(token: string, password: string, meta: { ip: string | null; ua: string | null }): Promise<SignInStep> {
+    const ip = meta.ip;
     const info = await this.inviteInfo(token);
     const weak = weakPassword(password ?? '');
     if (weak) throw new AuthError(weak);
@@ -242,7 +262,7 @@ export class StaffAuth {
     await this.db.query('UPDATE staff_invites SET used_at=now() WHERE id=$1', [sha256(token)]);
     await this.db.query('DELETE FROM staff_sessions WHERE staff_id=$1', [info.id]);
     await audit(this.db, { staffId: info.id, name: info.name, role: info.role, ip }, { action: 'staff.invite_accepted', targetType: 'staff', targetId: info.id });
-    return this.enrollment(info.id, info.email);
+    return this.next({ id: info.id, name: info.name, role: info.role, email: info.email, totp_enabled: false }, meta);
   }
 
   async setRole(actor: Actor, staffId: string, role: Role) {
@@ -274,8 +294,9 @@ export class StaffAuth {
     await audit(this.db, actor, { action: active ? 'staff.reactivate' : 'staff.deactivate', targetType: 'staff', targetId: staffId });
   }
 
+  /** A new invite link: the old password and authenticator stop working, they choose a new password from the link. */
   async resetLogin(actor: Actor, staffId: string) {
-    await this.db.query('UPDATE staff SET totp_enabled=false, totp_secret=NULL WHERE id=$1', [staffId]);
+    await this.db.query('UPDATE staff SET totp_enabled=false, totp_secret=NULL, password_hash=NULL WHERE id=$1', [staffId]);
     await this.db.query('DELETE FROM staff_sessions WHERE staff_id=$1', [staffId]);
     const url = await this.newInvite(staffId, actor.staffId);
     await audit(this.db, actor, { action: 'staff.reset_login', targetType: 'staff', targetId: staffId });

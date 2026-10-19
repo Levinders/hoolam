@@ -27,7 +27,7 @@ export function Team() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Team</h1><p className="lede">Who can sign in to the console, and what each person can do. Everyone signs in with a password and a code from their phone.</p></div>
+        <div><h1>Team</h1><p className="lede">Who can sign in to the console, and what each person can do. Everyone signs in with their email and password{data?.twoStep ? ', plus a code from their phone' : ''} (Settings → Security).</p></div>
         {manage && <div className="actions"><Button variant="primary" icon={UserPlus} onClick={() => setInvite(true)}>Invite someone</Button></div>}
       </div>
       <div className="grid side">
@@ -49,10 +49,11 @@ export function Team() {
                       <span className="row" style={{ gap: 3 }}><ThumbsUp style={{ width: 13, color: 'var(--green)' }} />{s.chat_up}</span>
                       <span className="row" style={{ gap: 3 }}><ThumbsDown style={{ width: 13, color: 'var(--red)' }} />{s.chat_down}</span></div>}
                   </td>
-                  <td>{!s.active ? <span className="pill grey">Deactivated</span> : !s.totp_enabled ? <span className="pill gold">Invite not accepted</span> : <span className="pill green">Active</span>}</td>
+                  <td>{!s.active ? <span className="pill grey">Deactivated</span> : !s.joined ? <span className="pill gold">Invite not accepted</span> : <span className="pill green">Active</span>}
+                    {s.active && s.joined && !s.totp_enabled && <div className="cell-sub" title="Set up at their next sign-in while the authenticator code is on (Settings → Security)">No authenticator yet</div>}</td>
                   <td className="muted nowrap" title={dateTime(s.last_action_at ?? s.last_login_at)}>{s.last_action_at ? ago(s.last_action_at) : s.last_login_at ? ago(s.last_login_at) : 'Never'}{s.actions_30d ? <div className="cell-sub">{s.actions_30d} action{s.actions_30d === 1 ? '' : 's'} in 30 days</div> : null}</td>
                   <td className="r">{manage && s.id !== me?.id && (<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                    <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setConfirm({ kind: 'reset', s })}>{s.totp_enabled ? 'Reset login' : 'New invite link'}</Button>
+                    <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setConfirm({ kind: 'reset', s })}>{s.joined ? 'Reset login' : 'New invite link'}</Button>
                     {s.active ? <Button size="sm" variant="ghost" icon={UserMinus} onClick={() => setConfirm({ kind: 'deactivate', s })}>Deactivate</Button>
                       : <Button size="sm" variant="ghost" icon={UserCheck} onClick={() => setConfirm({ kind: 'reactivate', s })}>Reactivate</Button>}
                   </div>)}</td>
@@ -77,7 +78,7 @@ export function Team() {
         icon={confirm.kind === 'reset' ? KeyRound : confirm.kind === 'deactivate' ? UserMinus : UserCheck} tone={confirm.kind === 'deactivate' ? 'danger' : 'gold'}
         title={confirm.kind === 'reset' ? `Reset ${confirm.s.name}'s login?` : confirm.kind === 'deactivate' ? `Deactivate ${confirm.s.name}?` : `Reactivate ${confirm.s.name}?`}
         confirmLabel={confirm.kind === 'reset' ? 'Reset and get a link' : confirm.kind === 'deactivate' ? 'Deactivate' : 'Reactivate'}
-        description={confirm.kind === 'reset' ? 'They\'re signed out everywhere and get a new link to set a password and authenticator. Use this if they lost their phone.' : confirm.kind === 'deactivate' ? 'They\'re signed out straight away and can\'t sign in. Their past actions stay in the audit trail.' : 'They can sign in again with their existing password and authenticator.'}
+        description={confirm.kind === 'reset' ? 'They\'re signed out everywhere, their old password stops working, and they get a new link to choose a password (and set up their authenticator when the code is on). Use this if they forgot their password or lost their phone.' : confirm.kind === 'deactivate' ? 'They\'re signed out straight away and can\'t sign in. Their past actions stay in the audit trail.' : 'They can sign in again with their existing password (and authenticator, when the code is on).'}
         onClose={() => setConfirm(null)}
         onConfirm={async () => {
           if (confirm.kind === 'reset') { const r = await post(`/team/${confirm.s.id}/reset`); setLink({ name: confirm.s.name, url: r.inviteUrl }); }
@@ -128,7 +129,7 @@ function LinkModal({ name, url, onClose }: { name: string; url: string; onClose:
   const { copied, copy } = useCopy();
   return (
     <Modal onClose={onClose} label="Invite link">
-      <div className="modal-head"><div className="mi gold"><KeyRound /></div><div><h2>Send this link to {name.split(' ')[0]}</h2><p>Send it privately (WhatsApp or email). It works once and expires in 3 days. They'll set a password and their authenticator.</p></div></div>
+      <div className="modal-head"><div className="mi gold"><KeyRound /></div><div><h2>Send this link to {name.split(' ')[0]}</h2><p>Send it privately (WhatsApp or email). It works once and expires in 3 days. They'll choose a password and sign in.</p></div></div>
       <div className="modal-body"><div className="secret" style={{ background: 'var(--sunk)', padding: 12, borderRadius: 10 }}>{url}</div></div>
       <div className="modal-foot"><Button variant="ghost" onClick={onClose}>Done</Button><Button variant="primary" icon={Copy} onClick={() => copy(url)}>{copied ? 'Copied' : 'Copy link'}</Button></div>
     </Modal>

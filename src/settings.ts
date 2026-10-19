@@ -13,7 +13,7 @@ export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' |
 
 export interface SettingDef {
   key: string;
-  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact' | 'Features' | 'Ambassadors';
+  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact' | 'Features' | 'Ambassadors' | 'Security';
   /** Within a feature's settings: the heading it sits under (Earnings, Payouts…). */
   sub?: string;
   label: string;
@@ -65,6 +65,7 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'amb_apply_web', group: 'Ambassadors', sub: 'Joining', label: 'Applications on the website', help: 'People can apply on hoolam.com/ambassadors.', type: 'boolean', core: true },
   { key: 'amb_apply_whatsapp', group: 'Ambassadors', sub: 'Joining', label: 'Applications in WhatsApp', help: 'People can apply from the WhatsApp menu.', type: 'boolean', core: true },
   { key: 'amb_menu_after', group: 'Ambassadors', sub: 'Joining', label: 'Show in the menu after', help: 'Completed orders someone needs before "Become an ambassador" shows in their WhatsApp menu. Ambassadors and people who applied always see it.', type: 'number', min: 0, max: 50, core: true },
+  { key: 'two_step_login', group: 'Security', label: 'Authenticator code at sign-in', help: 'On: signing in to the console needs the email, the password and the 6-digit code from an authenticator app. Off: the email and password are enough. Authenticators already set up are kept, so turning it back on works straight away; anyone without one sets it up at their next sign-in.', type: 'boolean', core: true },
   { key: 'forms_enabled', group: 'WhatsApp', label: 'WhatsApp forms', help: 'Offer the buy and sell forms (needs Meta business verification).', type: 'boolean' },
 ];
 
@@ -91,7 +92,7 @@ export class Settings {
       unpaid_close_hours: 72, rep_reply_minutes: 30, problem_reply_hours: 24, handover_code_tries: 5,
       seller_accept_hours: this.c.SELLER_ACCEPT_HOURS, nudge_after_hours: this.c.NUDGE_AFTER_HOURS, flag_after_hours: this.c.FLAG_AFTER_HOURS,
       whatsapp_number: this.c.WHATSAPP_PUBLIC_NUMBER.replace(/\D/g, ''),
-      alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM, feature_seller_stats: false,
+      alerts_enabled: true, forms_enabled: this.c.WHATSAPP_BUY_FORM, feature_seller_stats: false, two_step_login: false,
       feature_ambassadors: false, amb_seller_pct: 20, amb_buyer_pct: 10, amb_seller_bonus: 1000, amb_bonus_orders: 3,
       amb_payout_day: 1, amb_payout_min: 5000, amb_term_3: true, amb_term_6: true, amb_term_12: true, amb_notice_days: 7,
       amb_apply_web: true, amb_apply_whatsapp: true, amb_menu_after: 1,
