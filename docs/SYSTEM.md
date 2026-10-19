@@ -90,6 +90,7 @@ Owner-only values are marked. Changes apply to new orders; an order keeps the fe
 | Timing | Reps reply within; problem cases answered within | 30 min; 24 h |
 | WhatsApp | Hoolam's WhatsApp number (owner); alerts by number; WhatsApp forms | on; on |
 | Contact | Email, phone for calls, social links | shown on the website and legal pages |
+| Security (owner) | Authenticator code at sign-in | off |
 | Features | Ambassadors (off by default; settings folded under the card): Earnings (seller share 20%, buyer share 10%, seller bonus ₦1,000 after 3 completed orders), Payouts (day 1, minimum ₦5,000), Terms (3, 6, 12 months; notice 7 days), Joining (website and WhatsApp applications on; menu after 1 completed order) |
 | Brand | The logo icon (shared by every home page version; the name Hoolam is written beside it as text), then the website content: which home page version is live and each version's images | built-in Hoolam logo; 1.0.0 |
 
@@ -477,7 +478,7 @@ WhatsApp only lets Hoolam message someone who hasn't written in 24 hours with a 
 
 The console at console.hoolam.com is where the team watches orders, moves money when needed, answers people and changes settings. Every action is saved to the audit trail with who did it and why.
 
-**Sign-in:** email, password and an authenticator code (2-step). The first owner is set up with `ADMIN_TOKEN`; others are invited by email link.
+**Sign-in:** email and password; plus a 6-digit authenticator code when **Settings → Security → Authenticator code at sign-in** is on (owner only; **off by default**). Off: setup, invite links and sign-in go straight in. On: anyone without an authenticator is shown a QR code to set one up right after their password. Authenticators already set up are kept while it's off. Either way, 5 wrong passwords lock the account for a while and sessions end after 12 idle hours. **Reset login** (Team) signs the person out, clears their old password and authenticator, and gives a new invite link. Team shows "No authenticator yet" for people who haven't set one up. The first owner is set up with `ADMIN_TOKEN`; others are invited by link.
 
 | Page | What it's for |
 | --- | --- |
@@ -622,6 +623,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 19 Oct 2026 | Console sign-in: the authenticator code is a setting (Settings → Security, owner only), off by default, so the email and password are enough; when on, people without an authenticator set one up after their password; Reset login also clears the old password; Team shows "No authenticator yet" | 9f8815a |
 | 18 Oct 2026 | Ambassadors page: money icon above the headline; the earn cards show only the amount and title; "Set up once" no longer mentions the term; Questions renamed "We get frequently asked" | f0b9bd5 |
 | 18 Oct 2026 | Ambassador programme (off by default): applications on the website and WhatsApp, setup, terms, link pages hoolam.com/a/<name>, earnings and holds, monthly payouts (Mark as paid), WhatsApp screen and messages, web dashboard with WhatsApp sign-in code, console Ambassadors page and Features card; site menu "Ambassador" / "Become an ambassador", footer Product list trimmed from 1.2.0; Ambassador agreement and legal updates, effective 18 October 2026; migration 026 | 72b6dbe, 6e7be7d |
 | 16 Oct 2026 | Home page (1.2.0 and draft): removed the Ivana/Musa line under "Who go trust who?" (only "It happens every day." stays) and the "Starting from … Max … Orders up to …" line under Pricing; the calculator now says "Type the order amount" | 812b35c |
