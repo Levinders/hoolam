@@ -1,8 +1,9 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { AMB_CHANNELS, AMB_KNOWS, AMB_REACH, AmbassadorError, amsg, dayText, monthKey, monthLabel, NG_STATES, type Ambassadors } from '../ambassadors.js';
+import { AMB_CHANNELS, AMB_KNOWS, AMB_REACH, AmbassadorError, amsg, dayText, firstOf, monthKey, monthLabel, NG_STATES, type Ambassadors } from '../ambassadors.js';
 import type { User } from '../deals/service.js';
 import type { Outbound, SendStatus } from './client.js';
 import type { KycNext } from './flow.js';
+import { ART, CLIP } from '../chat-art/build.js';
 
 /**
  * THE AMBASSADOR PROGRAMME IN WHATSAPP
@@ -62,6 +63,7 @@ export class AmbassadorChat {
     const bonus = cfg.bonusMinor ? `\n💰 *${this.m(cfg.bonusMinor)} bonus* for each new seller, once they complete ${cfg.bonusOrders} orders` : '';
     return this.c.send(phone, {
       kind: 'buttons',
+      art: ART.picture('amb-intro'),
       text: `🤝 *Become a Hoolam ambassador*\n\nBring sellers and buyers to Hoolam and earn from every order they complete:\n\n🏷️ *${pct(cfg.sellerPct)}* of what Hoolam earns on orders from sellers you bring\n🛒 *${pct(cfg.buyerPct)}* on orders from buyers you bring${bonus}\n🏦 Paid to your bank every month\n\n${PERF}\n\nIt takes about 2 minutes to apply. We reply within 24 hours.`,
       buttons: [{ id: 'amb:apply', title: 'Apply now' }, { id: 'menu:open', title: 'Main menu' }],
     });
@@ -135,6 +137,7 @@ export class AmbassadorChat {
     await this.c.save(phone, 'AMB_PHOTO', { setup });
     return this.c.send(phone, {
       kind: 'buttons',
+      art: ART.picture('photo-tips'),
       text: `📸 *Add your photo${setup ? ' (optional)' : ''}*\n\nSend a clear photo of your face. It shows on your link with your first name, so people know it's you.\n\nBy sending it, you agree your photo and first name show on your link.`,
       buttons: setup ? [{ id: 'amb:nophoto', title: 'Skip for now' }] : [{ id: 'amb:screen', title: 'Cancel' }],
     });
@@ -241,6 +244,7 @@ export class AmbassadorChat {
     const cfg = this.a.cfg();
     return this.c.send(phone, {
       kind: 'buttons',
+      art: ART.ambWelcome(o.firstName || '', o.linkText ?? null),
       text: `🎉 *You're live, ${o.firstName || 'ambassador'}!*\n\nYour link: *${o.linkText}*\n\n*How you earn*\n🏷️ ${pct(o.pct.seller)} of what Hoolam earns on orders from sellers you bring\n🛒 ${pct(o.pct.buyer)} on orders from buyers you bring` +
         (cfg.bonusMinor ? `\n💰 ${this.m(cfg.bonusMinor)} for each new seller, once they complete ${cfg.bonusOrders} orders` : '') +
         `\n🏦 Paid on the ${ordinal(cfg.payoutDay)} of every month, from ${this.m(cfg.payoutMinMinor)}\n\n${PERF}\n\n🚫 Never collect money for Hoolam or ask anyone for a PIN or code. All money goes through Hoolam only.`,
@@ -276,9 +280,10 @@ export class AmbassadorChat {
   private async share(phone: string, user: User): Promise<unknown> {
     const amb = await this.a.get(user.id);
     if (!amb?.slug || amb.status !== 'ACTIVE') return this.open(phone, user);
-    await this.c.send(phone, { kind: 'text', text: '👇 Forward the next message to your WhatsApp status, groups and chats.', noMenu: true });
+    await this.c.send(phone, { kind: 'text', text: '👇 Forward the next message (the picture and its words) to your WhatsApp status, groups and chats.', noMenu: true });
     return this.c.send(phone, {
       kind: 'text', noMenu: true,
+      art: ART.ambShare(firstOf(user.display_name) || '', this.a.linkText(amb.slug), amb.area ?? null, user.id), clips: CLIP.ambShare,
       text: `Buying or selling on WhatsApp? Use Hoolam 🛡️\nYour money is held safely until you get what you ordered. No more "pay first and pray".\n\nStart here 👉 ${this.a.linkUrl(amb.slug)}`,
     });
   }

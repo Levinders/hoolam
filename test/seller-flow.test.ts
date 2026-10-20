@@ -188,7 +188,7 @@ describe('Sell something: the mirror of Buy something', () => {
     await h.app.deals.handleCollection(r.rows[0].provider_reference);
     expect(h.last(seller)).toMatch(/💰 \*Ada\* has paid[\s\S]*Dispatch it now[\s\S]*\[🚚 Dispatch now\] \[❌ Can't fulfil\]/);
     await h.handOver(seller, code);
-    expect(h.last(buyer)).toMatch(/handed over to you/);
+    expect(h.last(buyer)).toMatch(/it's with you/);
     await h.tap(buyer, `happy:${code}`);
     const p = await h.db.query(`SELECT kind, amount_minor FROM payouts WHERE deal_id=(SELECT id FROM deals WHERE code=$1)`, [code]);
     expect(p.rows.map((x) => [x.kind, Number(x.amount_minor)])).toEqual([['SELLER', 1_460_000]]);

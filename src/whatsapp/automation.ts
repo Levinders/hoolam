@@ -5,6 +5,7 @@ import { buyEditFlowJson, buyEditFlowName, buyFlowJson, buyFlowName, sellEditFlo
 import { ordersFlowJson } from './orders-flow.js';
 import { ambApplyFlowJson, ambApplyFlowName, ambDetailsFlowJson } from './amb-flow.js';
 import type { Template } from './client.js';
+import type { Art } from '../chat-art/index.js';
 
 /**
  * The things WhatsApp shows before anyone types:
@@ -138,7 +139,7 @@ export interface TemplateDef {
   replacesParams?: number[];
   /** When the replaced version has fewer buttons: how many it has. */
   replacesButtons?: number;
-  /** A picture at the top (the item's photo). The replaced version has none. */
+  /** A picture at the top (the item's photo, or a Hoolam card from src/chat-art). The replaced version has none. */
   headerImage?: boolean;
 }
 
@@ -150,7 +151,7 @@ export interface TemplateDef {
  */
 export const DEAL_TEMPLATES = {
   sellerAccepted: {
-    name: 'hoolam_order_accepted_pay', replaces: 'hoolam_order_accepted', replacesButtons: 1, label: 'Seller accepted, pay now (to the buyer)',
+    name: 'hoolam_order_accepted_pay_v2', replaces: 'hoolam_order_accepted_pay', headerImage: true, label: 'Seller accepted, pay now (to the buyer)',
     body: 'Good news: the seller *accepted your order!* Order *{{1}}*.\n\nPay *{{2}}* to Hoolam to start. *Your money stays with Hoolam until you have your item and you are happy.*',
     example: ['HL-7K2QF', '₦15,300'], buttons: ['Pay now', 'Cancel order'],
   },
@@ -160,32 +161,32 @@ export const DEAL_TEMPLATES = {
     example: ['HL-7K2QF', '₦18,000', 'The price went up at the market', '₦450', '₦18,450'], buttons: ['Accept new price', 'Cancel order'],
   },
   paymentReceived: {
-    name: 'hoolam_order_paid_v2', replaces: 'hoolam_order_paid', label: 'Buyer paid (to the seller)',
+    name: 'hoolam_order_paid_v3', replaces: 'hoolam_order_paid_v2', headerImage: true, label: 'Buyer paid (to the seller)',
     body: 'The buyer has paid for order *{{1}}*. Your *{{2}}* is held safely by Hoolam.\n\nSend the item now, then tap below.',
     example: ['HL-7K2QF', '₦15,000'], buttons: ['I have sent it'],
   },
   itemOnTheWay: {
-    name: 'hoolam_order_on_the_way', replaces: 'hoolam_item_on_the_way', label: 'Item on the way (to the buyer)',
+    name: 'hoolam_order_on_the_way_v2', replaces: 'hoolam_order_on_the_way', headerImage: true, label: 'Item on the way (to the buyer)',
     body: 'Your item for order {{1}} is on the way.\n\nWhen it arrives, open it and check it. Your money stays held by Hoolam until you tell us.',
     example: ['HL-7K2QF'], buttons: ["I'm happy", 'Problem'],
   },
   confirmReminder: {
-    name: 'hoolam_order_arrived_check', replaces: 'hoolam_confirm_reminder', label: 'Has it arrived? (to the buyer)',
+    name: 'hoolam_order_arrived_check_v2', replaces: 'hoolam_order_arrived_check', headerImage: true, label: 'Has it arrived? (to the buyer)',
     body: 'Has your item for order {{1}} arrived? Your {{2}} is still held safely by Hoolam.\n\nCheck it, then tell us below.',
     example: ['HL-7K2QF', '₦15,300'], buttons: ["I'm happy", 'Problem'],
   },
   sellerPaid: {
-    name: 'hoolam_order_payout_sent', replaces: 'hoolam_seller_paid', label: 'You have been paid (to the seller)',
+    name: 'hoolam_order_payout_sent_v2', replaces: 'hoolam_order_payout_sent', headerImage: true, label: 'You have been paid (to the seller)',
     body: "You've been paid for order {{1}}. {{2}} has been sent to your {{3}} account.\n\nThank you for selling safely with Hoolam.",
     example: ['HL-7K2QF', '₦15,000', 'GTBank'],
   },
   refundSent: {
-    name: 'hoolam_order_refund_sent', replaces: 'hoolam_refund_sent', label: 'Refund sent (to the buyer)',
+    name: 'hoolam_order_refund_sent_v2', replaces: 'hoolam_order_refund_sent', headerImage: true, label: 'Refund sent (to the buyer)',
     body: 'Your refund for order {{1}} has been sent. {{2}} is on its way to your {{3}} account.\n\nThank you for your patience.',
     example: ['HL-7K2QF', '₦15,300', 'Opay'],
   },
   problemReported: {
-    name: 'hoolam_order_problem', replaces: 'hoolam_problem_reported', label: 'Buyer reported a problem (to the seller)',
+    name: 'hoolam_order_problem_v2', replaces: 'hoolam_order_problem', headerImage: true, label: 'Buyer reported a problem (to the seller)',
     body: 'The buyer reported a problem with order {{1}}. The money stays held while the Hoolam team looks into it.\n\nTap below to send us your side.',
     example: ['HL-7K2QF'], buttons: ['Talk to a rep'],
   },
@@ -200,19 +201,19 @@ export const DEAL_TEMPLATES = {
     example: ['HL-7K2QF'], buttons: ['Start another'],
   },
   paidDispatch: {
-    name: 'hoolam_order_paid_dispatch_v2', replaces: 'hoolam_order_paid_dispatch', label: 'Buyer paid, dispatch now (to the seller)',
+    name: 'hoolam_order_paid_dispatch_v3', replaces: 'hoolam_order_paid_dispatch_v2', headerImage: true, label: 'Buyer paid, dispatch now (to the seller)',
     body: 'The buyer has paid for order *{{1}}*. Your *{{2}}* is held safely by Hoolam.\n\nDispatch it now: tell us if it is a pickup, a rider or a waybill.',
     example: ['HL-7K2QF', '₦15,000'], buttons: ['Dispatch now'],
   },
   orderDispatched: {
     // No mention of the handover code at all: Meta reads any "code" in a utility template as a login/OTP message and
     // rejects it (it did, twice). The button brings up the delivery details and the code in the chat instead.
-    name: 'hoolam_order_dispatched_notice', label: 'Order dispatched (to the buyer)',
+    name: 'hoolam_order_dispatched_notice_v2', replaces: 'hoolam_order_dispatched_notice', headerImage: true, label: 'Order dispatched (to the buyer)',
     body: 'Good news: your order {{1}} has been dispatched and is on its way to you.\n\nTap below to see the delivery details. Your money stays with Hoolam until you have your item and are happy.',
     example: ['HL-7K2QF'], buttons: ['Delivery details', 'Problem'],
   },
   handedOver: {
-    name: 'hoolam_order_handed_over', label: 'Handed over, check it now (to the buyer)',
+    name: 'hoolam_order_handed_over_v2', replaces: 'hoolam_order_handed_over', headerImage: true, label: 'Handed over, check it now (to the buyer)',
     body: 'Order {{1}} has been handed over to you. Check it now, then tell us below.\n\nIf we do not hear from you within {{2}}, the seller is paid.',
     example: ['HL-7K2QF', '24 hours'], buttons: ["I'm happy", 'Problem'],
   },
@@ -251,7 +252,7 @@ export const DEAL_TEMPLATES = {
   courierJob: {
     // To the rider or waybill driver at dispatch. No "code" anywhere (Meta rejects it in utility templates):
     // the button opens the chat, which then asks for the 4-digit code from the receiver.
-    name: 'hoolam_delivery_for_rider', label: 'Delivery details and fee (to the rider or driver)',
+    name: 'hoolam_delivery_for_rider_v2', replaces: 'hoolam_delivery_for_rider', headerImage: true, label: 'Delivery details and fee (to the rider or driver)',
     body: '🛵 *Delivery on Hoolam* from {{1}}\n\n👤 Receiver: *{{2}}*\n📞 {{3}}\n📍 Deliver to: {{4}}\n\n💸 Your delivery fee: *{{5}}*\n🏦 Paid to: {{6}}\n\n' +
       'When you hand over the item, tap Confirm delivery. Your fee is paid as soon as the receiver is confirmed.',
     example: ['Bayo Kicks', 'Ada', '08031234567', '12 Woji Road, Port Harcourt', '₦2,000', 'Musa Ibrahim, OPay 9876543210'],
@@ -272,12 +273,12 @@ export type DealTemplateKey = keyof typeof DEAL_TEMPLATES;
  */
 export const AMB_TEMPLATES = {
   approved: {
-    name: 'hoolam_ambassador_approved', label: 'Ambassador application approved',
+    name: 'hoolam_ambassador_approved_v2', replaces: 'hoolam_ambassador_approved', headerImage: true, label: 'Ambassador application approved',
     body: 'Good news, {{1}}: your application to be a *Hoolam ambassador* is approved.\n\nTap Get started to finish setting up. It takes a few minutes.',
     example: ['Tobi'], buttons: ['Get started'],
   },
   invited: {
-    name: 'hoolam_ambassador_added', label: 'Added as an ambassador by the team',
+    name: 'hoolam_ambassador_added_v2', replaces: 'hoolam_ambassador_added', headerImage: true, label: 'Added as an ambassador by the team',
     body: 'Hello {{1}}, the Hoolam team has added you as a *Hoolam ambassador*. You earn a share of what Hoolam makes on orders from the sellers and buyers you bring.\n\nTap Get started to set up.',
     example: ['Tobi'], buttons: ['Get started'],
   },
@@ -287,7 +288,7 @@ export const AMB_TEMPLATES = {
     example: ['someone new joined Hoolam with your link.'], buttons: ['Ambassador'],
   },
   paid: {
-    name: 'hoolam_ambassador_paid', label: 'Ambassador payout sent',
+    name: 'hoolam_ambassador_paid_v2', replaces: 'hoolam_ambassador_paid', headerImage: true, label: 'Ambassador payout sent',
     body: 'We have paid *{{1}}* to your {{2}} account for your Hoolam ambassador earnings in {{3}}. Reference: {{4}}.\n\nThank you for growing Hoolam.',
     example: ['₦12,400', 'GTBank', 'October 2026', 'HLA-7K2QF'], buttons: ['Ambassador'],
   },
@@ -304,9 +305,10 @@ export const AMB_TEMPLATES = {
 } satisfies Record<string, TemplateDef & { label: string }>;
 export type AmbTemplateKey = keyof typeof AMB_TEMPLATES;
 
-export function ambTemplate(key: AmbTemplateKey, params: string[], buttonPayloads: string[] = []): Template {
+export function ambTemplate(key: AmbTemplateKey, params: string[], buttonPayloads: string[] = [], art?: Art): Template {
   const t: TemplateDef = AMB_TEMPLATES[key];
   return {
+    ...(art ? { art } : {}),
     name: t.name, language: 'en', params,
     buttonPayloads: t.buttons?.length ? buttonPayloads.slice(0, t.buttons.length) : undefined,
     buttonTitles: t.buttons,
@@ -345,9 +347,10 @@ export async function ensureSignInTemplate(o: MetaSetupOptions): Promise<string 
 }
 
 /** A ready-to-send deal update: the template, the values for {{1}}…, and what each button sends back. */
-export function dealTemplate(key: DealTemplateKey, params: string[], buttonPayloads: string[] = []): Template {
+export function dealTemplate(key: DealTemplateKey, params: string[], buttonPayloads: string[] = [], art?: Art): Template {
   const t: TemplateDef = DEAL_TEMPLATES[key];
   return {
+    ...(art ? { art } : {}),
     name: t.name, language: 'en', params,
     buttonPayloads: t.buttons?.length ? buttonPayloads.slice(0, t.buttons.length) : undefined,
     buttonTitles: t.buttons,

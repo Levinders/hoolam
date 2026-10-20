@@ -44,11 +44,11 @@ describe('the full deal', () => {
     expect(h.last(seller)).toMatch(/💰 \*Koffi\* has paid for order \*HL-[A-Z2-9]{5}\*\. Your \*₦14,600\* is held safely[\s\S]*Dispatch it now/);
 
     await h.handOver(seller, code); // pickup, the buyer's code
-    expect(h.last(buyer)).toMatch(/handed over to you/);
+    expect(h.last(buyer)).toMatch(/it's with you/);
     await h.tap(buyer, `happy:${code}`);
 
     expect(await status(code)).toBe('COMPLETED');
-    expect(h.last(seller)).toMatch(/Total price  ₦15,000\nHoolam fee  −₦400\n\*Paid to you  ₦14,600\*\n\nIt's been sent to your/);
+    expect(h.last(seller)).toMatch(/Total price  ₦15,000\nHoolam fee  −₦400\n\*Paid to you  ₦14,600\*\n\nIt's on its way to your/);
     // Everything held for the deal has been paid out; only Hoolam's ₦400 fee and the buyer's ₦500 transaction fee remain as cash.
     expect(await ledger(code)).toEqual({ 'cash:fake': 90_000, 'held:deal': 0, 'payable:seller': 0, 'revenue:fees': -90_000 });
   }, 30_000);
@@ -100,7 +100,7 @@ describe('problems and refunds', () => {
     expect(await status(code)).toBe('DISPUTED');
     expect(h.last(seller)).toMatch(/reported a problem/);
     await h.say(buyer, 'Wrong size, they sent 40 not 42');
-    expect(h.last(buyer)).toMatch(/where should the money go/);
+    expect(h.last(buyer)).toMatch(/which account should it go to/);
     await h.say(buyer, '8012345678 Opay');
     await h.tap(buyer, 'bank:yes');
     expect(h.last(buyer)).toMatch(/\*Mama\* · Order \*HL-\w+\*: got it\. Case \*C-[A-Z0-9]{6}\* is open/);
@@ -110,7 +110,7 @@ describe('problems and refunds', () => {
 
     await h.app.deals.adminRefund(code, 'Seller sent the wrong size');
     expect(await status(code)).toBe('REFUNDED');
-    expect(h.last(buyer)).toMatch(/refund of \*₦15,500\*/); // everything they paid, transaction fee included
+    expect(h.last(buyer)).toMatch(/your \*₦15,500\* is on its way back/); // everything they paid, transaction fee included
     expect(await ledger(code)).toEqual({ 'cash:fake': 0, 'held:deal': 0, 'payable:buyer': 0 });
   }, 30_000);
 
@@ -137,7 +137,7 @@ describe('payouts that need a human', () => {
     h.provider.payoutOutcome = 'NEEDS_AUTHORIZATION';
     await h.tap(buyer, `happy:${code}`);
     expect(await status(code)).toBe('PAYOUT_PENDING');
-    expect(h.last(seller)).toMatch(/payout is being processed/);
+    expect(h.last(seller)).toMatch(/payout is on its way/);
     const p = await h.db.query(`SELECT reference FROM payouts WHERE deal_id=(SELECT id FROM deals WHERE code=$1)`, [code]);
     await h.app.deals.authorizePayout(p.rows[0].reference, '123456');
     expect(await status(code)).toBe('COMPLETED');

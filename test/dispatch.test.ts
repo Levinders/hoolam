@@ -109,7 +109,7 @@ describe('dispatch', () => {
     expect(h.last(seller)).toMatch(/doesn't match.*4 tries left/s);
     await h.tap(seller, `hcode:${code}`);
     await h.say(seller, d.handover_code);
-    expect(h.last(buyer)).toMatch(/handed over to you/);
+    expect(h.last(buyer)).toMatch(/it's with you/);
     expect(h.last(buyer)).toMatch(/within \*24 hours\*/);
     const after = await deal(code);
     expect(after.handed_over_at).not.toBeNull();
@@ -279,7 +279,7 @@ describe('the rider or driver enters the code', () => {
     expect(h.transcript.filter((t) => t.phone === rider).map((t) => t.text).join('\n')).toMatch(/\*Delivery confirmed\.\* \*Ada\* has the item[\s\S]*We're sending your \*₦2,000\* to \*MUSA IBRAHIM\*/);
     expect(h.last(rider)).toMatch(/Your delivery fee is sent:\* ₦2,000 to \*MUSA IBRAHIM\*/);
     expect(h.transcript.filter((t) => t.phone === seller).map((t) => t.text).join('\n')).toMatch(/✅ \*Ada\* · Order \*HL-\w+\*: \*Musa Ibrahim\* entered the right code\. It's with \*Ada\*/);
-    expect(h.last(buyer)).toMatch(/handed over to you/);
+    expect(h.last(buyer)).toMatch(/it's with you/);
     const after = await deal(code);
     expect(after.handover_by).toBe('courier');
     expect(await payouts(code)).toEqual([{ kind: 'DELIVERY', amount_minor: 200_000, status: 'SUCCESS' }]);
@@ -331,7 +331,7 @@ describe('names and money, in full', () => {
     expect(s).toMatch(/✅ \*Ada\* · Order \*HL-\w+\* accepted\.\n\nTotal price  ₦20,000\nTransaction fee  −₦500\n\*You receive  ₦19,500\*/);
     expect(h.last(seller)).toMatch(/💰 \*Ada\* has paid for order \*HL-\w+\*[\s\S]*Total price  ₦20,000\nTransaction fee  −₦500\n\*You receive  ₦19,500\*/);
     // the buyer: the exact time the account number stops working, and what they paid
-    expect(b).toMatch(/⏳ \*This account number works until \d{1,2}:\d{2} (AM|PM) (today|tomorrow)\* \(Nigeria time\)/);
+    expect(b).toMatch(/⏳ It works until \*\d{1,2}:\d{2} (AM|PM) (today|tomorrow)\* \(Nigeria time\)/);
     expect(h.last(buyer)).toMatch(/Total price  ₦20,000\nHoolam fee  ₦500\n\*You paid  ₦20,500\*[\s\S]*We've told \*Bayo\* to send your item/);
     // My orders in the chat: the other person's name first
     await h.tap(seller, 'menu:orders');

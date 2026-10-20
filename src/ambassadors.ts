@@ -6,6 +6,8 @@ import { formatMoney, type Currency } from './money.js';
 import type { Settings } from './settings.js';
 import type { Messenger, Outbound, Template } from './whatsapp/client.js';
 import { ambTemplate } from './whatsapp/automation.js';
+import { ART } from './chat-art/build.js';
+import type { Art } from './chat-art/index.js';
 
 /**
  * THE AMBASSADOR PROGRAMME
@@ -528,7 +530,12 @@ export class Ambassadors {
         await this.o.db.query('UPDATE ambassadors SET summary_month=$2 WHERE user_id=$1', [a.user_id, monthStart(mk)]);
         const s = await this.monthSummary(a.user_id, mk);
         res.summaries++;
-        await this.send({ phone: a.phone, message: amsg.monthSummary(monthLabel(mk), this.money(s.earned), s.activeSellers, `${this.dashboardUrl()}?m=${mk}`),
+        const o = await this.overview(a.user_id, mk).catch(() => null);
+        const art = o ? ART.ambMonth({
+          name: o.firstName ?? '', month: monthLabel(mk), amount: this.money(s.earned), people: o.people.sellers.length + o.people.buyers.length, activeSellers: s.activeSellers,
+          bars: o.chart.slice(-6).map((c: { month: string; amountMinor: number }) => ({ label: monthLabel(c.month).slice(0, 3), value: c.amountMinor })),
+        }) : undefined;
+        await this.send({ phone: a.phone, message: amsg.monthSummary(monthLabel(mk), this.money(s.earned), s.activeSellers, `${this.dashboardUrl()}?m=${mk}`, art),
           fallback: ambTemplate('update', [`in ${monthLabel(mk)} you earned ${this.money(s.earned)}, from ${s.activeSellers} active seller${s.activeSellers === 1 ? '' : 's'}.`], ['menu:amb']) });
       }
     }
@@ -864,17 +871,19 @@ export const amsg = {
       ? `🤝 *Welcome${first ? `, ${first}` : ''}! You're now a Hoolam ambassador*\n\nYou earn a share of what Hoolam makes on every order from the sellers and buyers you bring, plus a bonus for each new seller.\n\nTap *Get started* to set up. It takes a few minutes.`
       : `🎉 *You're in${first ? `, ${first}` : ''}!*\n\nYour application to be a *Hoolam ambassador* is approved.\n\nTap *Get started* to finish setting up: a quick ID check, where we pay you, your term and your link. It takes a few minutes.`,
     buttons: [{ id: 'amb:setup', title: 'Get started' }],
+    art: ART.ambWelcome(first, null),
   }),
   declined: (first: string): Outbound => ({
     kind: 'text',
     text: `Hi${first ? ` ${first}` : ''}, thank you for applying to be a Hoolam ambassador.\n\nWe can't take your application right now. You're still welcome to buy and sell safely with Hoolam, and to apply again later.`,
   }),
-  joined: (): Outbound => ({ kind: 'buttons', text: '🎉 *Someone joined Hoolam with your link.*\n\nYou earn from their orders once they complete them.', buttons: [{ id: 'menu:amb', title: '🤝 Ambassador' }] }),
+  joined: (): Outbound => ({ kind: 'buttons', text: '🎉 *Someone joined Hoolam with your link.*\n\nYou earn from their orders once they complete them.', buttons: [{ id: 'menu:amb', title: '🤝 Ambassador' }], sticker: 'welldone' }),
   bonus: (seller: string, amount: string, n: number): Outbound => ({
-    kind: 'buttons', text: `💰 *${seller}* completed ${n} orders.\n\n*${amount}* bonus added to this month.`, buttons: [{ id: 'menu:amb', title: '🤝 Ambassador' }],
+    kind: 'buttons', text: `💰 *${seller}* completed ${n} orders.\n\n*${amount}* bonus added to this month.`, buttons: [{ id: 'menu:amb', title: '🤝 Ambassador' }], sticker: 'welldone',
   }),
   paid: (amount: string, bank: string, month: string, ref: string): Outbound => ({
     kind: 'buttons', text: `✅ *${amount} paid* to your ${bank} account for ${month}.\n\nReference: ${ref}\n\nThank you for growing Hoolam.`, buttons: [{ id: 'menu:amb', title: '🤝 Ambassador' }],
+    art: ART.paid('ambassador', amount, { bank, month }),
   }),
   termNotice: (months: number, ends: string, next: number | null): Outbound => ({
     kind: 'buttons',
@@ -891,7 +900,8 @@ export const amsg = {
   paused: (reason: string): Outbound => ({ kind: 'text', text: `⏸️ Your Hoolam ambassador account is paused for now.${reason ? `\n\nReason: ${reason}` : ''}\n\nWhile paused, new orders don't earn. What you earned is still paid. Talk to a rep if you have questions.` }),
   resumed: (): Outbound => ({ kind: 'buttons', text: '▶️ Your Hoolam ambassador account is active again. Orders from your people earn from now on.', buttons: [{ id: 'menu:amb', title: '🤝 Ambassador' }] }),
   photoRemoved: (): Outbound => ({ kind: 'buttons', text: 'We removed the photo on your ambassador link because it didn\'t meet our guidelines. Please send a clear photo of your face.', buttons: [{ id: 'amb:photo', title: 'Send a new photo' }] }),
-  monthSummary: (month: string, amount: string, activeSellers: number, url: string): Outbound => ({
+  monthSummary: (month: string, amount: string, activeSellers: number, url: string, art?: Art): Outbound => ({
+    ...(art ? { art } : {}),
     kind: 'buttons', text: `📊 *${month}*\n\nYou earned *${amount}* from ${activeSellers} active seller${activeSellers === 1 ? '' : 's'}.\n\nSee every naira: ${url}`, buttons: [{ id: 'menu:amb', title: '🤝 Ambassador' }],
   }),
   code: (code: string): Outbound => ({ kind: 'text', text: `🔐 *${code}* is your code to sign in to your Hoolam ambassador dashboard. It works for 10 minutes.\n\nNever share it. Hoolam will never ask you for it.` }),

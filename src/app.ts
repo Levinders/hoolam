@@ -37,7 +37,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Messenger } from './whatsapp/client.js';
 import { configureMessages, msg } from './whatsapp/messages.js';
+import { ChatArt } from './chat-art/index.js';
 import { localPhone } from './phone.js';
+import { formatMoney } from './money.js';
 import { Conversation } from './whatsapp/flow.js';
 import { parseInbound, parseStatuses, verifyMetaSignature, type Inbound } from './whatsapp/inbound.js';
 
@@ -63,6 +65,15 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // messages mention reply times and use Hoolam's number as the example: always the console's current values
   configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
   const siteMedia = new SiteMedia(db);
+  // the chat's pictures, voice notes, videos and stickers (Console → Settings → WhatsApp → Chat pictures and voice)
+  const chatArt = new ChatArt(db, {
+    media, dryRun: c.WHATSAPP_DRY_RUN, log,
+    live: {
+      number: () => localPhone(settings.waNumber()) || null,
+      ambShares: () => { const a = ambassadors.cfg(); return { seller: `${a.sellerPct}%`, buyer: `${a.buyerPct}%`, bonus: formatMoney(a.bonusMinor, c.CURRENCY) }; },
+    },
+  });
+  messenger.setArt(chatArt);
   const siteSync = new SiteSync(c.SITE_DEPLOY_HOOK, log);
   // ID checks: Prembly (live keys), pretend checks with pretend money, or off
   const checker: KycChecker = c.KYC === 'prembly'

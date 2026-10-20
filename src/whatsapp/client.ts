@@ -1,4 +1,5 @@
 import type { Queryable } from '../db.js';
+import type { Art, ChatArt, Clip, StickerName } from '../chat-art/index.js';
 
 export interface Button { id: string; title: string } // WhatsApp: max 3 buttons, title max 20 chars
 export interface ListRow { id: string; title: string; description?: string } // title max 24, description max 72
@@ -9,11 +10,22 @@ export type Outbound = (
   | { kind: 'text'; text: string; noMenu?: boolean }   // noMenu: keep it plain (e.g. a message meant to be forwarded)
   | { kind: 'location'; latitude: number; longitude: number; name?: string; address?: string } // a map pin (tap for directions)
   | { kind: 'contact'; contact: ContactCard }
-  | { kind: 'buttons'; text: string; buttons: Button[] }
+  | { kind: 'buttons'; text: string; buttons: Button[]; headerImage?: string } // headerImage: a media id shown on top (set by the Messenger from `art`)
   | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string } // max 10 rows; header/footer max 60
   | { kind: 'image'; mediaId: string; caption?: string }                                                      // caption max 1024
   | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string; live?: boolean; data?: Record<string, unknown> } // live: the form asks our endpoint for its first screen; data: fills in a form's first screen
-) & { replyTo?: string }; // replyTo: the person's message this answers (WhatsApp shows it quoted above our reply)
+) & {
+  replyTo?: string;  // the person's message this answers (WhatsApp shows it quoted above our reply)
+  art?: Art;         // a picture: on top of a button message, as a text message's picture with the text under it, or just before
+  clips?: Clip[];    // voice notes / videos after it, only if the owner has uploaded them (`once`: first time only)
+  sticker?: StickerName; // a sticker after it
+  react?: { to: string; emoji: string }; // react to their message (✅ instead of a "Got it" text)
+};
+/** The extras a message carries, kept when a message is reshaped. */
+const extrasOf = (m: Outbound) => ({
+  ...(m.replyTo ? { replyTo: m.replyTo } : {}), ...(m.art ? { art: m.art } : {}), ...(m.clips ? { clips: m.clips } : {}),
+  ...(m.sticker ? { sticker: m.sticker } : {}), ...(m.react ? { react: m.react } : {}),
+});
 
 /** A pre-approved template: the only way to message someone who hasn't written to us in the last 24 hours. */
 export interface Template {
@@ -26,6 +38,7 @@ export interface Template {
   maxParam?: number;         // longest value allowed (default 120; the support message allows 600)
   replyTo?: string;          // the person's message this answers (shown quoted)
   headerImage?: string;      // a media id for templates with a picture at the top
+  art?: Art;                 // or the picture to make for it (when the template has a picture at the top)
   codeButton?: string;       // an authentication template's code, for its "Copy code" button
 }
 
@@ -44,7 +57,7 @@ export const MENU_BUTTON: Button = { id: 'menu:open', title: 'Main menu' };
 export function withMenuOption(msg: Outbound): Outbound {
   if (msg.kind === 'text') {
     if (msg.noMenu || msg.text.length > 1024) return msg;
-    return { kind: 'buttons', text: msg.text, buttons: [MENU_BUTTON], ...(msg.replyTo ? { replyTo: msg.replyTo } : {}) };
+    return { kind: 'buttons', text: msg.text, buttons: [MENU_BUTTON], ...extrasOf(msg) };
   }
   if (msg.kind === 'buttons') {
     if (msg.buttons.length >= 3 || msg.buttons.some((b) => b.id === 'menu:open')) return msg;
@@ -117,6 +130,10 @@ export class Messenger {
     this.previous.set(name, previousName);
     if (shape && (shape.params || shape.buttons !== undefined)) this.previousShape.set(previousName, shape);
   }
+  /** Draws and uploads the chat's pictures, voice notes and stickers (none in tests that don't set it). */
+  private art: ChatArt | null = null;
+  setArt(art: ChatArt) { this.art = art; }
+
   /** Templates with a picture at the top (their older versions have none). */
   private readonly imageHeaders = new Set<string>();
   setTemplateImageHeader(name: string) { this.imageHeaders.add(name); }
@@ -140,14 +157,46 @@ export class Messenger {
       const use = fallback ? this.usableTemplate(fallback.name) : null;
       if (fallback && use) {
         this.o.log?.(`whatsapp …${phone.slice(-4)} is outside the 24-hour window: sending template ${use}`);
-        return this.sendTemplate(phone, { ...fallback, name: use });
+        return this.sendTemplate(phone, { ...fallback, name: use, art: fallback.art ?? msg.art });
       }
       const why = fallback ? `template ${fallback.name} is ${this.templateStatus(fallback.name)?.toLowerCase() ?? 'not on Meta yet'}` : 'no template for this message';
       this.o.log?.(`whatsapp not sent to …${phone.slice(-4)}: outside the 24-hour window (${why})`);
       await this.record(phone, msg, 'NEEDS_TEMPLATE', `Outside the 24-hour window; ${why}`);
       return 'NEEDS_TEMPLATE';
     }
-    return this.deliver(phone, msg, toPayload(phone.replace(/^\+/, ''), msg));
+    return this.withExtras(phone, msg);
+  }
+
+  /**
+   * The message with its extras: a reaction first, the picture (on top of a button message, as a text message's
+   * picture, or just before), then voice notes, videos and a sticker. Extras never stop the message: if a picture
+   * can't be made, the message goes without it.
+   */
+  private async withExtras(phone: string, msg: Outbound): Promise<SendStatus> {
+    const to = phone.replace(/^\+/, '');
+    const quiet = { quiet: true };
+    if (msg.react && !this.o.dryRun) await this.deliver(phone, { kind: 'text', text: `[reaction ${msg.react.emoji}]` }, { messaging_product: 'whatsapp', to, type: 'reaction', reaction: { message_id: msg.react.to, emoji: msg.react.emoji } }, 'reaction', quiet);
+    let main: Outbound = msg;
+    if (msg.art && this.art && !this.o.dryRun) { // in dry run the message is logged as it is (the art is kept in its record)
+      const id = await this.art.image(msg.art);
+      if (id) {
+        if (msg.kind === 'buttons') main = { ...msg, headerImage: id };
+        else if (msg.kind === 'text' && msg.text.length <= 1024) main = { kind: 'image', mediaId: id, caption: msg.text, ...extrasOf(msg) };
+        else await this.deliver(phone, { kind: 'image', mediaId: id }, toPayload(to, { kind: 'image', mediaId: id }), 'image', quiet);
+      }
+    }
+    const status = await this.deliver(phone, main, toPayload(to, main));
+    if (status === 'FAILED' && main !== msg && msg.kind !== 'text') return this.deliver(phone, msg, toPayload(to, msg)); // the picture was refused: send it plain
+    if (!this.art) return status;
+    for (const c of msg.clips ?? []) {
+      const clip = await this.art.clip(phone, c);
+      if (clip) await this.deliver(phone, { kind: 'text', text: `[${clip.kind} ${c.slot}]` }, { messaging_product: 'whatsapp', to, type: clip.kind, [clip.kind]: { id: clip.id } }, clip.kind, quiet);
+    }
+    if (msg.sticker) {
+      const id = await this.art.sticker(msg.sticker);
+      if (id) await this.deliver(phone, { kind: 'text', text: `[sticker ${msg.sticker}]` }, { messaging_product: 'whatsapp', to, type: 'sticker', sticker: { id } }, 'sticker', quiet);
+    }
+    return status;
   }
 
   /** Sends an approved template. Allowed outside the 24-hour window. */
@@ -163,6 +212,7 @@ export class Messenger {
 
   async sendTemplate(phone: string, tpl: Template): Promise<SendStatus> {
     const t = { ...tpl, name: this.usableTemplate(tpl.name) ?? tpl.name };
+    if (!t.headerImage && t.art && this.art && this.imageHeaders.has(t.name)) t.headerImage = (await this.art.image(t.art)) ?? undefined;
     // the older version may take different values or fewer buttons: send it what it has
     const shape = t.name !== tpl.name ? this.previousShape.get(t.name) : undefined;
     if (shape?.params) t.params = shape.params.map((i) => tpl.params[i] ?? '');
@@ -190,9 +240,9 @@ export class Messenger {
     return this.deliver(phone, shown, payload, 'template');
   }
 
-  private async deliver(phone: string, msg: Outbound, payload: Record<string, unknown>, kind?: string): Promise<SendStatus> {
+  private async deliver(phone: string, msg: Outbound, payload: Record<string, unknown>, kind?: string, opts: { quiet?: boolean } = {}): Promise<SendStatus> {
     if (this.o.dryRun) {
-      this.o.log?.(`[whatsapp → ${phone}] ${render(msg)}`);
+      if (!opts.quiet) this.o.log?.(`[whatsapp → ${phone}] ${render(msg)}`); // extras (pictures, stickers) stay out of the chat log
       await this.record(phone, msg, 'DRY_RUN', undefined, kind);
       return 'DRY_RUN';
     }
@@ -283,7 +333,11 @@ export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
   if (msg.kind === 'buttons') {
     return {
       ...base, type: 'interactive',
-      interactive: { type: 'button', body: { text: msg.text }, action: { buttons: msg.buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })) } },
+      interactive: {
+        type: 'button', body: { text: msg.text },
+        ...(msg.headerImage ? { header: { type: 'image', image: { id: msg.headerImage } } } : {}),
+        action: { buttons: msg.buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })) },
+      },
     };
   }
   return {

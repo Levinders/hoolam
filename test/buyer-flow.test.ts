@@ -169,12 +169,12 @@ describe('the seller answers', () => {
     const code = await buyByChat(buyer, { sellerPhone: seller, photos: 2 });
 
     await h.app.chat.handle({ id: `t${++n}`, phone: seller, name: 'Bayo Shoes', type: 'button', text: 'View deal', buttonId: `sview:${code}`, mediaId: null });
-    expect(h.last(seller)).toMatch(/\*New order request\* on \*Hoolam\*/);
-    expect(h.last(seller)).toMatch(/👤 Buyer: \*Ada\*\n📦 Item: \*Black sneakers, size 42\*\n💰 Total price: \*₦15,000\*/);
-    expect(h.last(seller)).toMatch(/Transaction fee  −₦500\n\*You receive     ₦14,500\*/); // only the seller sees their transaction fee
+    expect(h.last(seller)).toMatch(/\*New order request\* · \*Ada\*/);
+    expect(h.last(seller)).toMatch(/📦 \*Black sneakers, size 42\*[\s\S]*Total price  ₦15,000/);
+    expect(h.last(seller)).toMatch(/Transaction fee  −₦500\n\*You receive  ₦14,500\*/); // only the seller sees their transaction fee
     expect(h.last(seller)).toMatch(/Brand new, in the box/);
     expect(h.last(seller)).toMatch(/📍 Deliver to: \*12 Woji Road, Port Harcourt\*/);
-    expect(h.last(seller)).toMatch(/Minus the rider's fee, if you send one/);
+    expect(h.last(seller)).toMatch(/pays Hoolam first/);
     expect(h.last(seller)).toMatch(/\[✅ Accept\] \[✏️ Update price\] \[✕ Decline\]/);
     const images = await h.db.query(`SELECT count(*)::int AS c FROM outbound_messages WHERE phone=$1 AND kind='image'`, [seller]);
     expect(images.rows[0].c).toBe(2);

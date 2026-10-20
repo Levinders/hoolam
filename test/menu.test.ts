@@ -104,7 +104,7 @@ describe('the menu in the chat', () => {
     const first = await lastBody(p);
     expect(first.kind).toBe('buttons');
     expect(h.last(p)).toMatch(/Hi \*Ada\* 👋 \*Welcome to Hoolam\*/);
-    expect(h.last(p)).toMatch(/Hoolam holds the money/);
+    expect(h.last(p)).toMatch(/Your money waits with Hoolam/);
     expect(h.last(p)).toMatch(/\[🛒 I’m buying\] \[🏷️ I’m selling\] \[💡 How it works\]/);
     await h.say(p, 'hi');
     const again = await lastBody(p);
@@ -151,18 +151,18 @@ describe('the menu in the chat', () => {
     const p = phone();
     await h.say(p, '/fees');
     expect(h.last(p)).toMatch(/2\.5%\* of the price/);
-    expect(h.last(p)).toMatch(/₦15,000 order → Hoolam's fee ₦400/);
+    expect(h.last(p)).toMatch(/No hidden charges/);
     expect(h.last(p)).toMatch(/\[Main menu\]/);
     await h.say(p, '/help');
-    expect(h.last(p)).toMatch(/One payment, start to finish/);
+    expect(h.last(p)).toMatch(/How it works[\s\S]*You pay Hoolam, not the seller/);
     await h.say(p, 'I want to sell something safely');
     expect(h.last(p)).toMatch(/Set up as a seller/);
     await h.say(p, '/menu'); // leaves the setup
     expect(await state(p)).toBe('IDLE');
     await h.say(p, 'How does Hoolam protect my money?');
-    expect(h.last(p)).toMatch(/One payment, start to finish/);
+    expect(h.last(p)).toMatch(/How it works[\s\S]*You pay Hoolam, not the seller/);
     await h.tap(p, 'menu:help'); // the old button id still works
-    expect(h.last(p)).toMatch(/One payment, start to finish/);
+    expect(h.last(p)).toMatch(/How it works[\s\S]*You pay Hoolam, not the seller/);
   });
 
   it('"Pay for a deal" asks for the code, then opens the deal', async () => {
@@ -190,7 +190,7 @@ describe('the menu in the chat', () => {
     const seller = phone(), buyer = phone();
     const code = await paidDeal(seller, buyer);
     await h.tap(buyer, 'menu:problem');
-    expect(h.last(buyer)).toMatch(new RegExp(`Order \\*${code}\\*: sorry about that[\\s\\S]*Tell us what.s wrong`));
+    expect(h.last(buyer)).toMatch(new RegExp(`Order \\*${code}\\*: sorry about this[\\s\\S]*Tell us what.s wrong`));
     expect((await h.db.query('SELECT status FROM deals WHERE code=$1', [code])).rows[0].status).toBe('DISPUTED');
   });
 
@@ -279,7 +279,7 @@ describe('buying and selling menus', () => {
     expect(h.last(p)).toMatch(/Which city/);
     await h.say(p, 'Port Harcourt');
     const t = h.transcript.filter((x) => x.phone === p).map((x) => x.text);
-    expect(t.at(-2)).toMatch(/Your trust card is ready[\s\S]*Ngozi Bags\* · Port Harcourt[\s\S]*your first sale/);
+    expect(t.at(-2)).toMatch(/Your trust card is ready[\s\S]*your first sale/);
     expect(h.last(p)).toMatch(/What are you selling/);
     expect(await user(p)).toMatchObject({ menu_mode: 'seller', business_name: 'Ngozi Bags', city: 'Port Harcourt' });
     expect((await user(p)).seller_since).not.toBeNull();
@@ -296,7 +296,7 @@ describe('buying and selling menus', () => {
     await h.tap(p, 'menu:tosell');
     await h.tap(p, 'setup:wname');
     await h.tap(p, 'setup:nocity');
-    expect(h.last(p)).toMatch(/Your trust card is ready[\s\S]*Tunde/);
+    expect(h.last(p)).toMatch(/Your trust card is ready/);
     expect(h.last(p)).toMatch(/\[🏷️ Sell something\] \[Main menu\]/);
     expect((await user(p)).business_name).toBeNull(); // keeps showing the WhatsApp name
   });

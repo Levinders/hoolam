@@ -21,6 +21,7 @@ import { dayText } from '../deals/service.js';
 import type { Trust } from '../trust.js';
 import type { Ambassadors } from '../ambassadors.js';
 import { AmbassadorChat, SENT_ME_RE } from './amb-flow.js';
+import { ART } from '../chat-art/build.js';
 
 /**
  * The WhatsApp conversation. Each person has a small state (what we're waiting for from them)
@@ -645,7 +646,7 @@ export class Conversation {
         await this.save(m.phone, 'IDLE');
         this.o.log?.(`support request #${r.rows[0].id} from …${m.phone.slice(-4)}`);
         bus.support({ requestId: Number(r.rows[0].id), phone: m.phone, name: user.display_name ?? null, text: (about + body).slice(0, 200) });
-        return this.send(m.phone, msg.humanLogged('S-' + r.rows[0].id));
+        return this.send(m.phone, msg.humanLogged('S-' + r.rows[0].id, m.id));
       }
       case 'DISPUTE_DETAIL': {
         const detail = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
@@ -908,12 +909,13 @@ export class Conversation {
     await this.save(phone, 'IDLE');
     const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
     const card = t ? msg.trustCardText(t) : '';
+    const art = t ? ART.trust(t, user.id) : undefined;
     if (next === 'sell') {
-      await this.send(phone, msg.setupDone(card, true));
+      await this.send(phone, msg.setupDone(card, true, art));
       return this.startSelling(phone);
     }
     if (next === 'card') return this.showMyCard(phone, user);
-    return this.send(phone, msg.setupDone(card, false));
+    return this.send(phone, msg.setupDone(card, false, art));
   }
 
   /** A seller's "Report a problem": pick an order, then tell a rep what's wrong. */
@@ -957,7 +959,10 @@ export class Conversation {
         const q = quote(minor, c, r);
         return `${formatMoney(minor, c)} order → Hoolam's fee ${formatMoney(q.feeMinor, c)}`;
       });
-    return msg.fees(rules, examples, { minor: this.maxDeal(), currency: c });
+    const txnAt = (minor: number) => { const major = minor / unit; return (t.seller.find((b) => b.upTo == null || major <= b.upTo) ?? t.seller[t.seller.length - 1]!).fee; };
+    const rows = [5_000, 15_000, 50_000].map((major) => major * unit).filter((minor) => minor <= this.maxDeal())
+      .map((minor) => ({ price: formatMoney(minor, c), hoolam: formatMoney(quote(minor, c, r).feeMinor, c), txn: f(txnAt(minor)) }));
+    return msg.fees(rules, examples, { minor: this.maxDeal(), currency: c }, rows.length ? ART.fees(rows) : undefined);
   }
 
   /** Paid deals this person bought that can still be frozen. */
@@ -1079,7 +1084,7 @@ export class Conversation {
     await this.save(phone, 'IDLE');
     const t = sellerId && this.o.trust ? await this.o.trust.seller(sellerId) : null;
     if (!t || !sellerId) return this.send(phone, msg.noSellerRecord());
-    return this.send(phone, msg.sellerRecord(msg.trustCardText(t), null, sellerId === user.id ? null : sellerId));
+    return this.send(phone, msg.sellerRecord(msg.trustCardText(t), null, sellerId === user.id ? null : sellerId, null, ART.trust(t, sellerId)));
   }
 
   /** Start a buyer's deal already pointed at a seller (from their page, or "Buy from them"). */
@@ -1105,7 +1110,7 @@ export class Conversation {
   private async showMyCard(phone: string, user: User) {
     const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
     if (!t) return this.send(phone, msg.didntUnderstand());
-    return this.send(phone, msg.myTrustCard(msg.trustCardText(t), t.isPublic && t.slug ? this.pageUrl(t.slug) : null, t.ownStats ?? null));
+    return this.send(phone, msg.myTrustCard(msg.trustCardText(t), t.isPublic && t.slug ? this.pageUrl(t.slug) : null, t.ownStats ?? null, ART.trust(t, user.id)));
   }
 
   private async cardAction(phone: string, user: User, action: string) {
@@ -1116,7 +1121,7 @@ export class Conversation {
         const t = await this.o.trust.seller(user.id);
         if (!slug || !t) return;
         const url = this.pageUrl(slug);
-        await this.send(phone, msg.cardShared(url));
+        await this.send(phone, msg.cardShared(url, ART.trustStatus(t, url.replace(/^https?:\/\//, ''), user.id)));
         return this.send(phone, msg.cardForwardText(t.name, url));
       }
       case 'hide':

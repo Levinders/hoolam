@@ -35,6 +35,12 @@ export async function shrinkPhoto(bytes: Buffer, mimeType: string): Promise<{ by
   }
 }
 
+/** File names WhatsApp expects for each kind of upload. */
+const EXT: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac',
+  'audio/amr': 'amr', 'video/mp4': 'mp4', 'video/3gpp': '3gp',
+};
+
 export class Media {
   private readonly fetch: typeof fetch;
   constructor(private readonly o: MediaOptions) { this.fetch = o.fetchImpl ?? fetch; }
@@ -59,7 +65,7 @@ export class Media {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
-    form.append('file', new Blob([new Uint8Array(bytes)], { type: mimeType }), mimeType === 'image/png' ? 'photo.png' : 'photo.jpg');
+    form.append('file', new Blob([new Uint8Array(bytes)], { type: mimeType }), `file.${EXT[mimeType] ?? 'jpg'}`);
     const res = await this.fetch(`${this.base}/${this.o.phoneNumberId}/media`, { method: 'POST', headers: this.auth, body: form });
     if (!res.ok) throw new Error(`media upload: HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
     return ((await res.json()) as { id: string }).id;

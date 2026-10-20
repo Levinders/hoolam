@@ -16,6 +16,8 @@ import type { PricingRules } from '../pricing.js';
 import { BUYER_ALERT, DEAL_TEMPLATES, dealTemplate, SELLER_ALERT } from '../whatsapp/automation.js';
 import { categoryTitle } from './categories.js';
 import { mapsLink, msg, type BuyerSum, type SellerSum } from '../whatsapp/messages.js';
+import { ART } from '../chat-art/build.js';
+import type { Art } from '../chat-art/index.js';
 import { canMove, DealStatus, type DealStatus as Status } from './states.js';
 
 export interface Deal {
@@ -214,6 +216,13 @@ export class DealService {
   }
 
   /** "🛡️ Bayo · ✅ 48 deals · 👍 96%", or undefined when trust cards are off. */
+  /** The seller's trust card as a picture, for the chat. */
+  async trustArt(sellerId: string | null): Promise<Art | undefined> {
+    if (!sellerId || !this.o.trust) return undefined;
+    const t = await this.o.trust.seller(sellerId);
+    return t ? ART.trust(t, sellerId) : undefined;
+  }
+
   async trustLineFor(sellerId: string | null): Promise<string | undefined> {
     if (!sellerId || !this.o.trust) return undefined;
     const t = await this.o.trust.seller(sellerId);
@@ -235,7 +244,7 @@ export class DealService {
     if (!t) { await this.o.messenger.send(viewer.phone, msg.dealStatusNow(deal.code, deal.status)); return; }
     const canPay = deal.status === 'AWAITING_PAYMENT' && deal.buyer_id === viewer.id;
     const canAccept = deal.status === 'AWAITING_BUYER' && !deal.legacy_ship && deal.seller_id !== viewer.id;
-    await this.o.messenger.send(viewer.phone, msg.sellerRecord(msg.trustCardText(t), canPay ? deal.code : null, null, canAccept ? deal.code : null));
+    await this.o.messenger.send(viewer.phone, msg.sellerRecord(msg.trustCardText(t), canPay ? deal.code : null, null, canAccept ? deal.code : null, ART.trust(t, sellerId!)));
   }
 
   /** 👍/👎 after "I'm happy". Only the buyer, only on a released deal, only once. */
@@ -605,7 +614,7 @@ export class DealService {
       txnFee: deal.txn_fee_payer === 'SELLER' ? this.money(Number(deal.txn_fee_minor ?? 0)) : null,
       arriveBy: deal.arrive_by ? dayText(deal.arrive_by) : null, hoursLeft,
       invited: deal.invited_phone === viewer.phone,
-      buyerLine: await this.buyerLineFor(deal.buyer_id),
+      buyerLine: await this.buyerLineFor(deal.buyer_id), dealId: deal.id,
     }));
   }
 
@@ -644,7 +653,7 @@ export class DealService {
       await this.move(tx, deal, 'AWAITING_PAYMENT', 'seller', 'Seller accepted the buyer\'s deal');
       const buyer = await this.userById(tx, deal.buyer_id!);
       out.push({ phone: seller.phone, message: msg.sellerAcceptedOk(deal.code, firstName(buyer.display_name) ?? 'The buyer', acct.rows[0].bank_name, String(acct.rows[0].account_number).slice(-4), this.sellerSum(deal)) });
-      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, { price: this.money(deal.price_minor), fee: this.money(deal.buyer_pays_minor - deal.price_minor), pay: this.money(deal.buyer_pays_minor), feeLabel: this.buyerFeeLabel(deal) }, await this.trustLineFor(seller.id), await this.sellerCardUrl(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(deal.buyer_pays_minor)], [`pay:${deal.code}`]) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, { price: this.money(deal.price_minor), fee: this.money(deal.buyer_pays_minor - deal.price_minor), pay: this.money(deal.buyer_pays_minor), feeLabel: this.buyerFeeLabel(deal) }, await this.trustLineFor(seller.id), await this.sellerCardUrl(seller.id), await this.trustArt(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(deal.buyer_pays_minor)], [`pay:${deal.code}`]) });
     });
   }
 
@@ -665,7 +674,7 @@ export class DealService {
       const buyer = await this.userById(tx, deal.buyer_id!);
       const q = quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer', this.txnFees());
       out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor), this.quoteSums(q, 'BUYER').seller) });
-      out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor), reason, this.money(q.buyerPaysMinor - newPriceMinor)), fallback: dealTemplate('counterOffer', [deal.code, this.text(newPriceMinor), reason || 'not given', this.text(q.buyerPaysMinor - newPriceMinor), this.text(q.buyerPaysMinor)], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
+      out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor), reason, this.money(q.buyerPaysMinor - newPriceMinor), deal.id), fallback: dealTemplate('counterOffer', [deal.code, this.text(newPriceMinor), reason || 'not given', this.text(q.buyerPaysMinor - newPriceMinor), this.text(q.buyerPaysMinor)], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
     });
   }
 
@@ -685,7 +694,7 @@ export class DealService {
       await this.move(tx, deal, 'AWAITING_PAYMENT', 'buyer', `Buyer accepted the new price ${q.priceMinor}`);
       const sums = this.quoteSums(q, deal.fee_payer);
       out.push({ phone: seller.phone, message: msg.sellerCounterAccepted(deal.code, firstName(buyer.display_name) ?? 'The buyer', sums.seller) });
-      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, sums.buyer, await this.trustLineFor(seller.id), await this.sellerCardUrl(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(q.buyerPaysMinor)], [`pay:${deal.code}`]) });
+      out.push({ phone: buyer.phone, message: msg.buyerSellerAccepted(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, sums.buyer, await this.trustLineFor(seller.id), await this.sellerCardUrl(seller.id), await this.trustArt(seller.id)), fallback: dealTemplate('sellerAccepted', [deal.code, this.text(q.buyerPaysMinor)], [`pay:${deal.code}`]) });
     });
   }
 
@@ -735,7 +744,7 @@ export class DealService {
       for (const mediaId of photoIds) out.push({ phone: buyer.phone, message: { kind: 'image', mediaId } });
       out.push({
         phone: buyer.phone,
-        message: msg.dealForBuyer(deal.code, deal.item, firstName(seller.display_name) ?? 'Seller', this.money(deal.price_minor), this.money(deal.buyer_pays_minor - deal.price_minor), this.money(deal.buyer_pays_minor), trust, this.buyerFeeLabel(deal), cardUrl),
+        message: msg.dealForBuyer(deal.code, deal.item, firstName(seller.display_name) ?? 'Seller', this.money(deal.price_minor), this.money(deal.buyer_pays_minor - deal.price_minor), this.money(deal.buyer_pays_minor), trust, this.buyerFeeLabel(deal), cardUrl, await this.trustArt(seller.id)),
       });
     });
   }
@@ -751,7 +760,7 @@ export class DealService {
     await this.o.messenger.send(viewer.phone, msg.buyerOrderCard({
       code: deal.code, sellerName: await this.shownSellerName(seller), trust: await this.trustLineFor(seller.id), cardUrl: await this.sellerCardUrl(seller.id),
       item: deal.item, description: deal.description, category: categoryTitle(deal.category), address: deal.delivery_address,
-      readyBy: deal.arrive_by ? dayText(deal.arrive_by) : null, sum: this.buyerSum(deal), hoursLeft: this.hoursLeft(deal),
+      readyBy: deal.arrive_by ? dayText(deal.arrive_by) : null, sum: this.buyerSum(deal), hoursLeft: this.hoursLeft(deal), dealId: deal.id,
     }));
   }
 
@@ -938,9 +947,9 @@ export class DealService {
       const buyerName = firstName(buyer?.display_name ?? null) ?? 'The buyer';
       if (!deal.legacy_ship) {
         const deliver = deal.delivery_address ? { address: deal.delivery_address, map: mapsLink(deal.delivery_address, deal.delivery_pin) } : null;
-        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal, 'seller'), buyerName, this.sellerSum(deal), deliver), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`]) });
+        out.push({ phone: seller.phone, message: msg.sellerFundedDispatch(deal.code, this.money(deal.seller_gets_minor), this.orderPageUrl(deal, 'seller'), buyerName, this.sellerSum(deal), deliver), fallback: dealTemplate('paidDispatch', [deal.code, this.text(deal.seller_gets_minor)], [`dispatch:${deal.code}`], ART.moneyHeld('seller', this.text(deal.seller_gets_minor), deal.code, buyerName === 'The buyer' ? null : buyerName)) });
       } else {
-        out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`]) });
+        out.push({ phone: seller.phone, message: msg.sellerFunded(deal.code, this.money(deal.seller_gets_minor), buyerName, this.sellerSum(deal)), fallback: dealTemplate('paymentReceived', [deal.code, this.text(deal.seller_gets_minor)], [`shipped:${deal.code}`], ART.moneyHeld('seller', this.text(deal.seller_gets_minor), deal.code, buyerName === 'The buyer' ? null : buyerName)) });
       }
       return 'funded';
     });
@@ -1277,7 +1286,8 @@ export class DealService {
       if (deal.status === 'FUNDED') await this.move(tx, deal, 'SHIPPED', 'buyer', 'Buyer confirmed before seller marked it sent');
       const ids = await this.startRelease(tx, deal, 'buyer', undefined, out);
       const seller = await this.sellerOf(tx, deal);
-      out.push({ phone: buyer.phone, message: msg.buyerReleased(deal.code, firstName(seller.display_name) ?? 'the seller') });
+      const n = Number((await tx.query(`SELECT count(*) AS n FROM deals WHERE buyer_id=$1 AND (status IN ('RELEASING','PAYOUT_PENDING','COMPLETED') OR id=$2)`, [buyer.id, deal.id])).rows[0].n);
+      out.push({ phone: buyer.phone, message: msg.buyerReleased(deal.code, firstName(seller.display_name) ?? 'the seller', ART.complete(deal.item, n, firstName(seller.display_name) ?? null, deal.id)) });
       return ids;
     });
     for (const id of payoutIds) await this.submitPayout(id);
@@ -1339,8 +1349,8 @@ export class DealService {
       await this.move(tx, deal, 'DISPUTED', 'buyer');
       await tx.query('INSERT INTO disputes (deal_id, opened_by) VALUES ($1,$2)', [deal.id, buyer.id]);
       const seller = await this.sellerOf(tx, deal);
-      out.push({ phone: buyer.phone, message: msg.askProblem(deal.code, firstName(seller.display_name)) });
-      out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code, firstName(buyer.display_name)), fallback: dealTemplate('problemReported', [deal.code], ['menu:human']) });
+      out.push({ phone: buyer.phone, message: msg.askProblem(deal.code, firstName(seller.display_name), this.money(deal.buyer_pays_minor)) });
+      out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code, firstName(buyer.display_name), this.money(deal.seller_gets_minor)), fallback: dealTemplate('problemReported', [deal.code], ['menu:human']) });
     });
   }
 
@@ -1712,12 +1722,12 @@ export class DealService {
           const delivery = Number(deal.delivery_fee_minor ?? 0) && deal.courier_paid_at ? this.money(Number(deal.delivery_fee_minor)) : null;
           const sum = { ...this.sellerSum(deal), delivery, role: deal.dispatch_method === 'WAYBILL' ? 'driver' as const : 'rider' as const };
           const exact = sum.gets.minor - (delivery?.minor ?? 0) === Number(p.amount_minor);
-          out.push({ phone: seller.phone, message: msg.sellerPaid(deal.code, this.money(p.amount_minor), bankName, buyerName, exact ? sum : undefined), fallback: dealTemplate('sellerPaid', [deal.code, this.text(p.amount_minor), bankName]) });
+          out.push({ phone: seller.phone, message: msg.sellerPaid(deal.code, this.money(p.amount_minor), bankName, buyerName, exact ? sum : undefined), fallback: dealTemplate('sellerPaid', [deal.code, this.text(p.amount_minor), bankName], [], ART.paid('paid', this.text(p.amount_minor), { bank: bankName, code: deal.code })) });
         } else {
           const buyer = await this.userById(tx, deal.buyer_id!);
           const seller = await this.sellerOf(tx, deal);
           out.push({ phone: buyer.phone, receipt: { dealId: deal.id, kind: 'refund', payoutId: p.id } });
-          out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName, firstName(seller.display_name)), fallback: dealTemplate('refundSent', [deal.code, this.text(p.amount_minor), bankName]) });
+          out.push({ phone: buyer.phone, message: msg.buyerRefunded(deal.code, this.money(p.amount_minor), bankName, firstName(seller.display_name)), fallback: dealTemplate('refundSent', [deal.code, this.text(p.amount_minor), bankName], [], ART.refund(this.text(p.amount_minor), deal.code, bankName)) });
           out.push({ phone: seller.phone, message: msg.sellerRefunded(deal.code, firstName(buyer.display_name)) });
         }
         return;
