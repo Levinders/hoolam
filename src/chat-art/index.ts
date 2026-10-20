@@ -223,14 +223,22 @@ export class ChatArt {
   }
 
   /** The owner's replacement. Pictures are tidied (turned upright, sized, compressed); stickers become 512 × 512 WebP. */
-  async put(id: string, input: Buffer, mimeIn: string, fileName: string | null, staffId: string | null): Promise<void> {
+  /** Is this file right for this item? Throws a plain-words ChatArtError if not. Returns the file type to store. */
+  check(id: string, mimeIn: string, size: number): { slot: Slot; mime: string } {
     const s = slotOf(id);
     if (!s) throw new ChatArtError('Unknown item.');
     let mime = (mimeIn || '').toLowerCase().split(';')[0]!.trim();
     mime = AUDIO_MIME[mime] ?? mime;
     if (!ACCEPT[s.kind].test(mime)) throw new ChatArtError(s.kind === 'voice' ? 'Send an audio file: a WhatsApp voice note (.opus or .ogg), .mp3 or .m4a.'
       : s.kind === 'video' ? 'Send an MP4 video.' : s.kind === 'sticker' ? 'Send a WebP or PNG with a see-through background.' : 'Send a JPEG, PNG or WebP picture.');
-    if (input.length > MAX_BYTES[s.kind]) throw new ChatArtError(`That file is too big. The most is ${Math.round(MAX_BYTES[s.kind] / 1_000_000)} MB.`);
+    if (size > MAX_BYTES[s.kind]) throw new ChatArtError(`That file is too big. The most is ${Math.round(MAX_BYTES[s.kind] / 1_000_000)} MB.`);
+    return { slot: s, mime };
+  }
+
+  async put(id: string, input: Buffer, mimeIn: string, fileName: string | null, staffId: string | null): Promise<void> {
+    const c = this.check(id, mimeIn, input.length);
+    const s = c.slot;
+    let mime = c.mime;
     let bytes = input;
     try {
       if (s.kind === 'picture' || s.kind === 'card') {

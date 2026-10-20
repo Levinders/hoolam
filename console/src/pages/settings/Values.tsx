@@ -7,6 +7,7 @@ import { ago, money } from '../../format';
 import { useData } from '../../hooks';
 import { Button, ConfirmAction, ErrorBanner, Pill, Skeleton, Switch, useToast } from '../../ui';
 import { SectionHead, useUnsaved } from '../Settings';
+import { ChatMediaPanel } from './ChatMedia';
 
 type Band = { upTo: number | null; fee: number };
 type Val = number | boolean | string | Band[];
@@ -376,7 +377,7 @@ export function WhatsAppPage() {
           <div className="note"><Clock /><span>Changing it here updates links. It doesn't move your WhatsApp account: that's set on Meta, and on Render as <code>WHATSAPP_PHONE_NUMBER_ID</code>.</span></div>
         </div>
       </section>
-    )} after={<><FormsPanel /><TemplatesPanel /></>} />;
+    )} after={<><FormsPanel /><ChatMediaPanel /><TemplatesPanel /></>} />;
 }
 
 // ---------------------------------------------------------------------------------------------

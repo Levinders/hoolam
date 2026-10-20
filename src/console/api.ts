@@ -7,6 +7,7 @@ import type { PaymentProvider } from '../payments/provider.js';
 import { SETTING_DEFS, type SettingValue, type Settings } from '../settings.js';
 import { parseSocial, SOCIAL_KINDS, type SocialKind } from '../socials.js';
 import { MAX_UPLOAD_BYTES, MediaError, SLOTS, SiteMedia } from '../site-media.js';
+import { ChatArtError, type ChatArt } from '../chat-art/index.js';
 import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
 import type { Trust } from '../trust.js';
@@ -32,6 +33,7 @@ export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; links: CampaignLinks; settings: Settings; messenger: Messenger;
   ambassadors?: Ambassadors;
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
+  chatArt?: ChatArt; // the chat's pictures, voice notes, videos and stickers (Settings → WhatsApp)
   refreshTemplates?: () => Promise<void>;
   kyc?: KycService;
   forms?: FormRegistry;
@@ -896,6 +898,39 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       d.siteSync.changed();
       return { ok: true, item: { ...info, slot, updatedBy: req.staff!.name, url: d.siteMedia.url('', key) }, site: siteState() };
     });
+    // ----- the chat's pictures, voice notes, videos and stickers (Settings → WhatsApp → Chat pictures and voice) -----
+    if (d.chatArt) {
+      const art = d.chatArt;
+      const CHAT_MAX = 16_000_000;
+      api.addContentTypeParser(/^(audio|video)\/.+$/, { parseAs: 'buffer', bodyLimit: CHAT_MAX + 1024 }, (_req, body, done) => done(null, body));
+      api.get('/chat-media', async (req) => {
+        need(req, 'settings.view');
+        return { items: await art.list(), canEdit: permissionsOf(req.staff!).includes('settings.update') };
+      });
+      api.get('/chat-media/:slot/file', async (req, reply) => {
+        need(req, 'settings.view');
+        const p = await art.preview((req.params as { slot: string }).slot);
+        if (!p) throw new HttpError(404, 'Nothing here yet.');
+        return reply.type(p.mime).header('cache-control', 'private, max-age=30').send(p.bytes);
+      });
+      api.put('/chat-media/:slot', { bodyLimit: CHAT_MAX + 1024 }, async (req) => {
+        need(req, 'settings.update');
+        const { slot } = req.params as { slot: string };
+        if (!Buffer.isBuffer(req.body)) throw new HttpError(400, 'Send the file itself.');
+        const name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')).slice(0, 200) || null;
+        try { art.check(slot, String(req.headers['content-type'] ?? ''), req.body.length); } catch (e) { throw e instanceof ChatArtError ? new HttpError(400, e.message) : e; }
+        await act(req, { action: 'chat_media.upload', targetType: 'chat_media', targetId: slot, details: { file: name, bytes: req.body.length } },
+          async () => { try { await art.put(slot, req.body as Buffer, String(req.headers['content-type'] ?? ''), name, req.staff!.id); } catch (e) { throw e instanceof ChatArtError ? new HttpError(400, e.message) : e; } });
+        return { ok: true, items: await art.list() };
+      });
+      api.delete('/chat-media/:slot', async (req) => {
+        need(req, 'settings.update');
+        const { slot } = req.params as { slot: string };
+        await act(req, { action: 'chat_media.remove', targetType: 'chat_media', targetId: slot }, () => art.remove(slot));
+        return { ok: true, items: await art.list() };
+      });
+    }
+
     api.delete('/media/:slot', async (req) => {
       need(req, 'brand.update');
       const { slot } = req.params as { slot: string };

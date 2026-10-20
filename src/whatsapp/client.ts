@@ -186,7 +186,7 @@ export class Messenger {
       }
     }
     const status = await this.deliver(phone, main, toPayload(to, main));
-    if (status === 'FAILED' && main !== msg && msg.kind !== 'text') return this.deliver(phone, msg, toPayload(to, msg)); // the picture was refused: send it plain
+    if (status === 'FAILED' && main !== msg) return this.deliver(phone, msg, toPayload(to, msg)); // the picture was refused: send it plain
     if (!this.art) return status;
     for (const c of msg.clips ?? []) {
       const clip = await this.art.clip(phone, c);

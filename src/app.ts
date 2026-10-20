@@ -691,7 +691,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const liveChat = new LiveChat({ db, settings, messenger, currency: c.CURRENCY, siteUrl: c.SITE_URL || 'https://hoolam.com', log });
   registerLiveChatRoutes(app, liveChat, db, log);
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL, twoStep: () => settings.get<boolean>('two_step_login') === true });
-  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, chatArt, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */

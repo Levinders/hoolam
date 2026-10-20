@@ -135,6 +135,8 @@ export const ACTIONS: Record<string, string> = {
   'user.kyc.decline': 'Declined their flagged ID',
   'settings.update': 'Changed settings',
   'media.upload': 'Uploaded an image',
+  'chat_media.upload': 'Replaced a chat picture or voice note',
+  'chat_media.remove': 'Put a chat picture or voice note back to default',
   'user.photo.remove': 'Removed a seller\'s photo',
   'user.social': 'Changed a seller\'s link',
   'media.remove': 'Removed an image',
