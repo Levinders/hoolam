@@ -38,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 import { Messenger } from './whatsapp/client.js';
 import { configureMessages, msg } from './whatsapp/messages.js';
 import { ChatArt } from './chat-art/index.js';
+import { setMarkSource } from './brand-mark.js';
 import { localPhone } from './phone.js';
 import { formatMoney } from './money.js';
 import { Conversation } from './whatsapp/flow.js';
@@ -65,6 +66,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // messages mention reply times and use Hoolam's number as the example: always the console's current values
   configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
   const siteMedia = new SiteMedia(db);
+  // every picture Hoolam draws uses the uploaded logo icon (Settings → Brand), or the drawn mark when there is none
+  setMarkSource(() => siteMedia.get('mark').catch(() => null));
   // the chat's pictures, voice notes, videos and stickers (Console → Settings → WhatsApp → Chat pictures and voice)
   const chatArt = new ChatArt(db, {
     media, dryRun: c.WHATSAPP_DRY_RUN, log,

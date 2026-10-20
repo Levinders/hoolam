@@ -4,6 +4,7 @@ import type { Queryable } from '../db.js';
 import type { Media } from '../whatsapp/media.js';
 import * as K from './cards.js';
 import { ambassadorCard } from '../amb-image.js';
+import { markKey, refreshMark } from '../brand-mark.js';
 import { ACCEPT, MAX_BYTES, slot as slotOf, SLOTS, type Slot } from './slots.js';
 
 /**
@@ -84,7 +85,8 @@ export class ChatArt {
   private async picture(id: string): Promise<Buffer> {
     const own = await this.override(id);
     if (own) return own.bytes;
-    const key = `p:${id}:${id === 'real-hoolam' ? this.o.live?.number?.() ?? '' : ''}:${id === 'amb-intro' ? JSON.stringify(this.o.live?.ambShares?.() ?? {}) : ''}`;
+    await refreshMark();
+    const key = `p:${id}:${markKey()}:${id === 'real-hoolam' ? this.o.live?.number?.() ?? '' : ''}:${id === 'amb-intro' ? JSON.stringify(this.o.live?.ambShares?.() ?? {}) : ''}`;
     const hit = this.drawn.get(key);
     if (hit) return hit;
     const st = /^status-([1-6])$/.exec(id);
@@ -105,6 +107,7 @@ export class ChatArt {
 
   /** A live card with this order's data (and the owner's background, if they uploaded one). */
   private async card(name: CardName, data: Record<string, unknown> & PhotoRef): Promise<Buffer> {
+    await refreshMark(); // the uploaded logo icon (or the drawn mark)
     const bg = CARD_SLOT[name] ? (await this.override(CARD_SLOT[name]!))?.bytes ?? null : null;
     const photo = data.photoDeal || data.photoUser || data.photoAmb ? await this.photo(data) : null;
     const d = { ...data, photo } as any;

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import opentype from 'opentype.js';
 import sharp from 'sharp';
+import { markImage, markKey, refreshMark } from './brand-mark.js';
 
 /**
  * RECEIPTS AS PICTURES. A branded receipt sent into the chat at every point money moves (payment in, payout,
@@ -77,7 +78,8 @@ export async function renderReceipt(d: ReceiptData, scale = 1): Promise<Buffer> 
   // header band: the mark and the wordmark, "Receipt" on the right
   const headH = 150;
   parts.push(`<rect x="0" y="0" width="${W}" height="${headH}" fill="${C.teal}"/>`);
-  parts.push(`<g transform="translate(${PAD} 39) scale(1.125)"><rect width="64" height="64" rx="18" fill="${C.tealDark}"/><g transform="translate(12 12) scale(1.6667)"><circle cx="12" cy="8.5" r="3.7" fill="${C.gold}"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></g></g>`);
+  await refreshMark(); // the uploaded logo icon, else the drawn mark
+  parts.push(markImage(PAD, 39, 72) ?? `<g transform="translate(${PAD} 39) scale(1.125)"><rect width="64" height="64" rx="18" fill="${C.tealDark}"/><g transform="translate(12 12) scale(1.6667)"><circle cx="12" cy="8.5" r="3.7" fill="${C.gold}"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></g></g>`);
   parts.push(path(f.brand, 'Hoolam', PAD + 90, 100, 50, C.white));
   parts.push(path(f.semi, 'Receipt', W - PAD, 92, 28, '#CFE3E4', 'right'));
   y = headH + 70;
@@ -154,13 +156,14 @@ export async function renderReceipt(d: ReceiptData, scale = 1): Promise<Buffer> 
 }
 
 
-let brandCard: Buffer | null = null;
+let brandCard: { key: string; bytes: Buffer } | null = null;
 /**
  * The picture at the top of an order alert when the item has no photo (WhatsApp needs one there): the Hoolam
- * mark and name on teal. Also the sample sent to Meta when the alert is submitted.
+ * logo icon and name on teal. Also the sample sent to Meta when the alert is submitted.
  */
 export async function renderBrandCard(): Promise<Buffer> {
-  if (brandCard) return brandCard;
+  await refreshMark();
+  if (brandCard && brandCard.key === markKey()) return brandCard.bytes;
   const f = loadFonts();
   const W2 = 1200, H2 = 628;
   const name = 'Hoolam', size = 120;
@@ -170,10 +173,11 @@ export async function renderBrandCard(): Promise<Buffer> {
   const x0 = (W2 - total) / 2, cy = H2 / 2 - 30;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W2}" height="${H2}"><rect width="${W2}" height="${H2}" fill="${C.teal}"/>` +
     `<circle cx="${W2 - 120}" cy="80" r="260" fill="${C.tealDark}" opacity=".35"/>` +
-    `<g transform="translate(${x0} ${cy - markS / 2}) scale(${markS / 64})"><rect width="64" height="64" rx="18" fill="${C.tealDark}"/><g transform="translate(12 12) scale(1.6667)"><circle cx="12" cy="8.5" r="3.7" fill="${C.gold}"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></g></g>` +
+    (markImage(x0, cy - markS / 2, markS) ?? `<g transform="translate(${x0} ${cy - markS / 2}) scale(${markS / 64})"><rect width="64" height="64" rx="18" fill="${C.tealDark}"/><g transform="translate(12 12) scale(1.6667)"><circle cx="12" cy="8.5" r="3.7" fill="${C.gold}"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></g></g>`) +
     path(f.brand, name, x0 + markS + gap, cy + 42, size, C.white) +
     path(f.semi, 'Pay safe. Ship safe.', W2 / 2, cy + 170, 40, '#CFE3E4', 'center') +
     '</svg>';
-  brandCard = await sharp(Buffer.from(svg)).jpeg({ quality: 86, mozjpeg: true }).toBuffer();
-  return brandCard;
+  const bytes = await sharp(Buffer.from(svg)).jpeg({ quality: 86, mozjpeg: true }).toBuffer();
+  brandCard = { key: markKey(), bytes };
+  return bytes;
 }

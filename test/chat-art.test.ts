@@ -66,6 +66,31 @@ describe('the pictures', () => {
   }, 60_000);
 });
 
+describe('the logo', () => {
+  it('pictures use the uploaded logo icon, and the drawn mark when there is none', async () => {
+    const { setMarkSource, refreshMark, markImage, markKey } = await import('../src/brand-mark.js');
+    const { renderBrandCard } = await import('../src/receipt.js');
+    const icon = await sharp({ create: { width: 300, height: 300, channels: 4, background: '#ff0000' } }).png().toBuffer();
+    const drawn = await renderBrandCard();
+    setMarkSource(async () => ({ mime: 'image/png', bytes: icon }));
+    await refreshMark(true);
+    expect(markImage(0, 0, 64)).toMatch(/^<image href="data:image\/png;base64,/);
+    expect(markKey()).not.toBe('drawn');
+    const withIcon = await renderBrandCard();
+    expect(withIcon.equals(drawn)).toBe(false);
+    // the red icon is in the picture where the mark goes
+    const { data, info } = await sharp(withIcon).raw().toBuffer({ resolveWithObject: true });
+    let red = 0;
+    for (let i = 0; i < data.length; i += info.channels) if (data[i]! > 200 && data[i + 1]! < 60 && data[i + 2]! < 60) red++;
+    expect(red).toBeGreaterThan(5000);
+    setMarkSource(async () => null);
+    await refreshMark(true);
+    expect(markImage(0, 0, 64)).toBeNull();
+    expect((await renderBrandCard()).equals(drawn)).toBe(true);
+    setMarkSource(null);
+  }, 30_000);
+});
+
 describe('sending', () => {
   it('a button message gets the picture on top; a text message becomes a picture with the words under it', async () => {
     const { m, sent, uploads } = liveMessenger();

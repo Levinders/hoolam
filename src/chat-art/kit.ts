@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp, { type OverlayOptions } from 'sharp';
+import { markImage } from '../brand-mark.js';
 
 /**
  * The drawing kit for every picture Hoolam sends in the chat: brand colours, the fonts (drawn as shapes, so a card
@@ -141,8 +142,13 @@ export function iconDisc(name: string, cx: number, cy: number, r: number, bg: st
   return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${bg}"/>` + icon(name, cx - s / 2, cy - s / 2, s, fg, strokeWidth);
 }
 
-/** The Hoolam mark: a gold dot over a smile, on a rounded teal tile (or bare, on a coloured background). */
+/**
+ * The Hoolam logo icon: the one uploaded in Console → Settings → Brand (see brand-mark.ts), else the drawn mark
+ * (a gold dot over a smile, on a rounded teal tile, or bare on a coloured background).
+ */
 export function mark(x: number, y: number, size: number, o: { tile?: string | null; dot?: string; smile?: string } = {}): string {
+  const uploaded = markImage(x, y, size);
+  if (uploaded) return uploaded;
   const tile = o.tile === undefined ? C.teal : o.tile;
   const s = size / 64;
   return `<g transform="translate(${x} ${y}) scale(${s})">` + (tile ? `<rect width="64" height="64" rx="18" fill="${tile}"/>` : '') +

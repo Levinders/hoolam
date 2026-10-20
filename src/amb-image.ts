@@ -2,6 +2,7 @@ import opentype from 'opentype.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp, { type OverlayOptions } from 'sharp';
+import { markImage, markKey, refreshMark } from './brand-mark.js';
 
 /**
  * An ambassador's share picture (1080×1080), for statuses and flyers: their photo (or their initial), "Tobi invited
@@ -37,6 +38,8 @@ function wrap(font: opentype.Font, s: string, size: number, max: number): string
 const cache = new Map<string, Buffer>();
 
 export async function ambassadorCard(key: string, o: { firstName: string; link: string; area?: string | null; photo: Buffer | null }): Promise<Buffer> {
+  await refreshMark();
+  key = `${key}:${markKey()}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const { inter, semi, brand } = fonts();
@@ -64,7 +67,7 @@ export async function ambassadorCard(key: string, o: { firstName: string; link: 
   parts.push(`<rect x="${cx - lw / 2}" y="${880}" width="${lw}" height="84" rx="42" fill="${C.gold}"/>`);
   parts.push(text(semi, o.link, cx, 936, ls, C.ink));
   // the mark
-  parts.push(`<g transform="translate(${cx - 120} 1000) scale(1.4)"><circle cx="12" cy="8.5" r="3.7" fill="${C.gold}"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></g>`);
+  parts.push(markImage(cx - 136, 996, 44) ?? `<g transform="translate(${cx - 120} 1000) scale(1.4)"><circle cx="12" cy="8.5" r="3.7" fill="${C.gold}"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></g>`);
   parts.push(text(brand, 'Hoolam', cx - 80, 1035, 38, C.white, 'left'));
   const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${W}">${parts.join('')}</svg>`);
   const layers: OverlayOptions[] = [];

@@ -7,6 +7,7 @@ import type { PaymentProvider } from '../payments/provider.js';
 import { SETTING_DEFS, type SettingValue, type Settings } from '../settings.js';
 import { parseSocial, SOCIAL_KINDS, type SocialKind } from '../socials.js';
 import { MAX_UPLOAD_BYTES, MediaError, SLOTS, SiteMedia } from '../site-media.js';
+import { refreshMark } from '../brand-mark.js';
 import { ChatArtError, type ChatArt } from '../chat-art/index.js';
 import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
@@ -895,6 +896,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const where = def.group === 'brand' ? def.label : `Version ${version} · Section ${def.section} · ${def.label}`;
       const info = await act(req, { action: 'media.upload', targetType: 'media', targetId: key, details: { where, file: name, inBytes: req.body.length } },
         async () => { try { return await d.siteMedia.put(key, req.body as Buffer, req.staff!.id, name); } catch (e) { throw e instanceof MediaError ? new HttpError(400, e.message) : e; } });
+      if (key === 'mark') await refreshMark(true); // the chat pictures and receipts use the new icon at once
       d.siteSync.changed();
       return { ok: true, item: { ...info, slot, updatedBy: req.staff!.name, url: d.siteMedia.url('', key) }, site: siteState() };
     });
@@ -940,6 +942,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const key = SiteMedia.key(slot, version);
       const where = def.group === 'brand' ? def.label : `Version ${version} · Section ${def.section} · ${def.label}`;
       await act(req, { action: 'media.remove', targetType: 'media', targetId: key, details: { where } }, () => d.siteMedia.remove(key));
+      if (key === 'mark') await refreshMark(true); // back to the drawn mark at once
       d.siteSync.changed();
       return { ok: true, site: siteState() };
     });
