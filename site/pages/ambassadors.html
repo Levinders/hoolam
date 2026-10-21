@@ -54,6 +54,43 @@
 .example .ic { color: #8A6418; width: 22px; height: 22px; margin-top: 2px; }
 .example p { color: #4F3A0D; }
 .example b { font-weight: 600; }
+/* the calculator */
+.calc { margin-top: 14px; padding: clamp(20px, 3vw, 28px); display: grid; gap: 18px; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); align-items: center; }
+@media (max-width: 860px) { .calc { grid-template-columns: 1fr; } }
+.calc-h { grid-column: 1 / -1; display: flex; gap: 14px; align-items: center; }
+.calc-ic { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--gold-tint); color: #8A6418; flex: none; }
+.calc-ic .ic { width: 23px; height: 23px; }
+.calc-h h3 { font-size: 1.15rem; font-weight: 600; }
+.calc-h p { color: var(--soft); font-size: .92rem; }
+.calc-in { display: grid; gap: 18px; }
+.calc-f { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; border: 0; margin: 0; padding: 0; min-width: 0; }
+.calc-f label, .calc-f legend { font-weight: 600; font-size: .95rem; padding: 0; }
+.calc-f output { font: 700 1.15rem var(--font-body); color: var(--teal); font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+.calc-f input[type=range] { grid-column: 1 / -1; width: 100%; height: 36px; margin: 0; accent-color: var(--teal); cursor: pointer; }
+.calc-size legend { margin-bottom: 8px; }
+.calc-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.calc-chips label { position: relative; margin: 0; }
+.calc-chips input { position: absolute; opacity: 0; pointer-events: none; }
+.calc-chips span { display: inline-flex; align-items: center; min-height: 42px; padding: 0 16px; border-radius: 99px; background: #fff; box-shadow: inset 0 0 0 1.5px var(--rule); font-weight: 600; cursor: pointer; transition: background .2s, box-shadow .2s, color .2s; }
+.calc-chips input:checked + span { background: var(--teal); color: #fff; box-shadow: none; }
+.calc-chips input:focus-visible + span { outline: 3px solid var(--gold); outline-offset: 2px; }
+.calc-out { padding: 20px; border-radius: 20px; background: var(--teal); color: #CFE3E4; display: grid; gap: 4px; }
+.calc-out small { font-size: .88rem; }
+.calc-out > b { font: 700 clamp(2.2rem, 5vw, 3rem)/1.05 var(--font-body); letter-spacing: -0.04em; color: #fff; font-variant-numeric: tabular-nums; }
+.calc-out span { font-size: .92rem; line-height: 1.45; }
+.calc-out span b { color: #fff; font-weight: 600; }
+.calc-note { grid-column: 1 / -1; color: var(--soft); font-size: .84rem; }
+/* what an ambassador shares */
+.share-show { margin-top: 14px; padding: clamp(18px, 3vw, 26px); display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: clamp(18px, 4vw, 40px); align-items: center; }
+.share-show figure { margin: 0; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px -26px rgba(8,62,67,.7); }
+.share-show img { display: block; width: 100%; height: auto; }
+.share-show h3 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+.share-show p { color: var(--soft); margin-top: 6px; }
+.share-show .ticks { margin-top: 12px; }
+@media (max-width: 640px) { .share-show { grid-template-columns: 1fr; } .share-show figure { max-width: 320px; } }
+.apply-side .vn { margin-top: 20px; }
+.amb-proof { margin-top: 18px; max-width: 360px; }
+.amb-proof .proof-row li { padding: 12px 16px; }
 .grow { margin-top: 14px; display: flex; gap: 14px; align-items: flex-start; padding: 18px 20px; border-radius: 18px; background: var(--teal-tint); }
 .grow .ic { color: var(--teal); width: 22px; height: 22px; margin-top: 2px; }
 .grow p { font-weight: 500; }
@@ -155,6 +192,7 @@ fieldset.f { border: 0; margin: 0; padding: 0; min-width: 0; }
         <a class="btn ghost" href="#earn">How you earn</a>
       </div>
       <div class="facts"><span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Free to join</span><span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Reply within 24 hours</span><span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Paid monthly</span></div>
+      <div class="proof amb-proof" data-proof hidden><ul class="proof-row"><li data-n="ambPaid" data-money hidden><b data-v></b><span>paid to ambassadors so far</span></li></ul></div>
     </div>
     <div data-nosnippet class="dash" role="img" aria-label="Example: an ambassador's month on Hoolam, with earnings from sellers and a new-seller bonus">
       <div class="dash-top"><span class="dash-av" aria-hidden="true">T</span><div><b>Tobi</b><small><svg class="ic" aria-hidden="true"><use href="#i-badge-check"/></svg>Verified ambassador · UNILAG</small></div><span class="ex">Example</span></div>
@@ -178,7 +216,34 @@ fieldset.f { border: 0; margin: 0; padding: 0; min-width: 0; }
       <div class="card"><span class="big">{{BUYER_PCT}}</span><h3>On buyers you bring</h3></div>
       <div class="card gold"><span class="big">{{BONUS}}</span><h3>For each new seller</h3></div>
     </div>
-    <div class="example"><svg class="ic" aria-hidden="true"><use href="#i-calculator"/></svg><p><b>For example:</b> a seller you bring does 10 orders of ₦20,000 in a month. Hoolam earns about {{EX_REV}} on each, so you earn about <b>{{EX_SELLER_MONTH}}</b> that month from that one seller. Bring 20 sellers like that and it’s about <b>{{EX_TWENTY}}</b> a month.</p></div>
+    <div class="calc card" id="calc" data-calc='{{CALC_JSON}}'>
+      <div class="calc-h"><span class="calc-ic"><svg class="ic" aria-hidden="true"><use href="#i-calculator"/></svg></span><div><h3>Work out your month</h3><p>Move the sliders. It uses today’s fees.</p></div></div>
+      <div class="calc-in">
+        <div class="calc-f"><label for="c-sellers">Sellers you bring</label><output id="c-sellers-o" for="c-sellers">5</output><input type="range" id="c-sellers" min="1" max="50" value="5"></div>
+        <div class="calc-f"><label for="c-orders">Orders each one completes a month</label><output id="c-orders-o" for="c-orders">10</output><input type="range" id="c-orders" min="1" max="60" value="10"></div>
+        <fieldset class="calc-f calc-size"><legend>Usual order</legend><div class="calc-chips">
+          <label><input type="radio" name="c-size" value="5000"><span>₦5k</span></label><label><input type="radio" name="c-size" value="10000"><span>₦10k</span></label><label><input type="radio" name="c-size" value="20000" checked><span>₦20k</span></label><label><input type="radio" name="c-size" value="50000"><span>₦50k</span></label>
+        </div></fieldset>
+      </div>
+      <div class="calc-out" aria-live="polite"><small>You could earn about</small><b id="c-out">{{EX_FIVE}}</b><span>a month, plus <b>{{BONUS}}</b> for each new seller once they complete {{BONUS_ORDERS}} orders.</span></div>
+      <p class="calc-note">An estimate. You earn only on completed orders.</p>
+    </div>
+    <script>
+    (function () {
+      var el = document.getElementById('calc'); if (!el) return;
+      var c; try { c = JSON.parse(el.getAttribute('data-calc')); } catch (e) { return; }
+      var s = document.getElementById('c-sellers'), o = document.getElementById('c-orders'), out = document.getElementById('c-out');
+      function fee(price) { var f = price * c.rate / 100; f = Math.min(c.max, Math.max(c.min, f)); var r = c.roundTo || 1; f = Math.round(f / r) * r;
+        var band = c.txn.filter(function (b) { return b.upTo == null || price <= b.upTo; })[0] || c.txn[c.txn.length - 1]; return f + band.fee; }
+      function run() {
+        var size = Number((el.querySelector('[name=c-size]:checked') || {}).value || 20000);
+        var per = Math.floor(fee(size) * c.sellerPct / 100);
+        document.getElementById('c-sellers-o').textContent = s.value; document.getElementById('c-orders-o').textContent = o.value;
+        out.textContent = '\u20a6' + (per * Number(s.value) * Number(o.value)).toLocaleString('en-NG');
+      }
+      el.addEventListener('input', run); el.addEventListener('change', run); run();
+    })();
+    </script>
     <div class="grow"><svg class="ic" aria-hidden="true"><use href="#i-trending-up"/></svg><p>You choose a term of 3, 6 or 12 months, and it renews by itself. <b>Whatever term you pick, your share grows</b> when you bring more active sellers and buyers.</p></div>
   </div>
 </section>
@@ -193,6 +258,18 @@ fieldset.f { border: 0; margin: 0; padding: 0; min-width: 0; }
       <li class="card"><b>Share your link</b><p>hoolam.com/a/your-name, on your status, in your groups and to vendors you know.</p></li>
       <li class="card"><b>Get paid monthly</b><p>On the {{PAYOUT_DAY}} of every month, from {{PAYOUT_MIN}}. See every naira in your dashboard.</p></li>
     </ol>
+    <div class="share-show card">
+      <figure><img src="{{ART:amb-share}}" alt="{{ALT:amb-share}}" loading="lazy" decoding="async" width="900" height="900"></figure>
+      <div>
+        <h3>What you share</h3>
+        <p>Your own card, with your photo, your name and your link. People see someone they know, not an advert.</p>
+        <ul class="ticks">
+          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Made for your WhatsApp status and groups.</span></li>
+          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Your link opens a page with your name on it.</span></li>
+          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Everyone who joins through it is linked to you.</span></li>
+        </ul>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -241,6 +318,7 @@ fieldset.f { border: 0; margin: 0; padding: 0; min-width: 0; }
       <h2 class="sec-h">Apply in about 2 minutes</h2>
       <p class="sec-p">4 short steps. We reply on WhatsApp within 24 hours.</p>
       <p class="sec-p">Your ID check and bank account come later, only once you’re approved, so we never hold details we don’t need.</p>
+      <button type="button" class="vn" data-voice="voice-amb-founder" hidden><span class="vn-ic"><svg class="play" aria-hidden="true"><use href="#i-play"/></svg><svg class="pause" aria-hidden="true"><use href="#i-pause"/></svg></span><span class="vn-t"><span data-label>A word from Raphael, our founder</span><small><span class="vn-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span data-time>30 seconds</span></small></span></button>
     </div>
     {{FORM}}
   </div>

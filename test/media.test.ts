@@ -119,8 +119,9 @@ describe('home page versions', () => {
   it('lists every version, newest first, with the live one marked', async () => {
     const r = (await call('GET', '/console/api/site/versions', { cookie: admin })).json;
     expect(r.live).toBe('1.0.0');
-    expect(r.versions.map((v: any) => [v.version, v.live])).toEqual([['1.2.0', false], ['1.1.0', false], ['1.0.0', true]]);
-    expect(r.versions[0]).toMatchObject({ images: 1, from: '1.0.0' });
+    expect(r.versions.map((v: any) => [v.version, v.live])).toEqual([['1.2.1', false], ['1.2.0', false], ['1.1.0', false], ['1.0.0', true]]);
+    expect(r.versions[1]).toMatchObject({ images: 1, from: '1.0.0' });
+    expect(r.versions[0]).toMatchObject({ from: '1.2.0' }); // 1.2.1 starts with 1.2.0's images
     expect(r.websiteSpots).toBeGreaterThan(5);
   });
 

@@ -10,14 +10,26 @@
   </ul>
 </div>
 
+<figure class="lg-flow" role="img" aria-label="The buyer’s bank sends the money to Hoolam’s order account at {{BANK_PARTNER}}. From there it can only go two ways: to the seller when the buyer is happy, or back to the buyer if a problem is decided for them.">
+  <div class="lf-node"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><b>Buyer’s bank</b><span>Any bank or app</span></div>
+  <span class="lf-arrow" aria-hidden="true"></span>
+  <div class="lf-node held"><svg class="ic" aria-hidden="true"><use href="#i-lock-keyhole"/></svg><b>Held for your order</b><span>Hoolam’s order account at {{BANK_PARTNER}}</span></div>
+  <span class="lf-arrow split" aria-hidden="true"></span>
+  <div class="lf-exits">
+    <div class="lf-node good"><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg><b>To the seller</b><span>When the buyer is happy</span></div>
+    <div class="lf-node back"><svg class="ic" aria-hidden="true"><use href="#i-arrow-down-to-line"/></svg><b>Back to the buyer</b><span>If a problem is decided for them</span></div>
+  </div>
+  <figcaption>Two ways out. Nowhere else.</figcaption>
+</figure>
+
 <section>
   <h2 id="journey">The journey of one payment</h2>
   <ol class="steps">
-    <li><span class="n">1</span><div><b>The buyer gets a one-time account number</b><p>For each payment, we send the buyer an account number made just for that order, from {{BANK_PARTNER}} through its {{PAY_SERVICE}} service. It works for about 40 minutes.</p></div></li>
+    <li><span class="n">1</span><div><b>The buyer gets a one-time account number</b><p>For each payment, we send the buyer an account number made just for that order, from {{BANK_PARTNER}} through its {{PAY_SERVICE}} service. It works for about 40 minutes.</p><img class="lg-shot" src="{{ART:status-2}}" alt="{{ALT:status-2}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
     <li><span class="n">2</span><div><b>The buyer transfers from their own bank</b><p>Any Nigerian bank or app. The money lands at {{BANK_PARTNER}}, not with the seller and not in a Hoolam staff account.</p></div></li>
-    <li><span class="n held">3</span><div><b>Held for the order</b><p>We check the payment with the bank before we treat it as received, then tell both sides. The money sits in Hoolam’s collection account at {{BANK_PARTNER}}, recorded against that one order.</p></div></li>
-    <li><span class="n">4</span><div><b>Handed over</b><p>When the item reaches the buyer, the buyer gives a 4-digit code. If a rider or driver delivered it, their delivery fee is paid to them then, from the held money.</p></div></li>
-    <li><span class="n">5</span><div><b>Released or refunded</b><p>When the buyer is happy (or says nothing within {{AUTO_RELEASE}} of the handover), the rest goes to the seller’s bank account. If there’s a problem decided for the buyer, everything still held goes back to their account.</p></div></li>
+    <li><span class="n held">3</span><div><b>Held for the order</b><p>We check the payment with the bank before we treat it as received, then tell both sides. The money sits in Hoolam’s collection account at {{BANK_PARTNER}}, recorded against that one order.</p><img class="lg-shot" src="{{ART:status-3}}" alt="{{ALT:status-3}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
+    <li><span class="n">4</span><div><b>Handed over</b><p>When the item reaches the buyer, the buyer gives a 4-digit code. If a rider or driver delivered it, their delivery fee is paid to them then, from the held money.</p><img class="lg-shot" src="{{ART:status-5}}" alt="{{ALT:status-5}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
+    <li><span class="n">5</span><div><b>Released or refunded</b><p>When the buyer is happy (or says nothing within {{AUTO_RELEASE}} of the handover), the rest goes to the seller’s bank account. If there’s a problem decided for the buyer, everything still held goes back to their account.</p><img class="lg-shot" src="{{ART:status-6}}" alt="{{ALT:status-6}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
   </ol>
 </section>
 

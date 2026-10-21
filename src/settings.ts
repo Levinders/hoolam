@@ -65,6 +65,11 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'amb_apply_web', group: 'Ambassadors', sub: 'Joining', label: 'Applications on the website', help: 'People can apply on hoolam.com/ambassadors.', type: 'boolean', core: true },
   { key: 'amb_apply_whatsapp', group: 'Ambassadors', sub: 'Joining', label: 'Applications in WhatsApp', help: 'People can apply from the WhatsApp menu.', type: 'boolean', core: true },
   { key: 'amb_menu_after', group: 'Ambassadors', sub: 'Joining', label: 'Show in the menu after', help: 'Completed orders someone needs before "Become an ambassador" shows in their WhatsApp menu. Ambassadors and people who applied always see it.', type: 'number', min: 0, max: 50, core: true },
+  { key: 'feature_site_numbers', group: 'Features', label: 'Live numbers on the website', help: 'Real counts from your orders on the website (home, about and ambassadors pages). Each number shows only once it reaches its minimum below. Test orders never count.', type: 'boolean', core: true },
+  { key: 'site_min_completed', group: 'Features', sub: 'Website numbers', label: 'Show "orders completed" from', help: 'Orders where the seller was paid.', type: 'number', min: 1, max: 1_000_000, core: true },
+  { key: 'site_min_started', group: 'Features', sub: 'Website numbers', label: 'Show "orders started" from', help: 'Every order started on Hoolam.', type: 'number', min: 1, max: 1_000_000, core: true },
+  { key: 'site_min_refunded', group: 'Features', sub: 'Website numbers', label: 'Show "buyers refunded in full" from', help: 'Orders decided for the buyer, with all their money returned.', type: 'number', min: 1, max: 100_000, core: true },
+  { key: 'site_min_amb_paid', group: 'Features', sub: 'Website numbers', label: 'Show "paid to ambassadors" from', help: 'Naira paid out to ambassadors. Shown on the ambassadors page.', type: 'money', min: 1, max: 1_000_000_000, core: true },
   { key: 'two_step_login', group: 'Security', label: 'Authenticator code at sign-in', help: 'On: signing in to the console needs the email, the password and the 6-digit code from an authenticator app. Off: the email and password are enough. Authenticators already set up are kept, so turning it back on works straight away; anyone without one sets it up at their next sign-in.', type: 'boolean', core: true },
   { key: 'forms_enabled', group: 'WhatsApp', label: 'WhatsApp forms', help: 'Offer the buy and sell forms (needs Meta business verification).', type: 'boolean' },
 ];
@@ -96,6 +101,7 @@ export class Settings {
       feature_ambassadors: false, amb_seller_pct: 20, amb_buyer_pct: 10, amb_seller_bonus: 1000, amb_bonus_orders: 3,
       amb_payout_day: 1, amb_payout_min: 5000, amb_term_3: true, amb_term_6: true, amb_term_12: true, amb_notice_days: 7,
       amb_apply_web: true, amb_apply_whatsapp: true, amb_menu_after: 1,
+      feature_site_numbers: true, site_min_completed: 50, site_min_started: 100, site_min_refunded: 5, site_min_amb_paid: 100_000,
       contact_email: 'hello@hoolam.com', contact_phone: '',
       home_version: FIRST_VERSION, // the live home page version (Console → Settings → Website content)
       ...Object.fromEntries(COMPANY_SOCIAL_KINDS.map((k) => [`company_${k}`, ''])),
@@ -152,7 +158,7 @@ export class Settings {
     if ((next.fee_min as number) > (next.fee_max as number)) throw new Error('The minimum fee can\'t be above the maximum fee');
     if ((next.max_deal as number) > (next.max_deal_verified as number)) throw new Error('The largest order once verified can\'t be below the largest order without ID');
     if (!next.amb_term_3 && !next.amb_term_6 && !next.amb_term_12) throw new Error('Keep at least one ambassador term (3, 6 or 12 months)');
-    for (const k of ['amb_bonus_orders', 'amb_payout_day', 'amb_notice_days', 'amb_menu_after']) if (k in changes && !Number.isInteger(changes[k])) throw new Error('Use a whole number');
+    for (const k of ['amb_bonus_orders', 'amb_payout_day', 'amb_notice_days', 'amb_menu_after', 'site_min_completed', 'site_min_started', 'site_min_refunded']) if (k in changes && !Number.isInteger(changes[k])) throw new Error('Use a whole number');
     for (const [k, v] of Object.entries(changes)) {
       await q.query(
         `INSERT INTO settings (key, value, updated_by, updated_at) VALUES ($1,$2,$3,now())
@@ -185,6 +191,11 @@ export class Settings {
   autoReleaseMinutes(): number { return this.get('auto_release_minutes'); }
   dispatchRemindHours(): number { return this.get('dispatch_remind_hours'); }
   unpaidCloseHours(): number { return this.get('unpaid_close_hours'); }
+  /** Live numbers on the website: on or off, and the count each one needs before it shows. */
+  siteNumbers() {
+    return { on: this.get<boolean>('feature_site_numbers'), minCompleted: this.get<number>('site_min_completed'), minStarted: this.get<number>('site_min_started'),
+      minRefunded: this.get<number>('site_min_refunded'), minAmbPaid: this.get<number>('site_min_amb_paid') };
+  }
   repReplyMinutes(): number { return this.get('rep_reply_minutes'); }
   problemReplyHours(): number { return this.get('problem_reply_hours'); }
   handoverCodeTries(): number { return this.get('handover_code_tries'); }

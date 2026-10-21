@@ -15,9 +15,9 @@ type Kind = 'picture' | 'card' | 'voice' | 'video' | 'sticker';
 interface Item { id: string; kind: Kind; title: string; when: string; size?: string; script?: string[]; length?: string; custom: boolean; updatedAt: string | null; fileName: string | null; bytes: number | null; mime: string | null }
 
 const GROUPS: { kind: Kind; title: string; icon: typeof Mic; help: string }[] = [
-  { kind: 'picture', title: 'Pictures', icon: ImageIcon, help: 'Drawn by Hoolam in your brand. Replace any of them with your own design at the size shown.' },
+  { kind: 'picture', title: 'Pictures', icon: ImageIcon, help: 'Drawn by Hoolam in your brand. Replace any of them with your own design at the size shown. The website shows some of them too, so a replacement changes both.' },
   { kind: 'card', title: 'Live cards', icon: LayoutTemplate, help: 'Drawn fresh for every order with its real amounts, names and photos. Upload a background to change the look; the words are drawn on top, so keep the middle calm.' },
-  { kind: 'voice', title: 'Voice notes', icon: Mic, help: 'Nothing is sent until you upload one. Record each script on your phone (a WhatsApp voice note to yourself works), then upload the file. Most go only the first time someone reaches that moment.' },
+  { kind: 'voice', title: 'Voice notes', icon: Mic, help: 'Nothing is sent until you upload one. Record each script on your phone (a WhatsApp voice note to yourself works), then upload the file. Most go only the first time someone reaches that moment. The ones marked Website play on hoolam.com instead; the play button shows once you upload.' },
   { kind: 'video', title: 'Videos', icon: Clapperboard, help: 'For later. Nothing is sent until you upload one. Vertical, 10 to 30 seconds, captions on screen, MP4 under 16 MB.' },
   { kind: 'sticker', title: 'Stickers', icon: Smile, help: 'Sent after a few happy moments. Replace with a 512 × 512 WebP or PNG with a see-through background.' },
 ];

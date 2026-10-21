@@ -34,7 +34,7 @@ const read = (p) => readFileSync(join(here, p), 'utf8');
 const app = strip(env.HOOLAM_APP_URL) || 'https://hoolam.onrender.com';
 const site = strip(env.SITE_URL) || strip(env.RENDER_EXTERNAL_URL) || '';
 const fallbackWa = (env.WHATSAPP_PUBLIC_NUMBER ?? '').replace(/\D/g, '');
-const EXT = { 'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/png': 'png', 'image/jpeg': 'jpg' };
+const EXT = { 'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/png': 'png', 'image/jpeg': 'jpg', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/amr': 'amr' };
 
 // The company, exactly as registered with the Corporate Affairs Commission. Meta checks the website against these.
 const COMPANY = {
@@ -153,6 +153,49 @@ const ambLinks = amb && Array.isArray(live.ambassadorLinks) ? live.ambassadorLin
 const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 const pctText = (n) => `${Number(Number(n).toFixed(2))}%`;
 
+// ---------- what the website shows from the chat (site.json `show`): the chat's pictures and voice notes, live numbers ----------
+// Copied into the site like the other images, so they load even while the server sleeps. The numbers are also
+// refreshed live by site/assets/show.js. Pages ask for a picture with {{ART:<id>}} (its address) and {{ALT:<id>}}.
+const showLive = ok && live.show ? live.show : null;
+const ART_ALT = { held: 'Hoolam chat card: the money is held safely', 'seller-held': 'Hoolam chat card for the seller: the money is ready', handover: 'Hoolam chat card: the 4-digit handover code',
+  frozen: 'Hoolam chat card: the money is frozen while a rep sorts it out', paid: 'Hoolam chat card: the seller is paid', refund: 'Hoolam chat card: the buyer is refunded in full',
+  'real-hoolam': 'How to know it’s the real Hoolam', 'amb-share': 'The card an ambassador shares' };
+const artSrc = {}, artAlt = { ...ART_ALT };
+const showData = { api: app, voices: {}, proof: showLive?.proof ?? null };
+if (showLive) {
+  for (const [id, a] of Object.entries(showLive.art ?? {})) {
+    artAlt[id] = a.alt || artAlt[id] || '';
+    try { artSrc[id] = await copyImage(`art-${id}`, a); } catch (e) { artSrc[id] = a.url; console.log(`  couldn't copy chat picture ${id}: ${e.message} (loads it live instead)`); }
+  }
+  for (const [id, v] of Object.entries(showLive.voices ?? {})) {
+    try { showData.voices[id] = { src: await copyImage(id, v), mime: v.mime }; } catch { showData.voices[id] = { src: v.url, mime: v.mime }; }
+  }
+}
+const showCss = createHash('sha256').update(read('assets/show.css')).digest('hex').slice(0, 10);
+const showJs = createHash('sha256').update(read('assets/show.js')).digest('hex').slice(0, 10);
+const officialQr = showLive?.qr && /^<svg[\s>]/.test(showLive.qr.replace(/^<\?xml[^>]*>\s*/, '')) ? showLive.qr.replace(/^<\?xml[^>]*>\s*/, '').replace('<svg', '<svg role="img" aria-label="QR code that opens Hoolam on WhatsApp"') : '';
+
+/** Hoolam's one WhatsApp number, to save (vCard) or open, with a QR code for visitors on a computer. */
+function officialBlock() {
+  if (!wa) return '';
+  return `<div class="official${officialQr ? ' has-qr' : ''}">
+  <span class="of-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg></span>
+  <div class="of-t"><span>Hoolam’s only WhatsApp number</span><b>${esc(phoneText(wa))}</b></div>
+  ${officialQr ? `<div class="of-qr">${officialQr}<small>Scan to chat on your phone</small></div>` : ''}
+  <div class="of-btns"><a class="of-btn main" data-wa href="${esc(waLink)}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg>Chat on WhatsApp</a><a class="of-btn ghost" href="/hoolam.vcf" download="Hoolam.vcf"><svg class="ic" aria-hidden="true"><use href="#i-user-plus"/></svg>Save the number</a></div>
+  <p class="of-note">We never message you from any other number, never ask for your PIN, OTP or password, and never ask you to pay into a personal account.</p>
+</div>`;
+}
+/** Fills in the chat's pictures and the official number, and adds the voice notes and live numbers where a page uses them. */
+function withShow(h) {
+  h = h.replace(/\{\{ART:([a-z0-9-]+)\}\}/g, (_, id) => esc(artSrc[id] ?? `${app}/site/art/${id}`))
+    .replace(/\{\{ALT:([a-z0-9-]+)\}\}/g, (_, id) => esc(artAlt[id] ?? ''))
+    .replaceAll('{{OFFICIAL}}', officialBlock());
+  if (!/data-voice=|data-proof|class="official|class="chat-shot/.test(h)) return h;
+  return h.replace('</head>', `<link rel="stylesheet" href="/assets/show.css?v=${showCss}">\n</head>`)
+    .replace('</body>', `<script>window.HOOLAM_SHOW=${JSON.stringify(showData).replace(/</g, '\\u003c')}</script>\n<script src="/assets/show.js?v=${showJs}" defer></script>\n</body>`);
+}
+
 // ---------- the footer ----------
 const contactItems = [
   // the same number for calls and WhatsApp shows once
@@ -181,7 +224,9 @@ const FOOTER_MORE = '\n          <li><a href="/about/">About</a></li>\n         
 const PRODUCT_TOP_OLD = '          <li><a href="/#journey">How it works</a></li>\n          <li><a href="/#pricing">Pricing</a></li>\n          <li><a href="/#trust">Why trust us</a></li>\n';
 const FOOTER_AMB = '\n          <li><a href="/ambassadors/">Become an ambassador</a></li>';
 const footerSrc = read('partials/footer.html');
-const footerFor = (more, modern = true) => fill(footerSrc, { ...shared, CONTACT_ITEMS: contactItems, FOOTER_MORE: more ? FOOTER_MORE : '', PRODUCT_TOP: modern ? '' : PRODUCT_TOP_OLD, FOOTER_AMB: modern && amb ? FOOTER_AMB : '' });
+// "Our only WhatsApp number": on every page except the home versions made before it (versions.json "official")
+const FOOTER_OFFICIAL = wa ? `\n        <p class="sf-official"><svg class="ic" aria-hidden="true"><use href="#sf-shield"/></svg><span>Our only WhatsApp number is <b>${esc(phoneText(wa))}</b>. <a href="/hoolam.vcf" download="Hoolam.vcf">Save it</a></span></p>` : '';
+const footerFor = (more, modern = true, official = true) => fill(footerSrc, { ...shared, CONTACT_ITEMS: contactItems, FOOTER_MORE: more ? FOOTER_MORE : '', PRODUCT_TOP: modern ? '' : PRODUCT_TOP_OLD, FOOTER_AMB: modern && amb ? FOOTER_AMB : '', FOOTER_OFFICIAL: official ? FOOTER_OFFICIAL : '' });
 const footer = footerFor(true);
 // the website chat (site/assets/chat.js): on About, Contact us, the legal pages and the home versions with "liveChat"
 const chatJs = read('assets/chat.js');
@@ -198,6 +243,7 @@ const NOINDEX = '<meta name="robots" content="noindex, nofollow, noarchive, nosn
 const footerPages = (v) => !!manifest.versions.find((x) => x.version === v)?.footerPages;
 const hasChat = (v) => !!manifest.versions.find((x) => x.version === v)?.liveChat;
 const hasAmb = (v) => !!manifest.versions.find((x) => x.version === v)?.ambassadors;
+const hasOfficial = (v) => !!manifest.versions.find((x) => x.version === v)?.official;
 /** "Ambassador" in the top menu and "Become an ambassador" in the phone menu (home versions from 1.2.0, while the programme is on). */
 function withAmbMenu(h) {
   h = h.replace(/(<nav class="menu" aria-label="Main">[\s\S]*?)(<\/nav>)/, '$1<a href="/ambassadors/">Ambassador</a>$2');
@@ -213,10 +259,11 @@ function homePage(src, version, preview, draft = false) {
     .replaceAll('{{SITE_URL}}/', site ? `${site}/` : '/')
     .replace('/*{{BAKED}}*/{}', JSON.stringify(pageBaked).replace(/</g, '\\u003c'))
     .replace('/*{{FOOTER_CSS}}*/', footerCss)
-    .replace('<!--{{FOOTER}}-->', footerFor(draft || footerPages(version), draft || hasAmb(version)));
+    .replace('<!--{{FOOTER}}-->', footerFor(draft || footerPages(version), draft || hasAmb(version), draft || hasOfficial(version)));
   if (amb && (draft || hasAmb(version))) h = withAmbMenu(h);
   h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, BANK_SHORT: String(shared.BANK_PARTNER).replace(/\s*Microfinance Bank$/, ' MFB'), INCORPORATED: shared.INCORPORATED });
   if (draft || hasChat(version)) h = h.replace('</body>', `${chatTag(imgs?.mark?.src)}\n</body>`);
+  h = withShow(h);
   h = h.replace(/<link rel="icon" href="\/?assets\/favicon\.svg" type="image\/svg\+xml">\n<link rel="apple-touch-icon" href="\/?assets\/icon-180\.png">/, iconTags('/', imgs));
   if (preview) {
     // never in search results; a small label so nobody mistakes it for the live page
@@ -252,6 +299,12 @@ const LEGAL_PAGES = [
 const layout = read('legal/_layout.html');
 const imagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => k === 'mark').map(([k, v]) => [k, v.src])));
 
+/** "About 4 minutes to read", from the words on the page (about 200 a minute). */
+function readTime(html) {
+  const words = html.replace(/<(script|style|svg)[\s\S]*?<\/\1>/g, ' ').replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
+  const m = Math.max(1, Math.round(words / 200));
+  return `About ${m} minute${m === 1 ? '' : 's'} to read`;
+}
 function page({ slug, title, blurb, lede, body, toc, path }) {
   const canonical = site ? `${site}${path}` : '';
   const others = !LEGAL_PAGES.some((p) => p.slug === slug) ? '' : LEGAL_PAGES.filter((p) => p.slug !== slug).map((p) => `<a class="lg-card" href="/legal/${p.slug}/"><b>${esc(p.title)}</b><span>${esc(p.blurb)}</span></a>`).join('');
@@ -261,6 +314,7 @@ function page({ slug, title, blurb, lede, body, toc, path }) {
     OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: imagesJson.replace(/</g, '\\u003c'), WA_HREF: esc(waLink),
     PAGE_CLASS: toc ? 'has-toc' : 'no-toc',
     CHAT: chatTag(baked.images?.mark?.src),
+    READ: LEGAL_PAGES.some((p) => p.slug === slug) ? `<p class="lg-read"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>${readTime(body)}</p>` : '',
   }).replace(others ? /^$/ : /\n  <nav class="lg-others"[\s\S]*?<\/nav>/, '');
 }
 
@@ -271,7 +325,7 @@ for (const p of LEGAL_PAGES) {
   const heads = [...body.matchAll(/<h2 id="([a-z0-9-]+)">([\s\S]*?)<\/h2>/g)];
   const toc = heads.length > 2 ? `<ol>${heads.map((h, i) => `<li><a href="#${h[1]}"><span>${String(i + 1).padStart(2, '0')}</span>${h[2]}</a></li>`).join('')}</ol>` : '';
   mkdirSync(join(out, 'legal', p.slug), { recursive: true });
-  writeFileSync(join(out, 'legal', p.slug, 'index.html'), page({ ...p, lede, body, toc, path: `/legal/${p.slug}/` }));
+  writeFileSync(join(out, 'legal', p.slug, 'index.html'), withShow(page({ ...p, lede, body, toc, path: `/legal/${p.slug}/` })));
 }
 // /legal/: every page, in plain words
 const hub = `<div class="lg-hub">${LEGAL_PAGES.map((p) => `<a class="lg-card" href="/legal/${p.slug}/"><b>${esc(p.title)}</b><span>${esc(p.blurb)}</span></a>`).join('')}</div>
@@ -316,8 +370,10 @@ function ambVars() {
   return {
     SELLER_PCT: pctText(a.sellerPct), BUYER_PCT: pctText(a.buyerPct), BONUS: naira(a.bonus), BONUS_ORDERS: String(a.bonusOrders),
     PAYOUT_DAY: ordinal(a.payoutDay), PAYOUT_MIN: naira(a.payoutMin),
-    EX_REV: naira(rev), EX_SHARE: naira(share), EX_BUYER: naira(buyer), EX_SELLER_MONTH: naira(share * 10), EX_TWENTY: naira(share * 10 * 20),
+    EX_REV: naira(rev), EX_SHARE: naira(share), EX_BUYER: naira(buyer), EX_SELLER_MONTH: naira(share * 10), EX_TWENTY: naira(share * 10 * 20), EX_FIVE: naira(share * 10 * 5),
     EX_MONTH: naira(share * 10 * 6 + a.bonus * 2 + buyer * 8),
+    // the calculator on the page: today's fees and the seller share
+    CALC_JSON: esc(JSON.stringify({ rate: fees.rate, min: fees.min, max: fees.max, roundTo: fees.roundTo || 1, txn: txn.seller, sellerPct: a.sellerPct })),
     FORM: a.applyWeb ? ambForm(a.api) : `<div class="card closed"><h3>Apply in WhatsApp</h3><p class="sec-p">Applications on the website are closed for now. Open the menu in our WhatsApp chat and tap <b>Become an ambassador</b>.</p><p style="margin-top:16px"><a class="btn" data-wa href="${esc(waLink)}" target="_blank" rel="noopener">Open WhatsApp</a></p></div>`,
   };
 }
@@ -437,6 +493,9 @@ for (const p of INFO_PAGES) {
     PHONE_CARD: contact.phone && contact.phone !== wa
       ? `<div class="way card"><i><svg class="ic" aria-hidden="true"><use href="#sf-phone"/></svg></i><h2>Call us</h2><a class="big" href="tel:+${esc(contact.phone)}">${esc(phoneText(contact.phone))}</a><p>From 9am to 5pm, every day.</p></div>` : '',
     SAFETY: wa ? `Hoolam only messages you from <b>${esc(phoneText(wa))}</b>.` : '',
+    REP_REPLY: minutesText(Number(timing.repReplyMinutes) || 30),
+    // your photo on the About page (Console → Settings → Brand), else your initial
+    FOUNDER_PHOTO: baked.images?.founder?.src ? `<img src="${esc(baked.images.founder.src)}" alt="Raphael Levinders, founder of Hoolam" width="320" height="320" loading="lazy">` : '<span aria-hidden="true">R</span>',
     MAP_HREF: esc(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(COMPANY.address)}`),
     SOCIALS: socials.length ? `<div class="socials" aria-label="Hoolam on social media">${socials.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" aria-label="Hoolam on ${esc(x.name)}: ${esc(x.label)}"><svg class="ic" aria-hidden="true"><use href="#sf-${esc(x.kind)}"/></svg>${esc(x.label)}</a>`).join('')}</div>` : '',
   };
@@ -450,7 +509,15 @@ for (const p of INFO_PAGES) {
     CHAT: chatTag(baked.images?.mark?.src),
   });
   mkdirSync(join(out, p.slug), { recursive: true });
-  writeFileSync(join(out, p.slug, 'index.html'), html);
+  writeFileSync(join(out, p.slug, 'index.html'), withShow(html));
+}
+
+// ---------- "Save the number": a contact card for Hoolam's one WhatsApp number ----------
+if (wa) {
+  const vc = (t) => String(t).replace(/([,;\\])/g, '\\$1');
+  writeFileSync(join(out, 'hoolam.vcf'), ['BEGIN:VCARD', 'VERSION:3.0', 'N:;Hoolam;;;', 'FN:Hoolam', `ORG:${vc(COMPANY.legalName)}`, `TEL;TYPE=CELL,VOICE:+${wa}`,
+    ...(contact.email ? [`EMAIL;TYPE=INTERNET:${contact.email}`] : []), ...(site ? [`URL:${site}/`] : []),
+    `NOTE:${vc('Hoolam\'s only WhatsApp number. Safe buying and selling: your money is held until you get what you ordered.')}`, 'END:VCARD', ''].join('\r\n'));
 }
 
 // ---------- search engines and AI tools ----------

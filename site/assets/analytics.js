@@ -40,17 +40,19 @@
       '@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}' +
       'h2{margin:0 0 4px;font:600 15px/1.35 Poppins,Inter,system-ui,sans-serif;letter-spacing:-.01em;color:#fff}' +
       'p{margin:0 0 14px;color:#C5CFCC}a{color:#fff;font-weight:600;text-decoration:underline;text-decoration-color:rgba(255,255,255,.35);text-underline-offset:3px}a:hover{text-decoration-color:#fff}' +
-      '.r{display:flex;gap:8px}' +
+      '.r{display:flex;gap:8px}.s{display:none}' +
       'button{flex:1;font:600 14px/1 Inter,system-ui,sans-serif;border-radius:11px;height:42px;padding:0 16px;cursor:pointer;border:0}' +
       '.y{background:#C9992E;color:#1B2321}.y:hover{background:#D9AB41}' +
       '.n{background:transparent;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.26)}.n:hover{background:rgba(255,255,255,.07)}' +
       'button:focus-visible,a:focus-visible{outline:2px solid #C9992E;outline-offset:2px}' +
-      '@media (max-width:520px){.c{left:12px;right:84px;bottom:12px;width:auto;max-width:none;padding:16px}}' +
+      // phones: one slim bar beside the chat button, not a card over the page
+      '@media (max-width:520px){.c{left:10px;right:78px;bottom:max(10px,env(safe-area-inset-bottom));width:auto;max-width:none;padding:10px 10px 10px 14px;border-radius:14px;display:flex;align-items:center;gap:10px}' +
+      'h2{display:none}.l{display:none}.s{display:inline}p{margin:0;flex:1;min-width:0;font-size:12.5px;line-height:1.35}.r{flex:none;gap:6px}button{height:34px;padding:0 11px;font-size:13px;border-radius:9px;flex:none}}' +
       '@media (prefers-reduced-motion:reduce){.c{animation:none}}' +
       '</style>' +
       '<div class="c" role="dialog" aria-live="polite" aria-labelledby="t">' +
       '<h2 id="t">Help us make Hoolam better for you.</h2>' +
-      '<p>Allow cookies so we can see what works and fix what doesn\u2019t. <a href="' + COOKIES_URL + '">Cookies</a></p>' +
+      '<p><span class="l">Allow cookies so we can see what works and fix what doesn\u2019t.</span><span class="s">Allow cookies to help us improve?</span> <a href="' + COOKIES_URL + '">Cookies</a></p>' +
       '<div class="r"><button class="y" data-v="yes">Allow</button><button class="n" data-v="no">Not now</button></div></div>';
     root.querySelectorAll('button').forEach(function (b) {
       b.addEventListener('click', function () { var v = b.getAttribute('data-v'); save(v); apply(v); host.hidden = true; host.style.display = 'none'; gtag('event', v === 'yes' ? 'consent_accept' : 'consent_decline'); });

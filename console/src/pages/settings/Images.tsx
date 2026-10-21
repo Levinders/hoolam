@@ -114,7 +114,7 @@ function SlotCard({ slot, item, editable, onChanged, variant = 'card', version, 
       <input ref={input} type="file" hidden accept={slot.svg ? 'image/png,image/jpeg,image/webp,image/svg+xml' : 'image/png,image/jpeg,image/webp'}
         onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ''; }} />
       {removing && <ConfirmAction icon={ImageOff} tone="danger" needReason={false} title={`Remove ${slot.group === 'brand' ? 'the ' + slot.label.toLowerCase() : 'this image'}?`} confirmLabel="Remove"
-        description={slot.group === 'brand' ? 'Every screen goes back to the built-in Hoolam logo.' : 'The website goes back to its drawing for this spot.'}
+        description={slot.key === 'founder' ? 'The About page shows your initial in its place.' : slot.group === 'brand' ? 'Every screen goes back to the built-in Hoolam logo.' : 'The website goes back to its drawing for this spot.'}
         onClose={() => setRemoving(false)}
         onConfirm={async () => {
           const r = await fetch(`/console/api/media/${slot.key}${slot.group !== 'brand' && version ? `?version=${version}` : ''}`, { method: 'DELETE', headers: { 'x-hoolam-console': '1' } });
@@ -162,7 +162,7 @@ function Shell({ children, version }: { children: (d: MediaData, editable: boole
 export function BrandPage() {
   return (
     <>
-      <SectionHead title="Brand" lede="Your logo icon, with the name Hoolam written beside it, on the website and across this console. Then the home page's images, version by version." />
+      <SectionHead title="Brand" lede="Your logo icon, with the name Hoolam written beside it, on the website and across this console; your photo for the About page. Then the home page's images, version by version." />
       <Shell>{(d, editable, reload) => (
         <div className="stack">
           <SiteStatus site={d.site} siteUrl={d.siteUrl} editable={editable} onDone={reload} />

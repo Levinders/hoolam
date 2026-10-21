@@ -39,6 +39,7 @@ import { Messenger } from './whatsapp/client.js';
 import { configureMessages, msg } from './whatsapp/messages.js';
 import { ChatArt } from './chat-art/index.js';
 import { setMarkSource } from './brand-mark.js';
+import { SiteShow } from './site-show.js';
 import { localPhone } from './phone.js';
 import { formatMoney } from './money.js';
 import { Conversation } from './whatsapp/flow.js';
@@ -77,6 +78,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     },
   });
   messenger.setArt(chatArt);
+  // the chat's pictures and voice notes on the website, and live numbers from real orders
+  const siteShow = new SiteShow(db, chatArt, settings, c.CURRENCY === 'NGN' ? 100 : 1);
   const siteSync = new SiteSync(c.SITE_DEPLOY_HOOK, log);
   // ID checks: Prembly (live keys), pretend checks with pretend money, or off
   const checker: KycChecker = c.KYC === 'prembly'
@@ -225,7 +228,26 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       // the ambassador programme: whether it's on (menu link, the page), the rates shown on hoolam.com/ambassadors, and each link (hoolam.com/a/<name>)
       ambassadors: (() => { const a = ambassadors.cfg(); return { on: a.on, applyWeb: a.applyWeb, sellerPct: a.sellerPct, buyerPct: a.buyerPct, bonus: a.bonusMinor / unit, bonusOrders: a.bonusOrders, payoutDay: a.payoutDay, payoutMin: a.payoutMinMinor / unit, terms: a.terms, api: c.PUBLIC_BASE_URL.replace(/\/+$/, '') }; })(),
       ambassadorLinks: ambassadors.on() ? await ambassadors.forSite() : [],
+      // the chat's pictures and voice notes the website shows, and the live numbers (each only once it reaches its minimum)
+      show: await siteShow.forSite(c.PUBLIC_BASE_URL).catch((e) => { log(`site show: ${(e as Error).message}`); return null; }),
     });
+  });
+  // the chat's pictures as the website shows them (Ivana and Mama Bella's order), with every replacement made in the console
+  app.get('/site/art/:id', async (req, reply) => {
+    const p = await siteShow.picture((req.params as { id: string }).id);
+    if (!p) return reply.code(404).type('text/plain').send('No picture');
+    const versioned = (req.query as { v?: string }).v === p.v;
+    return reply.header('access-control-allow-origin', '*').header('cache-control', versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300').type(p.mime).send(p.bytes);
+  });
+  // a voice note the website plays (uploaded in Console → Settings → WhatsApp)
+  app.get('/site/voice/:id', async (req, reply) => {
+    const v = await siteShow.voice((req.params as { id: string }).id);
+    if (!v) return reply.code(404).type('text/plain').send('No voice note');
+    return reply.header('access-control-allow-origin', '*').header('x-content-type-options', 'nosniff').header('cache-control', 'public, max-age=3600').type(v.mime).send(v.bytes);
+  });
+  // the live numbers on the website, fresher than the copy made when it was built
+  app.get('/site/proof.json', async (_req, reply) => {
+    return reply.header('access-control-allow-origin', '*').header('cache-control', 'public, max-age=300').send(await siteShow.proof());
   });
   // a campaign link's page on the website counts the tap here (navigator.sendBeacon), then moves the visitor on
   app.post('/l/:slug/tap', async (req, reply) => {
@@ -694,7 +716,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const liveChat = new LiveChat({ db, settings, messenger, currency: c.CURRENCY, siteUrl: c.SITE_URL || 'https://hoolam.com', log });
   registerLiveChatRoutes(app, liveChat, db, log);
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL, twoStep: () => settings.get<boolean>('two_step_login') === true });
-  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, chatArt, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, chatArt, siteShow, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */

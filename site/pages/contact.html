@@ -14,7 +14,7 @@
         {{WA_BIG}}
         <p style="margin-top:8px">Start an order, pay, check where your money is, or report a problem. It works any time, day or night.</p>
       </div>
-      <div class="go"><a class="btn light" data-wa href="{{WA_HREF}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg>Open WhatsApp</a></div>      <div class="mini" aria-hidden="true">
+      <div class="go"><a class="btn light" data-wa href="{{WA_HREF}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg>Open WhatsApp</a><a class="btn on-teal" href="/hoolam.vcf" download="Hoolam.vcf"><svg class="ic" aria-hidden="true"><use href="#i-user-plus"/></svg>Save the number</a></div>      <div class="mini" aria-hidden="true">
         <span class="tag buyer">Ivana · buyer</span>
         <div class="bub out">Hi Hoolam<small>09:14</small></div>
         <div class="bub in">Hi Ivana! What would you like to do?<small>09:14</small></div>
@@ -24,7 +24,7 @@
     <div class="way card">
       <i><svg class="ic" aria-hidden="true"><use href="#i-headset"/></svg></i>
       <h2>Talk to a live rep</h2>
-      <p>Use the live chat to reach a real person, from 9am to 5pm, every day.</p>
+      <p>Use the live chat to reach a real person, from 9am to 5pm, every day. A rep usually replies within <b>{{REP_REPLY}}</b>.</p>
       <div class="go"><a class="btn" data-live-chat href="{{REP_HREF}}" target="_blank" rel="noopener">Chat with a rep</a></div>
     </div>
     <div class="way card">
@@ -48,9 +48,12 @@
     </div>
   </div>
 
-  <div class="warn" role="note">
-    <svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg>
-    <p><b>Stay safe.</b> {{SAFETY}} We never ask for your PIN, OTP or password, and we never ask you to pay into a personal account.</p>
+  <div class="real" aria-labelledby="real-h">
+    <h2 id="real-h" class="real-h"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg>Is it really Hoolam?</h2>
+    <figure class="real-pic"><img src="{{ART:real-hoolam}}" alt="{{ALT:real-hoolam}}" loading="lazy" decoding="async" width="900" height="900"></figure>
+    <div class="real-text">
+      {{OFFICIAL}}
+    </div>
   </div>
 </section>
 

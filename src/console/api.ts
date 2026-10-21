@@ -8,6 +8,7 @@ import { SETTING_DEFS, type SettingValue, type Settings } from '../settings.js';
 import { parseSocial, SOCIAL_KINDS, type SocialKind } from '../socials.js';
 import { MAX_UPLOAD_BYTES, MediaError, SLOTS, SiteMedia } from '../site-media.js';
 import { refreshMark } from '../brand-mark.js';
+import type { SiteShow } from '../site-show.js';
 import { ChatArtError, type ChatArt } from '../chat-art/index.js';
 import { byNumber, homeVersions, isHomeVersion } from '../site-versions.js';
 import type { SiteSync } from '../site-sync.js';
@@ -35,6 +36,7 @@ export interface ConsoleDeps {
   ambassadors?: Ambassadors;
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   chatArt?: ChatArt; // the chat's pictures, voice notes, videos and stickers (Settings → WhatsApp)
+  siteShow?: SiteShow; // live numbers on the website (Settings → Features)
   refreshTemplates?: () => Promise<void>;
   kyc?: KycService;
   forms?: FormRegistry;
@@ -900,6 +902,15 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       d.siteSync.changed();
       return { ok: true, item: { ...info, slot, updatedBy: req.staff!.name, url: d.siteMedia.url('', key) }, site: siteState() };
     });
+    // ----- live numbers on the website (Settings → Features): today's counts, and which ones the website shows -----
+    if (d.siteShow) {
+      const show = d.siteShow;
+      api.get('/site-numbers', async (req) => {
+        need(req, 'settings.view');
+        const c = await show.counts();
+        return { counts: { completed: c.completed, started: c.started, refunded: c.refunded, ambPaid: Math.floor(c.ambPaidMinor / (d.config.CURRENCY === 'NGN' ? 100 : 1)) }, shown: await show.proof() };
+      });
+    }
     // ----- the chat's pictures, voice notes, videos and stickers (Settings → WhatsApp → Chat pictures and voice) -----
     if (d.chatArt) {
       const art = d.chatArt;
@@ -923,12 +934,14 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         try { art.check(slot, String(req.headers['content-type'] ?? ''), req.body.length); } catch (e) { throw e instanceof ChatArtError ? new HttpError(400, e.message) : e; }
         await act(req, { action: 'chat_media.upload', targetType: 'chat_media', targetId: slot, details: { file: name, bytes: req.body.length } },
           async () => { try { await art.put(slot, req.body as Buffer, String(req.headers['content-type'] ?? ''), name, req.staff!.id); } catch (e) { throw e instanceof ChatArtError ? new HttpError(400, e.message) : e; } });
+        d.siteSync.changed(); // the website shows some of these pictures and voice notes
         return { ok: true, items: await art.list() };
       });
       api.delete('/chat-media/:slot', async (req) => {
         need(req, 'settings.update');
         const { slot } = req.params as { slot: string };
         await act(req, { action: 'chat_media.remove', targetType: 'chat_media', targetId: slot }, () => art.remove(slot));
+        d.siteSync.changed();
         return { ok: true, items: await art.list() };
       });
     }

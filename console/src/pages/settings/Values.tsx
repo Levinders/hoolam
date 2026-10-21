@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -479,7 +479,7 @@ const AMB_GROUPS: { title: string; help: string; keys: string[] }[] = [
  */
 export function FeaturesPage() {
   const { can } = useAuth();
-  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys)];
+  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key)];
   const s = useDraft(keys);
   if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
   if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={120} /><Skeleton h={120} /></div>;
@@ -512,9 +512,50 @@ export function FeaturesPage() {
             ))}
           </div>
         </FeatureCard>
+        <FeatureCard s={s} k="feature_site_numbers" icon={BadgeCheck} title="Live numbers on the website" editable={editable}
+          line="Real counts from your orders, like “orders completed safely”. Each one shows only once it reaches its minimum."
+          more="Numbers" open={on('feature_site_numbers')}>
+          <SiteNumbers s={s} editable={editable} />
+        </FeatureCard>
       </div>
       <SaveBar s={s} keys={keys} applies="applies right away" />
     </>
+  );
+}
+
+/** The website's live numbers: each with its count today, its minimum, and whether the website shows it now. */
+const SITE_NUMBERS: { key: string; count: 'completed' | 'started' | 'refunded' | 'ambPaid'; label: string; where: string; isMoney?: boolean }[] = [
+  { key: 'site_min_completed', count: 'completed', label: 'Orders completed safely', where: 'Home and About' },
+  { key: 'site_min_started', count: 'started', label: 'Orders started', where: 'Home' },
+  { key: 'site_min_refunded', count: 'refunded', label: 'Buyers refunded in full', where: 'Home and About' },
+  { key: 'site_min_amb_paid', count: 'ambPaid', label: 'Paid to ambassadors', where: 'Ambassadors page', isMoney: true },
+];
+function SiteNumbers({ s, editable }: { s: Draft; editable: boolean }) {
+  const q = useData<{ counts: Record<string, number>; shown: Record<string, number | null> }>('/site-numbers');
+  const fmt = (n: number, isMoney?: boolean) => isMoney ? money(n * 100) : n.toLocaleString('en-NG');
+  return (
+    <div className="feature-more-body stack" style={{ gap: 12 }}>
+      <p className="small muted">Counted from real orders; test orders never count. A number below its minimum stays hidden, so a young business never shows a small number. The website checks for new counts every few minutes.</p>
+      <ul className="sn-list">
+        {SITE_NUMBERS.map((x) => {
+          const n = q.data?.counts[x.count] ?? null;
+          const min = Number(s.draft[x.key] ?? s.data!.values[x.key] ?? 0);
+          const showing = n !== null && n > 0 && n >= min;
+          return (
+            <li key={x.key} className={showing ? 'on' : ''}>
+              <div className="sn-top"><b>{x.label}</b><span className={`pill plain ${showing ? 'green' : 'grey'}`}>{showing ? 'Showing' : 'Hidden'}</span></div>
+              <div className="sn-now"><span className="sn-n">{n === null ? '…' : fmt(n, x.isMoney)}</span><span className="small muted">now · {x.where}</span></div>
+              {n !== null && !showing && <div className="sn-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, (n / Math.max(1, min)) * 100)}%` }} /></div>}
+              <span className="small muted">{showing ? 'Visitors see it.' : n === null ? '' : `Shows from ${fmt(min, x.isMoney)}${n > 0 ? `: ${fmt(Math.max(0, min - n), x.isMoney)} to go` : ''}.`}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="feature-group">
+        <div className="fg-head"><h3>When each one shows</h3><p>Pick numbers you'd be proud to show.</p></div>
+        <div className="setting-list">{SITE_NUMBERS.map((x) => <SettingRow key={x.key} s={s} k={x.key} editable={editable} />)}</div>
+      </div>
+    </div>
   );
 }
 
@@ -533,7 +574,7 @@ function FeatureCard({ s, k, icon: Icon, title, line, editable, more, open, link
         <div className="feature-text">
           <h2>{title}{v ? <span className="pill green plain">On</span> : <span className="pill grey plain">Off</span>}</h2>
           <p>{line}</p>
-          <span className="sr-meta">{changed ? <>Was {s.data!.values[k] ? 'on' : 'off'}: save to apply</> : upd ? `Changed by ${upd.by ?? 'someone'} ${ago(upd.at)}` : 'Off until you turn it on'}</span>
+          <span className="sr-meta">{changed ? <>Was {s.data!.values[k] ? 'on' : 'off'}: save to apply</> : upd ? `Changed by ${upd.by ?? 'someone'} ${ago(upd.at)}` : v ? 'On from the start' : 'Off until you turn it on'}</span>
         </div>
         <Switch on={v} onChange={(x) => editable && s.setDraft({ ...s.draft, [k]: x })} label={title} />
       </div>

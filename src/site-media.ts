@@ -23,6 +23,7 @@ export interface SlotDef {
 
 export const SLOTS: SlotDef[] = [
   { key: 'mark', group: 'brand', label: 'Logo icon', hint: 'The square symbol on its own, without the name (the name "Hoolam" is written next to it as text). Shows in the website\'s top bar and footer, the browser tab, the live chat, the money step, and the console.', aspect: '1 / 1', maxWidth: 512, svg: true },
+  { key: 'founder', group: 'brand', label: 'Your photo', hint: 'Shows on the About page beside "Who\'s behind Hoolam", in a circle. A clear photo of your face, plain background, good light.', aspect: '1 / 1', round: true, maxWidth: 640 },
 
   { key: 's1-1', group: 'website', section: 1, label: 'Image 1', hint: 'Round photo on the left of the deal card.', aspect: '1 / 1', round: true, maxWidth: 480 },
   { key: 's1-2', group: 'website', section: 1, label: 'Image 2', hint: 'Round photo on the right of the deal card.', aspect: '1 / 1', round: true, maxWidth: 480 },

@@ -48,7 +48,7 @@ export const SLOTS: Slot[] = [
   { id: 'card-amb-welcome', kind: 'card', title: 'Ambassador welcome', when: 'An ambassador goes live', size: '1080 × 1080' },
 
   // ----- voice notes -----
-  { id: 'voice-how', kind: 'voice', title: 'How Hoolam works', when: 'Under How it works', length: '25 s', script: [
+  { id: 'voice-how', kind: 'voice', title: 'How Hoolam works', when: 'Under How it works, and the play button on the home page', length: '25 s', script: [
     'Hi, welcome to Hoolam.',
     'When you buy, you don\'t pay the seller directly. You pay Hoolam, and we hold the money.',
     'The seller sends your item. You check it. When you\'re happy, we pay the seller.',
@@ -79,6 +79,28 @@ export const SLOTS: Slot[] = [
     'We check your ID once, through Prembly, a licensed ID checker.',
     'We keep only the result, never your BVN or NIN.',
     'Hoolam will never call or message you to ask for your PIN, OTP or password. If anyone does, it\'s not us.',
+  ] },
+
+  // ----- voice notes for the website (hoolam.com plays them; the play button shows once one is uploaded) -----
+  { id: 'voice-founder', kind: 'voice', title: 'Website: why I built Hoolam', when: 'About page, beside your photo', length: '30 s', script: [
+    'Hi, I\'m Raphael. I built Hoolam.',
+    'Too many people here have paid for something online and never seen it. And too many sellers have sent a package, and the buyer refused it at the gate.',
+    'Hoolam holds the money in the middle. The seller sends with peace of mind, the buyer pays without fear.',
+    'Your money sits in a licensed bank, and it only moves when the buyer is happy.',
+    'If anything ever goes wrong with your order, it\'s on me. Message us, and a real person will sort it out.',
+  ] },
+  { id: 'voice-amb-founder', kind: 'voice', title: 'Website: what I look for in an ambassador', when: 'Ambassadors page, above the application form', length: '30 s', script: [
+    'Hi, I\'m Raphael from Hoolam.',
+    'The best ambassadors already help people buy and sell: campus reps, vendor group admins, riders, traders.',
+    'Tell people about Hoolam honestly. Never collect money for us, and never promise what we don\'t do.',
+    'Every time someone you bring completes an order, you earn. Paid to your bank, every month.',
+    'Fill the form. We reply on WhatsApp within 24 hours.',
+  ] },
+  { id: 'voice-problem', kind: 'voice', title: 'Website: if your order goes wrong', when: '"If something goes wrong" page, at the top', length: '30 s', script: [
+    'If your order is not what you agreed, don\'t tap I\'m happy.',
+    'Tap Problem in the chat. The money freezes straight away. Nobody can take it.',
+    'Send us photos or a video of what you got. The seller can send their proof too.',
+    'A real person on our team looks at both sides and decides. If it\'s decided for you, you get all your money back, our fee included.',
   ] },
 
   // ----- videos (for later) -----
