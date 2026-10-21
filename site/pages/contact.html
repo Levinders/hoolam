@@ -69,21 +69,15 @@
       <a class="card" href="/about/"><i><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg></i><span><b>About Hoolam</b><small>Who we are and why we built it</small></span></a>
     </div>
 
-    <div class="office">
-      <div class="card">
-        <h3><svg class="ic" aria-hidden="true"><use href="#sf-pin"/></svg>Registered office</h3>
-        <address>{{ADDRESS}}</address>
-        <a class="link" href="{{MAP_HREF}}" target="_blank" rel="noopener">Open in Google Maps<svg class="ic" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></a>
-      </div>
-      <div class="card">
-        <h3><svg class="ic" aria-hidden="true"><use href="#i-landmark"/></svg>The company</h3>
-        <dl>
-          <div><dt>Registered name</dt><dd>{{LEGAL_NAME}}</dd></div>
-          <div><dt>RC number</dt><dd>{{RC}}</dd></div>
-          {{SCUML_ROW}}{{NDIC_ROW}}{{NDPC_ROW}}
-        </dl>
-        {{SOCIALS}}
-      </div>
+    <div class="office card">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-landmark"/></svg>The company</h3>
+      <dl>
+        <div><dt>Registered name</dt><dd>{{LEGAL_NAME}}</dd></div>
+        <div><dt>RC number</dt><dd>{{RC}}</dd></div>
+        <div class="wide"><dt>Registered office</dt><dd>{{ADDRESS}} <a class="link" href="{{MAP_HREF}}" target="_blank" rel="noopener">Open in Google Maps<svg class="ic" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></a></dd></div>
+        {{SCUML_ROW}}{{NDIC_ROW}}{{NDPC_ROW}}
+      </dl>
+      {{SOCIALS}}
     </div>
   </div>
 </section>

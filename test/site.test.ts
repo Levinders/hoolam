@@ -256,7 +256,8 @@ describe('landing page ↔ server', () => {
     const v121 = readFileSync('dist-site/v/1.2.1/index.html', 'utf8');
     expect(v121).not.toContain('Deposits insured by NDIC');
     expect(v121).toContain('<strong>Registered with SCUML</strong>');
-    expect(v121).toContain('registered with the Nigeria Data Protection Commission');
+    expect(v121).toContain('<strong>Your data, protected</strong><span class="s">Registered with the Nigeria Data Protection Commission (NDPC).</span>');
+    expect(v121).not.toContain('Every order protected');
     expect(v121).not.toContain('class="bill"'); // the money held card shows the same
     expect(v121).toContain('<span class="nw">The seller delivers.</span>');
     expect(v121).toContain('<span class="nw">The seller is paid.</span>');

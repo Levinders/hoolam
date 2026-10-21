@@ -219,8 +219,8 @@ header.open #menu-btn .bars { display: none; }
 }
 
 /* chapters */
-.chapter { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: clamp(22px, 5vw, 72px); align-items: center; border-radius: clamp(26px, 4vw, 44px); padding: clamp(14px, 3vw, 36px); margin-bottom: 20px; scroll-margin-top: calc(var(--bar-h) + 120px); }
-.chapter.flip { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+.chapter { display: grid; grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr); gap: clamp(22px, 5vw, 72px); align-items: center; border-radius: clamp(26px, 4vw, 44px); padding: clamp(14px, 3vw, 36px); margin-bottom: 20px; scroll-margin-top: calc(var(--bar-h) + 120px); }
+.chapter.flip { grid-template-columns: minmax(0, 1.14fr) minmax(0, .86fr); }
 .chapter.flip .ch-visual { order: 2; }
 .ch-visual { position: relative; min-width: 0; }
 .ch-visual .scene, .ch-visual .vault-room { aspect-ratio: 5 / 4; }
@@ -1106,7 +1106,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
       <div class="pillars">
         <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-landmark"/></svg></i><strong>Kept at a bank</strong><span class="s">Money is held at {{BANK_SHORT}}, licensed by the CBN.</span><a class="pl-link" href="/legal/money/">Where the money sits</a></div>
         <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-file-check"/></svg></i><strong>A registered company</strong><span class="s"><b>{{LEGAL_NAME}}</b>, RC {{RC}}.</span><a class="pl-link" href="https://search.cac.gov.ng/" target="_blank" rel="noopener">Verify on CAC</a></div>
-        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-shield-check"/></svg></i><strong>Every order protected</strong><span class="s">Seller: paid if you deliver. Buyer: full refund if it never comes.</span><span class="pl-sub"><svg class="ic " aria-hidden="true"><use href="#i-lock"/></svg>Your data too: registered with the Nigeria Data Protection Commission.</span><a class="pl-link" href="/legal/disputes/">How refunds work</a></div>
+        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-lock"/></svg></i><strong>Your data, protected</strong><span class="s">Registered with the Nigeria Data Protection Commission (NDPC).</span><a class="pl-link" href="/legal/privacy/">How we use your data</a></div>
         <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-badge-check"/></svg></i><strong>Registered with SCUML</strong><span class="s">With the EFCC’s Special Control Unit against Money Laundering.</span></div>
       </div>
       <aside class="profile rv" aria-label="An example of what buyers see about a seller"><span class="pro-tag">Example</span>
