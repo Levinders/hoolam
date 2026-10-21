@@ -26,7 +26,7 @@ export function HistoryPage() {
               {rows.map((h, i) => (
                 <li key={i}>
                   <span className={`ic ${h.kind === 'media.remove' ? 'bad' : 'staff'}`}>{h.kind === 'settings' ? <SlidersHorizontal /> : h.kind === 'media.remove' ? <ImageOff /> : h.kind === 'site.version.live' ? <Rocket /> : <ImageIcon />}</span>
-                  <div className="what">{h.kind === 'settings' ? 'Changed settings' : h.kind === 'site.version.live' ? `Home page version ${h.details?.to} made live (was ${h.details?.from})` : h.kind === 'media.upload' ? `New image: ${h.details?.where ?? h.target_id}` : `Removed image: ${h.details?.where ?? h.target_id}`}{h.details?.ok === false && <span className="pill red plain" style={{ marginLeft: 6 }}>Refused</span>}</div>
+                  <div className="what">{h.kind === 'settings' ? 'Changed settings' : h.kind === 'site.version.live' ? `Website version ${h.details?.to} made live (was ${h.details?.from})` : h.kind === 'media.upload' ? `New image: ${h.details?.where ?? h.target_id}` : `Removed image: ${h.details?.where ?? h.target_id}`}{h.details?.ok === false && <span className="pill red plain" style={{ marginLeft: 6 }}>Refused</span>}</div>
                   <div className="meta">{h.actor} · {dateTime(h.at)}</div>
                   {h.kind === 'settings' && (
                     <div className="why">

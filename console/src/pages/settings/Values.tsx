@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, UserRound, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -479,7 +479,7 @@ const AMB_GROUPS: { title: string; help: string; keys: string[] }[] = [
  */
 export function FeaturesPage() {
   const { can } = useAuth();
-  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key)];
+  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key), 'feature_about_founder'];
   const s = useDraft(keys);
   if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
   if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={120} /><Skeleton h={120} /></div>;
@@ -510,6 +510,13 @@ export function FeaturesPage() {
                 <div className="setting-list">{g.keys.map((k) => <SettingRow key={k} s={s} k={k} editable={editable} />)}</div>
               </div>
             ))}
+          </div>
+        </FeatureCard>
+        <FeatureCard s={s} k="feature_about_founder" icon={UserRound} title="Who's behind Hoolam on About" editable={editable}
+          line="Your photo, name, a one-line promise and your voice note on the About page."
+          more="What it needs" open={on('feature_about_founder')}>
+          <div className="feature-more-body stack" style={{ gap: 8 }}>
+            <p className="small muted">Upload your photo in <Link to="/settings/brand">Brand → Your photo</Link> (until then your initial shows) and the voice note <b>Website: why I built Hoolam</b> in <Link to="/settings/whatsapp">WhatsApp → Chat pictures and voice</Link> (the play button shows once it's there). The website updates within a few minutes.</p>
           </div>
         </FeatureCard>
         <FeatureCard s={s} k="feature_site_numbers" icon={BadgeCheck} title="Live numbers on the website" editable={editable}

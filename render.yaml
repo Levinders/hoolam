@@ -72,6 +72,12 @@ services:
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=604800
+      - path: /hoolam.vcf
+        name: Content-Type
+        value: text/vcard; charset=utf-8   # "Save the number": phones open it as a contact card to add, not a file to keep
+      - path: /hoolam.vcf
+        name: Content-Disposition
+        value: inline; filename="Hoolam.vcf"
       - path: /v/*
         name: X-Robots-Tag
         value: noindex, nofollow, noarchive   # home page previews (/v/<version>/, /v/draft/): never in search results

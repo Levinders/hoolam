@@ -5,7 +5,7 @@
   <div data-nosnippet class="flow" role="img" aria-label="How the money moves: the buyer pays Hoolam, Hoolam holds the money, and the seller is paid once the item arrives.">
     <div class="stop card">
       <div class="who"><i><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg></i>Ivana pays<span class="tag buyer">Buyer</span></div>
-      <p>She pays for the sneakers she saw on Instagram. The money goes to Hoolam, not to the seller yet.</p>
+      <p>She pays for the sneakers she saw on Instagram.</p>
     </div>
     <div class="arrow" aria-hidden="true"><svg class="ic"><use href="#i-arrow-right"/></svg></div>
     <div class="stop card held">
@@ -16,7 +16,7 @@
     <div class="arrow" aria-hidden="true"><svg class="ic"><use href="#i-arrow-right"/></svg></div>
     <div class="stop card paid">
       <div class="who"><i><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg></i>Mama Bella paid<span class="tag seller">Seller</span></div>
-      <p>The sneakers arrive and Ivana is happy. The money goes to Mama Bella’s bank account.</p>
+      <p>The sneakers arrive and Ivana is happy.</p>
     </div>
   </div>
 </div>
@@ -25,7 +25,7 @@
   <div class="wrap why">
     <div class="why-text">
       <h2 class="sec-h" id="why">Why we built Hoolam</h2>
-      <p class="sec-p">Buying in chats between strangers means somebody must go first. <b>Ivana</b> and <b>Mama Bella</b> have both been burned before.</p>
+      <p class="sec-p">Buying in chats between strangers means somebody must go first.</p>
       <div class="answer"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg><p>Hoolam sits in the middle. Ivana pays Hoolam, Mama Bella sends with peace of mind, and the money moves only when the sneakers arrive.</p></div>
     </div>
     <figure class="wa" aria-label="A WhatsApp chat between Ivana, the buyer, and Mama Bella, the seller">
@@ -45,7 +45,7 @@
   </div>
 </section>
 
-<section class="sec" aria-labelledby="founder">
+<!--founder--><section class="sec" aria-labelledby="founder">
   <div class="wrap">
     <div class="card founder">
       <div class="fd-photo">{{FOUNDER_PHOTO}}</div>
@@ -58,7 +58,7 @@
       </div>
     </div>
   </div>
-</section>
+</section><!--/founder-->
 
 <section class="sec" aria-labelledby="dpod">
   <div class="wrap">
@@ -138,6 +138,7 @@
         <div><dt>Registered with</dt><dd>Corporate Affairs Commission, Nigeria</dd></div>
         <div><dt>Registered office</dt><dd>{{ADDRESS}}</dd></div>
         {{SCUML_ROW}}<div><dt>Money for orders held with</dt><dd>{{BANK_PARTNER}} ({{PAY_SERVICE}})</dd></div>
+        {{NDIC_ROW}}{{NDPC_ROW}}
         <div><dt>Contact</dt><dd>{{EMAIL_LINK}}</dd></div>
       </dl>
     </div>
@@ -148,7 +149,7 @@
   <div class="band">
     <div><h2>Your next order can be a safe one</h2><p>Start on WhatsApp. It takes about a minute.</p></div>
     <div class="acts">
-      <a class="btn light" data-wa href="{{WA_HREF}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg>Start an order</a>
+      <a class="btn light" data-wa href="{{WA_HREF}}" target="_blank" rel="noopener"><span class="wa-ic" aria-hidden="true"></span>Start an order</a>
       <a class="btn ghost" href="/contact/">Contact us</a>
     </div>
   </div>

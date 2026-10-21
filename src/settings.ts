@@ -65,6 +65,7 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'amb_apply_web', group: 'Ambassadors', sub: 'Joining', label: 'Applications on the website', help: 'People can apply on hoolam.com/ambassadors.', type: 'boolean', core: true },
   { key: 'amb_apply_whatsapp', group: 'Ambassadors', sub: 'Joining', label: 'Applications in WhatsApp', help: 'People can apply from the WhatsApp menu.', type: 'boolean', core: true },
   { key: 'amb_menu_after', group: 'Ambassadors', sub: 'Joining', label: 'Show in the menu after', help: 'Completed orders someone needs before "Become an ambassador" shows in their WhatsApp menu. Ambassadors and people who applied always see it.', type: 'number', min: 0, max: 50, core: true },
+  { key: 'feature_about_founder', group: 'Features', label: 'Who\'s behind Hoolam on About', help: 'Your photo, name, a one-line promise and your voice note on the About page. Off: the section is left out.', type: 'boolean', core: true },
   { key: 'feature_site_numbers', group: 'Features', label: 'Live numbers on the website', help: 'Real counts from your orders on the website (home, about and ambassadors pages). Each number shows only once it reaches its minimum below. Test orders never count.', type: 'boolean', core: true },
   { key: 'site_min_completed', group: 'Features', sub: 'Website numbers', label: 'Show "orders completed" from', help: 'Orders where the seller was paid.', type: 'number', min: 1, max: 1_000_000, core: true },
   { key: 'site_min_started', group: 'Features', sub: 'Website numbers', label: 'Show "orders started" from', help: 'Every order started on Hoolam.', type: 'number', min: 1, max: 1_000_000, core: true },
@@ -101,7 +102,7 @@ export class Settings {
       feature_ambassadors: false, amb_seller_pct: 20, amb_buyer_pct: 10, amb_seller_bonus: 1000, amb_bonus_orders: 3,
       amb_payout_day: 1, amb_payout_min: 5000, amb_term_3: true, amb_term_6: true, amb_term_12: true, amb_notice_days: 7,
       amb_apply_web: true, amb_apply_whatsapp: true, amb_menu_after: 1,
-      feature_site_numbers: true, site_min_completed: 50, site_min_started: 100, site_min_refunded: 5, site_min_amb_paid: 100_000,
+      feature_site_numbers: true, feature_about_founder: false, site_min_completed: 50, site_min_started: 100, site_min_refunded: 5, site_min_amb_paid: 100_000,
       contact_email: 'hello@hoolam.com', contact_phone: '',
       home_version: FIRST_VERSION, // the live home page version (Console → Settings → Website content)
       ...Object.fromEntries(COMPANY_SOCIAL_KINDS.map((k) => [`company_${k}`, ''])),

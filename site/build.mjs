@@ -44,8 +44,10 @@ const COMPANY = {
   incorporated: '8 October 2026',
   bankPartner: 'Moniepoint Microfinance Bank',
   payService: 'Monnify',
-  // the EFCC's Special Control Unit against Money Laundering: put the registration number here once it's approved
+  // the EFCC's Special Control Unit against Money Laundering (registered): its number shows once it's put here
   scuml: '',
+  // the Nigeria Data Protection Commission (registered): its number shows once it's put here
+  ndpc: '',
 };
 // The date the legal pages took effect. Change it (and say what changed) whenever their wording changes.
 const LEGAL_EFFECTIVE = '18 October 2026'; // the ambassador programme (Ambassador agreement; terms, privacy and cookies: ambassadors). Before: 14 Oct 2026, Google Analytics with consent
@@ -182,7 +184,7 @@ function officialBlock() {
   <span class="of-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg></span>
   <div class="of-t"><span>Hoolam’s only WhatsApp number</span><b>${esc(phoneText(wa))}</b></div>
   ${officialQr ? `<div class="of-qr">${officialQr}<small>Scan to chat on your phone</small></div>` : ''}
-  <div class="of-btns"><a class="of-btn main" data-wa href="${esc(waLink)}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-message-circle"/></svg>Chat on WhatsApp</a><a class="of-btn ghost" href="/hoolam.vcf" download="Hoolam.vcf"><svg class="ic" aria-hidden="true"><use href="#i-user-plus"/></svg>Save the number</a></div>
+  <div class="of-btns"><a class="of-btn main" data-wa href="${esc(waLink)}" target="_blank" rel="noopener"><span class="wa-ic" aria-hidden="true"></span>Chat on WhatsApp</a><a class="of-btn ghost" href="/hoolam.vcf"><svg class="ic" aria-hidden="true"><use href="#i-user-plus"/></svg>Save the number</a></div>
   <p class="of-note">We never message you from any other number, never ask for your PIN, OTP or password, and never ask you to pay into a personal account.</p>
 </div>`;
 }
@@ -211,6 +213,10 @@ const fill = (s, vars) => s.replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in vars ?
 const shared = {
   LEGAL_NAME: COMPANY.legalName, RC: COMPANY.rc, ADDRESS: esc(COMPANY.address), BANK_PARTNER: COMPANY.bankPartner, PAY_SERVICE: COMPANY.payService,
   INCORPORATED: COMPANY.incorporated, YEAR: String(new Date().getFullYear()), EFFECTIVE: LEGAL_EFFECTIVE,
+  // the company's registrations, as rows of "The company behind Hoolam" (About, Contact us, /legal/)
+  SCUML_ROW: `<div><dt>Anti-money laundering</dt><dd>Registered with the EFCC’s Special Control Unit against Money Laundering (SCUML)${COMPANY.scuml ? `, no. ${esc(COMPANY.scuml)}` : ''}</dd></div>\n        `,
+  NDIC_ROW: `<div><dt>Deposit insurance</dt><dd>${COMPANY.bankPartner} is insured by the Nigeria Deposit Insurance Corporation (NDIC)</dd></div>\n        `,
+  NDPC_ROW: `<div><dt>Data protection</dt><dd>Registered with the Nigeria Data Protection Commission (NDPC)${COMPANY.ndpc ? `, no. ${esc(COMPANY.ndpc)}` : ''}</dd></div>\n        `,
   EMAIL: esc(contact.email), EMAIL_LINK: `<a href="mailto:${esc(contact.email)}">${esc(contact.email)}</a>`,
   WHATSAPP: esc(phoneText(wa)), WA_LINK: `<a data-wa href="${esc(waLink)}" target="_blank" rel="noopener">${wa ? `WhatsApp on ${esc(phoneText(wa))}` : 'WhatsApp'}</a>`,
   TXN_SELLER: bandsText(txn.seller), TXN_BUYER: bandsText(txn.buyer),
@@ -225,9 +231,9 @@ const PRODUCT_TOP_OLD = '          <li><a href="/#journey">How it works</a></li>
 const FOOTER_AMB = '\n          <li><a href="/ambassadors/">Become an ambassador</a></li>';
 const footerSrc = read('partials/footer.html');
 // "Our only WhatsApp number": on every page except the home versions made before it (versions.json "official")
-const FOOTER_OFFICIAL = wa ? `\n        <p class="sf-official"><svg class="ic" aria-hidden="true"><use href="#sf-shield"/></svg><span>Our only WhatsApp number is <b>${esc(phoneText(wa))}</b>. <a href="/hoolam.vcf" download="Hoolam.vcf">Save it</a></span></p>` : '';
+// with a QR code that opens the chat, for visitors on a computer
+const FOOTER_OFFICIAL = wa ? `\n        <div class="sf-official"><svg class="ic" aria-hidden="true"><use href="#sf-shield"/></svg><span>Our only WhatsApp number is <b>${esc(phoneText(wa))}</b>. <a href="/hoolam.vcf">Save it</a></span>${officialQr ? `<span class="sf-qr">${officialQr}<small>Scan to chat</small></span>` : ''}</div>` : '';
 const footerFor = (more, modern = true, official = true) => fill(footerSrc, { ...shared, CONTACT_ITEMS: contactItems, FOOTER_MORE: more ? FOOTER_MORE : '', PRODUCT_TOP: modern ? '' : PRODUCT_TOP_OLD, FOOTER_AMB: modern && amb ? FOOTER_AMB : '', FOOTER_OFFICIAL: official ? FOOTER_OFFICIAL : '' });
-const footer = footerFor(true);
 // the website chat (site/assets/chat.js): on About, Contact us, the legal pages and the home versions with "liveChat"
 const chatJs = read('assets/chat.js');
 const chatVer = createHash('sha256').update(chatJs).digest('hex').slice(0, 10);
@@ -261,16 +267,11 @@ function homePage(src, version, preview, draft = false) {
     .replace('/*{{FOOTER_CSS}}*/', footerCss)
     .replace('<!--{{FOOTER}}-->', footerFor(draft || footerPages(version), draft || hasAmb(version), draft || hasOfficial(version)));
   if (amb && (draft || hasAmb(version))) h = withAmbMenu(h);
-  h = fill(h, { LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, BANK_SHORT: String(shared.BANK_PARTNER).replace(/\s*Microfinance Bank$/, ' MFB'), INCORPORATED: shared.INCORPORATED });
+  h = fill(h, { AUTO_RELEASE: shared.AUTO_RELEASE, LEGAL_NAME: shared.LEGAL_NAME, RC: shared.RC, BANK_PARTNER: shared.BANK_PARTNER, BANK_SHORT: String(shared.BANK_PARTNER).replace(/\s*Microfinance Bank$/, ' MFB'), INCORPORATED: shared.INCORPORATED });
   if (draft || hasChat(version)) h = h.replace('</body>', `${chatTag(imgs?.mark?.src)}\n</body>`);
   h = withShow(h);
   h = h.replace(/<link rel="icon" href="\/?assets\/favicon\.svg" type="image\/svg\+xml">\n<link rel="apple-touch-icon" href="\/?assets\/icon-180\.png">/, iconTags('/', imgs));
-  if (preview) {
-    // never in search results; a small label so nobody mistakes it for the live page
-    h = h.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n${NOINDEX}`)
-      .replace(/<link rel="canonical"[^>]*>\n?/g, '')
-      .replace('</body>', `<div role="note" style="position:fixed;left:50%;bottom:max(12px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:9999;background:#1B2321;color:#fff;font:600 12px/1 Inter,system-ui,sans-serif;padding:9px 14px;border-radius:99px;box-shadow:0 6px 20px rgba(0,0,0,.25);white-space:nowrap;pointer-events:none">Preview · ${version === 'draft' ? 'draft' : 'version ' + esc(version)} · ${version === liveVersion ? 'live now' : 'not live'}</div>\n</body>`);
-  }
+  if (preview) h = asPreview(h, draft ? 'draft' : version); // never in search results, labelled, links stay in the version
   return h;
 }
 const versionSrc = (v) => read(`versions/${v}.html`);
@@ -296,7 +297,30 @@ const LEGAL_PAGES = [
   { slug: 'delete-your-data', title: 'Delete your data', blurb: 'How to ask us to delete your details, and what we must keep.' },
   { slug: 'ambassadors', title: 'Ambassador agreement', blurb: 'How Hoolam ambassadors earn, get paid, and the rules they follow.' },
 ];
-const layout = read('legal/_layout.html');
+// The other pages (About, Contact us, Ambassadors, the legal pages) are versioned with the home page: each version
+// names its copy in versions.json ("pages"), kept in site/versions/pages/<copy>/ (pages/ and legal/). Versions made
+// before 1.2.1 use the copy "1.2.0" (the pages as they were). The draft uses site/pages and site/legal.
+const pagesSet = (v) => v === 'draft' ? '' : `versions/pages/${manifest.versions.find((x) => x.version === v)?.pages ?? '1.2.0'}/`;
+const readFor = (v, file) => read(`${pagesSet(v)}${file}`);
+/** What every page of one version shares: its layouts and its footer. */
+function ctxFor(v) {
+  return { v, layout: readFor(v, 'legal/_layout.html'), pageLayout: readFor(v, 'pages/_layout.html'), footer: footerFor(true, true, v === 'draft' || hasOfficial(v)) };
+}
+const liveCtx = ctxFor(liveVersion);
+/** A preview of one version (/v/<version>/…): never indexed, labelled, and its links stay inside that version. */
+function previewNote(v) {
+  return `<div role="note" style="position:fixed;left:50%;bottom:max(12px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:9999;background:#1B2321;color:#fff;font:600 12px/1 Inter,system-ui,sans-serif;padding:9px 14px;border-radius:99px;box-shadow:0 6px 20px rgba(0,0,0,.25);white-space:nowrap;pointer-events:none">Preview · ${v === 'draft' ? 'draft' : 'version ' + esc(v)} · ${v === liveVersion ? 'live now' : 'not live'}</div>`;
+}
+function inVersion(h, v) {
+  const b = `/v/${v}`;
+  return h.replace(/href="\/(#[^"]*)?"/g, (_, hash) => `href="${b}/${hash ?? ''}"`)
+    .replace(/href="\/(about|contact|ambassadors|legal)\//g, `href="${b}/$1/`);
+}
+function asPreview(h, v) {
+  h = h.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n${NOINDEX}`).replace(/<link rel="canonical"[^>]*>\n?/g, '').replace(/<meta property="og:url"[^>]*>\n?/g, '')
+    .replace(/<meta name="robots" content="index,follow">\n?/, '');
+  return inVersion(h, v).replace('</body>', `${previewNote(v)}\n</body>`);
+}
 const imagesJson = JSON.stringify(Object.fromEntries(Object.entries(baked.images ?? {}).filter(([k]) => k === 'mark').map(([k, v]) => [k, v.src])));
 
 /** "About 4 minutes to read", from the words on the page (about 200 a minute). */
@@ -305,11 +329,11 @@ function readTime(html) {
   const m = Math.max(1, Math.round(words / 200));
   return `About ${m} minute${m === 1 ? '' : 's'} to read`;
 }
-function page({ slug, title, blurb, lede, body, toc, path }) {
+function page({ slug, title, blurb, lede, body, toc, path }, ctx = liveCtx) {
   const canonical = site ? `${site}${path}` : '';
   const others = !LEGAL_PAGES.some((p) => p.slug === slug) ? '' : LEGAL_PAGES.filter((p) => p.slug !== slug).map((p) => `<a class="lg-card" href="/legal/${p.slug}/"><b>${esc(p.title)}</b><span>${esc(p.blurb)}</span></a>`).join('');
-  return fill(layout, {
-    ...shared, TITLE: esc(title), DESCRIPTION: esc(blurb), LEDE: lede, BODY: body, TOC: toc, OTHERS: others, SPRITE: sprite, FOOTER: footer, FOOTER_CSS: footerCss,
+  return fill(ctx.layout, {
+    ...shared, TITLE: esc(title), DESCRIPTION: esc(blurb), LEDE: lede, BODY: body, TOC: toc, OTHERS: others, SPRITE: sprite, FOOTER: ctx.footer, FOOTER_CSS: footerCss,
     CANONICAL: canonical ? `<link rel="canonical" href="${esc(canonical)}">\n<meta property="og:url" content="${esc(canonical)}">` : '',
     OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: imagesJson.replace(/</g, '\\u003c'), WA_HREF: esc(waLink),
     PAGE_CLASS: toc ? 'has-toc' : 'no-toc',
@@ -318,27 +342,30 @@ function page({ slug, title, blurb, lede, body, toc, path }) {
   }).replace(others ? /^$/ : /\n  <nav class="lg-others"[\s\S]*?<\/nav>/, '');
 }
 
+/** The legal pages of one version, into `dir` (the site, or its preview folder). */
+function buildLegal(ctx, dir, preview) {
+const done = (h) => (preview ? asPreview(withShow(h), ctx.v) : withShow(h));
 for (const p of LEGAL_PAGES) {
-  const src = fill(read(`legal/${p.slug}.html`), shared);
+  const src = fill(readFor(ctx.v, `legal/${p.slug}.html`), shared);
   const lede = (src.match(/<!--lede-->([\s\S]*?)<!--\/lede-->/) ?? [])[1]?.trim() ?? esc(p.blurb);
   const body = src.replace(/<!--lede-->[\s\S]*?<!--\/lede-->/, '').trim();
   const heads = [...body.matchAll(/<h2 id="([a-z0-9-]+)">([\s\S]*?)<\/h2>/g)];
   const toc = heads.length > 2 ? `<ol>${heads.map((h, i) => `<li><a href="#${h[1]}"><span>${String(i + 1).padStart(2, '0')}</span>${h[2]}</a></li>`).join('')}</ol>` : '';
-  mkdirSync(join(out, 'legal', p.slug), { recursive: true });
-  writeFileSync(join(out, 'legal', p.slug, 'index.html'), withShow(page({ ...p, lede, body, toc, path: `/legal/${p.slug}/` })));
+  mkdirSync(join(dir, 'legal', p.slug), { recursive: true });
+  writeFileSync(join(dir, 'legal', p.slug, 'index.html'), done(page({ ...p, lede, body, toc, path: `/legal/${p.slug}/` }, ctx)));
 }
 // /legal/: every page, in plain words
 const hub = `<div class="lg-hub">${LEGAL_PAGES.map((p) => `<a class="lg-card" href="/legal/${p.slug}/"><b>${esc(p.title)}</b><span>${esc(p.blurb)}</span></a>`).join('')}</div>
 <section class="lg-company" aria-labelledby="company"><h2 id="company" class="plain">The company behind Hoolam</h2>
 <dl><div><dt>Registered name</dt><dd>${COMPANY.legalName}</dd></div><div><dt>RC number</dt><dd>${COMPANY.rc}</dd></div>
 <div><dt>Registered with</dt><dd>Corporate Affairs Commission, Nigeria, on ${COMPANY.incorporated}</dd></div><div><dt>Registered office</dt><dd>${esc(COMPANY.address)}</dd></div>
-<div><dt>Money for orders held with</dt><dd>${COMPANY.bankPartner}, through ${COMPANY.payService}</dd></div><div><dt>Contact</dt><dd>${shared.EMAIL_LINK}</dd></div></dl></section>`;
-mkdirSync(join(out, 'legal'), { recursive: true });
-writeFileSync(join(out, 'legal', 'index.html'), page({ slug: '', title: 'Legal', blurb: 'Every agreement and policy for using Hoolam, written to be read.',
-  lede: 'Every agreement and policy for using Hoolam. We’ve written them to be read, not skimmed past. Each page starts with a short version.', body: hub, toc: '', path: '/legal/' }));
+<div><dt>Money for orders held with</dt><dd>${COMPANY.bankPartner}, through ${COMPANY.payService}</dd></div>${shared.SCUML_ROW}${shared.NDIC_ROW}${shared.NDPC_ROW}<div><dt>Contact</dt><dd>${shared.EMAIL_LINK}</dd></div></dl></section>`;
+mkdirSync(join(dir, 'legal'), { recursive: true });
+writeFileSync(join(dir, 'legal', 'index.html'), done(page({ slug: '', title: 'Legal', blurb: 'Every agreement and policy for using Hoolam, written to be read.',
+  lede: 'Every agreement and policy for using Hoolam. We’ve written them to be read, not skimmed past. Each page starts with a short version.', body: hub, toc: '', path: '/legal/' }, ctx)));
+}
 
 // ---------- About and Contact us ----------
-const pageLayout = read('pages/_layout.html');
 const repLink = wa ? `https://wa.me/${wa}?text=${encodeURIComponent('Hi Hoolam, I’d like to talk to a rep')}` : waLink;
 const socials = (contact.socials ?? []).filter((x) => /^https:\/\//.test(x.url));
 // the company as search engines read it (name, registration, address, how to reach us, hours)
@@ -478,13 +505,15 @@ const INFO_PAGES = [
   ...(amb ? [{ slug: 'ambassadors', type: 'WebPage', title: 'Become a Hoolam ambassador: earn from every safe order you bring',
     description: 'Bring sellers and buyers to Hoolam and earn a share of what Hoolam makes on their completed orders, paid monthly. Free to join; we reply within 24 hours.' }] : []),
 ];
+/** About, Contact us and Ambassadors of one version, into `dir`. */
+function buildInfo(ctx, dir, preview) {
 for (const p of INFO_PAGES) {
   const path = `/${p.slug}/`;
   const canonical = site ? `${site}${path}` : '';
   const vars = {
     ...shared, WA_HREF: esc(waLink), REP_HREF: esc(repLink), BANK_SHORT: String(COMPANY.bankPartner).replace(/\s*Microfinance Bank$/, ' MFB'),
     // the registration number is added once it's set in COMPANY.scuml
-    SCUML_ROW: `<div><dt>Anti-money laundering</dt><dd>Registration with the EFCC’s Special Control Unit against Money Laundering (SCUML)${COMPANY.scuml ? `, no. ${esc(COMPANY.scuml)}` : ''}</dd></div>\n        `,
+
     HERE_ABOUT: p.slug === 'about' ? ' class="here" aria-current="page"' : '', HERE_CONTACT: p.slug === 'contact' ? ' class="here" aria-current="page"' : '',
     MENU_AMB: amb ? `<a href="/ambassadors/"${p.slug === 'ambassadors' ? ' aria-current="page"' : ''}>Ambassador</a>` : '',
     DRAWER_AMB: amb ? `    <a href="/ambassadors/"${p.slug === 'ambassadors' ? ' class="here" aria-current="page"' : ''}>Become an ambassador<svg class="ic go" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>\n` : '',
@@ -499,25 +528,42 @@ for (const p of INFO_PAGES) {
     MAP_HREF: esc(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(COMPANY.address)}`),
     SOCIALS: socials.length ? `<div class="socials" aria-label="Hoolam on social media">${socials.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" aria-label="Hoolam on ${esc(x.name)}: ${esc(x.label)}"><svg class="ic" aria-hidden="true"><use href="#sf-${esc(x.kind)}"/></svg>${esc(x.label)}</a>`).join('')}</div>` : '',
   };
-  const body = fill(read(`pages/${p.slug}.html`), vars);
+  // About's "Who's behind Hoolam" shows only while it's on (Console → Settings → Features)
+  const founderOn = !!(ok && live.about?.founder);
+  const body = fill(readFor(ctx.v, `pages/${p.slug}.html`), vars).replace(/<!--founder-->([\s\S]*?)<!--\/founder-->/, (_, x) => (founderOn ? x : ''));
   const jsonld = { '@context': 'https://schema.org', '@graph': [organization, { '@type': p.type, name: p.title, description: p.description, ...(canonical ? { url: canonical } : {}), about: { '@id': organization['@id'] }, inLanguage: 'en-NG' }] };
-  const html = fill(pageLayout, {
-    ...vars, TITLE: esc(p.title), DESCRIPTION: esc(p.description), BODY: body, SPRITE: sprite, FOOTER: footer, FOOTER_CSS: footerCss,
+  const html = fill(ctx.pageLayout, {
+    ...vars, TITLE: esc(p.title), DESCRIPTION: esc(p.description), BODY: body, SPRITE: sprite, FOOTER: ctx.footer, FOOTER_CSS: footerCss,
     CANONICAL: canonical ? `<link rel="canonical" href="${esc(canonical)}">\n<meta property="og:url" content="${esc(canonical)}">` : '',
     OG_IMAGE: site ? `${site}/assets/og.png` : '/assets/og.png', ICONS: iconTags('/'), IMAGES: pageImagesJson.replace(/</g, '\\u003c'),
     JSONLD: JSON.stringify(jsonld).replace(/</g, '\\u003c'),
     CHAT: chatTag(baked.images?.mark?.src),
   });
-  mkdirSync(join(out, p.slug), { recursive: true });
-  writeFileSync(join(out, p.slug, 'index.html'), withShow(html));
+  mkdirSync(join(dir, p.slug), { recursive: true });
+  writeFileSync(join(dir, p.slug, 'index.html'), preview ? asPreview(withShow(html), ctx.v) : withShow(html));
 }
+}
+// the live version's pages at /about/, /legal/… and every version's (and the draft's) at /v/<version>/about/…
+buildLegal(liveCtx, out, false);
+buildInfo(liveCtx, out, false);
+for (const v of [...VERSIONS, 'draft']) { const c = ctxFor(v); buildLegal(c, join(out, 'v', v), true); buildInfo(c, join(out, 'v', v), true); }
 
 // ---------- "Save the number": a contact card for Hoolam's one WhatsApp number ----------
+/** The logo icon as the contact's photo, when it's a PNG or JPEG (lines folded at 75 characters, as vCards need). */
+function vcPhoto() {
+  const src = baked.images?.mark?.src;
+  const type = src && (/\.png$/.test(src) ? 'PNG' : /\.jpe?g$/.test(src) ? 'JPEG' : null);
+  if (!type) return [];
+  try {
+    const line = `PHOTO;ENCODING=b;TYPE=${type}:${readFileSync(join(out, src)).toString('base64')}`;
+    return [line.match(/.{1,74}/g).join('\r\n ')];
+  } catch { return []; }
+}
 if (wa) {
   const vc = (t) => String(t).replace(/([,;\\])/g, '\\$1');
   writeFileSync(join(out, 'hoolam.vcf'), ['BEGIN:VCARD', 'VERSION:3.0', 'N:;Hoolam;;;', 'FN:Hoolam', `ORG:${vc(COMPANY.legalName)}`, `TEL;TYPE=CELL,VOICE:+${wa}`,
     ...(contact.email ? [`EMAIL;TYPE=INTERNET:${contact.email}`] : []), ...(site ? [`URL:${site}/`] : []),
-    `NOTE:${vc('Hoolam\'s only WhatsApp number. Safe buying and selling: your money is held until you get what you ordered.')}`, 'END:VCARD', ''].join('\r\n'));
+    `NOTE:${vc('Hoolam\'s only WhatsApp number. Safe buying and selling: your money is held until you get what you ordered.')}`, ...vcPhoto(), 'END:VCARD', ''].join('\r\n'));
 }
 
 // ---------- search engines and AI tools ----------
@@ -548,7 +594,7 @@ const llms = `# Hoolam
 
 > Hoolam is a WhatsApp escrow service for Nigeria. When people buy and sell on WhatsApp, Instagram, TikTok or Facebook, the buyer pays Hoolam instead of the seller. Hoolam holds the money safely until the buyer has received the item and is happy, then pays the seller. No app is needed: everything happens in a WhatsApp chat.
 
-Hoolam is run by ${COMPANY.legalName} (RC ${COMPANY.rc}), registered with the Corporate Affairs Commission, Nigeria. Money for orders is held with ${COMPANY.bankPartner}${COMPANY.payService ? ` (${COMPANY.payService})` : ''}.
+Hoolam is run by ${COMPANY.legalName} (RC ${COMPANY.rc}), registered with the Corporate Affairs Commission, Nigeria. Money for orders is held with ${COMPANY.bankPartner}${COMPANY.payService ? ` (${COMPANY.payService})` : ''}, insured by the NDIC. Hoolam is registered with the EFCC's Special Control Unit against Money Laundering (SCUML) and the Nigeria Data Protection Commission (NDPC).
 
 ## How it works
 
@@ -589,7 +635,8 @@ const pages = ['/', '/about/', '/contact/', ...(amb ? ['/ambassadors/'] : []), '
 writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\n${site ? `Sitemap: ${site}/sitemap.xml\n` : ''}`);
 // when each page last changed: the newest commit touching the files it's built from (left out if git isn't there)
 const lastChanged = (files) => { try { return execFileSync('git', ['log', '-1', '--format=%cs', '--', ...files.map((f) => join(here, f))], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; } };
-const sources = (p) => p === '/' ? [`versions/${liveVersion}.html`, 'versions/versions.json', 'partials'] : p === '/about/' || p === '/contact/' || p === '/ambassadors/' ? [`pages${p.slice(0, -1)}.html`, 'pages/_layout.html', 'partials'] : p === '/legal/' ? ['legal/_layout.html', 'partials'] : [`legal${p.slice(6, -1)}.html`, 'legal/_layout.html'];
+const ps = pagesSet(liveVersion);
+const sources = (p) => p === '/' ? [`versions/${liveVersion}.html`, 'versions/versions.json', 'partials'] : p === '/about/' || p === '/contact/' || p === '/ambassadors/' ? [`${ps}pages${p.slice(0, -1)}.html`, `${ps}pages/_layout.html`, 'partials'] : p === '/legal/' ? [`${ps}legal/_layout.html`, 'partials'] : [`${ps}legal${p.slice(6, -1)}.html`, `${ps}legal/_layout.html`];
 // the pictures on each page, for Google Images: the images uploaded for the live version (the drawings are drawn in code, so they aren't image files)
 const pageImages = (p) => p === '/' ? Object.entries(baked.images ?? {}).filter(([k]) => k !== 'whatsapp').map(([, v]) => v.src)
   : baked.images?.mark ? [baked.images.mark.src] : [];

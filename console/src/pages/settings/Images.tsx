@@ -194,7 +194,7 @@ function WebsiteContent() {
   const [params, setParams] = useSearchParams();
   const [switching, setSwitching] = useState<Version | null>(null);
   const [goingLive, setGoingLive] = useState<string | null>(null);
-  const head = <div className="brand-sub-head" id="website-content"><h2>Website content</h2><p className="small muted">Each version of the home page has its own images. Preview any version, then choose which one visitors see.</p></div>;
+  const head = <div className="brand-sub-head" id="website-content"><h2>Website content</h2><p className="small muted">Each version is the whole website (from 1.2.1: home, About, Contact us, Ambassadors and the legal pages), with its own home page images. Preview any version, then choose which one visitors see.</p></div>;
   if (vs.error) return <>{head}<ErrorBanner error={vs.error} onRetry={vs.reload} /></>;
   if (!vs.data) return <>{head}<div className="stack"><Skeleton h={72} /><Skeleton h={220} /><Skeleton h={280} /></div></>;
   const d = vs.data;
@@ -217,7 +217,7 @@ function WebsiteContent() {
         <section className="panel ver-panel">
           <div className="ver-pick">
             <div className="field ver-field">
-              <label htmlFor="home-version">Home page version</label>
+              <label htmlFor="home-version">Website version</label>
               <div className="ver-select">
                 <select id="home-version" className="select" value={selected} onChange={(e) => pick(e.target.value)}>
                   {d.versions.map((v) => <option key={v.version} value={v.version}>{v.version}{v.live ? '  ·  Live now' : ''}</option>)}

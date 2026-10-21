@@ -1,0 +1,62 @@
+<!--lede-->When you pay into a Hoolam order, your money doesn’t go to the seller and it doesn’t go into Hoolam’s pocket. Here is exactly where it sits, and every step it takes.<!--/lede-->
+
+<div class="lg-short">
+  <h2>In short</h2>
+  <ul>
+    <li>Your money is held with {{BANK_PARTNER}}, a bank licensed by the Central Bank of Nigeria.</li>
+    <li>It is kept apart from the money Hoolam uses to run the business, and tracked order by order.</li>
+    <li>It can only go two ways: to the seller of that order, or back to the buyer.</li>
+    <li>Hoolam doesn’t spend, lend or invest it.</li>
+  </ul>
+</div>
+
+<figure class="lg-flow" role="img" aria-label="The buyer’s bank sends the money to Hoolam’s order account at {{BANK_PARTNER}}. From there it can only go two ways: to the seller when the buyer is happy, or back to the buyer if a problem is decided for them.">
+  <div class="lf-node"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><b>Buyer’s bank</b><span>Any bank or app</span></div>
+  <span class="lf-arrow" aria-hidden="true"></span>
+  <div class="lf-node held"><svg class="ic" aria-hidden="true"><use href="#i-lock-keyhole"/></svg><b>Held for your order</b><span>Hoolam’s order account at {{BANK_PARTNER}}</span></div>
+  <span class="lf-arrow split" aria-hidden="true"></span>
+  <div class="lf-exits">
+    <div class="lf-node good"><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg><b>To the seller</b><span>When the buyer is happy</span></div>
+    <div class="lf-node back"><svg class="ic" aria-hidden="true"><use href="#i-arrow-down-to-line"/></svg><b>Back to the buyer</b><span>If a problem is decided for them</span></div>
+  </div>
+  <figcaption>Two ways out. Nowhere else.</figcaption>
+</figure>
+
+<section>
+  <h2 id="journey">The journey of one payment</h2>
+  <ol class="steps">
+    <li><span class="n">1</span><div><b>The buyer gets a one-time account number</b><p>For each payment, we send the buyer an account number made just for that order, from {{BANK_PARTNER}} through its {{PAY_SERVICE}} service. It works for about 40 minutes.</p><img class="lg-shot" src="{{ART:status-2}}" alt="{{ALT:status-2}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
+    <li><span class="n">2</span><div><b>The buyer transfers from their own bank</b><p>Any Nigerian bank or app. The money lands at {{BANK_PARTNER}}, not with the seller and not in a Hoolam staff account.</p></div></li>
+    <li><span class="n held">3</span><div><b>Held for the order</b><p>We check the payment with the bank before we treat it as received, then tell both sides. The money sits in Hoolam’s collection account at {{BANK_PARTNER}}, recorded against that one order.</p><img class="lg-shot" src="{{ART:status-3}}" alt="{{ALT:status-3}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
+    <li><span class="n">4</span><div><b>Handed over</b><p>When the item reaches the buyer, the buyer gives a 4-digit code. If a rider or driver delivered it, their delivery fee is paid to them then, from the held money.</p><img class="lg-shot" src="{{ART:status-5}}" alt="{{ALT:status-5}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
+    <li><span class="n">5</span><div><b>Released or refunded</b><p>When the buyer is happy (or says nothing within {{AUTO_RELEASE}} of the handover), the rest goes to the seller’s bank account. If there’s a problem decided for the buyer, everything still held goes back to their account.</p><img class="lg-shot" src="{{ART:status-6}}" alt="{{ALT:status-6}}" loading="lazy" decoding="async" width="900" height="506"></div></li>
+  </ol>
+</section>
+
+<section>
+  <h2 id="apart">Kept apart, and accounted for</h2>
+  <p>Money held for orders is kept in a collection account used only for orders. Hoolam’s own running costs are paid from a separate account. Our fee is only moved out of the collection account after an order has been completed and the seller paid.</p>
+  <p>Every naira that comes in is written down against its order in our records, and every naira that goes out is written down too: to the seller, to the buyer, or, after completion, as our fee. Each entry has to balance, so the money held for open orders can be checked against the bank at any time.</p>
+</section>
+
+<section>
+  <h2 id="cant">What nobody at Hoolam can do</h2>
+  <ul>
+    <li>Send held money to anyone other than the seller of that order or the buyer who paid it.</li>
+    <li>Change the price or fee of an order after the buyer has paid.</li>
+    <li>Move money without it being recorded, with their name, in a record that can’t be edited.</li>
+    <li>Ask you to pay to a personal account. Hoolam will only ever give you an account number inside our own WhatsApp chat, for one order.</li>
+  </ul>
+  <div class="note gold"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg><p><b>If anyone asks you to pay a Hoolam order into a different account, don’t.</b> Report it to us on {{WA_LINK}}.</p></div>
+</section>
+
+<section>
+  <h2 id="bank">About our bank partner</h2>
+  <p>{{BANK_PARTNER}} is licensed by the Central Bank of Nigeria. {{PAY_SERVICE}} is its payment service for businesses. It gives each payment its own account number, receives the transfer, holds the balance, checks account names, and sends our payouts and refunds.</p>
+  <p>Hoolam itself is not a bank. We don’t take deposits, we don’t pay interest on held money, and we don’t lend it.</p>
+</section>
+
+<section>
+  <h2 id="check">Checking on your money</h2>
+  <p>Every message about an order tells you where the money is now. You can also ask in the chat at any time with your order code, or tap “Talk to a rep”. For the full rules, see our <a href="/legal/holding-agreement/">Holding agreement</a>.</p>
+</section>

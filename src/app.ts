@@ -228,6 +228,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       // the ambassador programme: whether it's on (menu link, the page), the rates shown on hoolam.com/ambassadors, and each link (hoolam.com/a/<name>)
       ambassadors: (() => { const a = ambassadors.cfg(); return { on: a.on, applyWeb: a.applyWeb, sellerPct: a.sellerPct, buyerPct: a.buyerPct, bonus: a.bonusMinor / unit, bonusOrders: a.bonusOrders, payoutDay: a.payoutDay, payoutMin: a.payoutMinMinor / unit, terms: a.terms, api: c.PUBLIC_BASE_URL.replace(/\/+$/, '') }; })(),
       ambassadorLinks: ambassadors.on() ? await ambassadors.forSite() : [],
+      about: { founder: settings.get<boolean>('feature_about_founder') }, // About: Who's behind Hoolam (Settings → Features)
       // the chat's pictures and voice notes the website shows, and the live numbers (each only once it reaches its minimum)
       show: await siteShow.forSite(c.PUBLIC_BASE_URL).catch((e) => { log(`site show: ${(e as Error).message}`); return null; }),
     });

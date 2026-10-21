@@ -357,7 +357,7 @@ header.open #menu-btn .bars { display: none; }
 .trust { padding-block: clamp(64px, 10vw, 130px); }
 .trust-more { display: grid; gap: 16px; margin-top: clamp(28px, 4vw, 44px); align-items: start; }
 .trust-more .proof h3 { margin: 0 0 12px; font: 600 1.15rem/1.3 var(--font-display); letter-spacing: -.01em; }
-@media (min-width: 900px) { .trust-more .official { max-width: 760px; } .trust-more .proof-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 900px) { .trust-more .proof-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .trust-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 400px); gap: clamp(28px, 5vw, 72px); align-items: start; margin-top: 40px; }
 .pillars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .pillar { border-radius: 26px; background: var(--card); padding: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 0 var(--rule); min-width: 0; align-items: flex-start; }
@@ -367,6 +367,12 @@ header.open #menu-btn .bars { display: none; }
 .pillar span.s { color: var(--soft); font-size: .95rem; }
 .pl-link { margin-top: auto; display: inline-flex; align-items: center; min-height: 32px; color: var(--teal); font-weight: 600; font-size: .9rem; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--teal) 35%, transparent); text-underline-offset: 4px; }
 .pl-link:hover { text-decoration-color: currentColor; }
+.pl-sub { display: flex; gap: 8px; align-items: flex-start; padding-top: 10px; border-top: 1px dashed var(--rule); width: 100%; color: var(--ink); font-size: .88rem; font-weight: 500; line-height: 1.4; }
+.pl-sub .ic { width: 16px; height: 16px; color: var(--green); flex: none; margin-top: 2px; }
+/* headings that must stay on one line: sized to the column */
+.ch-text { container-type: inline-size; }
+.ch-text h2.fit { font-size: min(clamp(1.8rem, 4.6vw, 3.4rem), 10.6cqi); } /* "The seller delivers." is about 8.8em wide in Poppins */
+.ch-text h2 .nw { white-space: nowrap; }
 .pro-ex { align-self: flex-start; font-size: .8rem; color: var(--soft); padding: 4px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule); }
 .profile { border-radius: 30px; background: var(--card); box-shadow: var(--shadow); overflow: hidden; }
 .profile .scene { border-radius: 0; aspect-ratio: 5 / 3; }
@@ -379,7 +385,7 @@ header.open #menu-btn .bars { display: none; }
 .pro-stats b { display: block; font: 600 1.3rem var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .pro-stats span { font-size: .74rem; color: var(--soft); }
 @media (max-width: 900px) { .trust-grid { grid-template-columns: 1fr; } .profile { max-width: 460px; } }
-@media (max-width: 520px) { .pillars { grid-template-columns: 1fr; } .pillar { flex-direction: row; flex-wrap: wrap; align-items: center; } .pillar i { width: 44px; height: 44px; } .pillar span.s, .pl-link { flex-basis: 100%; } }
+@media (max-width: 520px) { .pillars { grid-template-columns: 1fr; } .pillar { flex-direction: row; flex-wrap: wrap; align-items: center; } .pillar i { width: 44px; height: 44px; } .pillar span.s, .pl-link, .pl-sub { flex-basis: 100%; } }
 
 /* ---------- VOICES ---------- */
 .voices { padding-block: 0 clamp(64px, 10vw, 130px); }
@@ -908,7 +914,6 @@ details p { padding: 0 20px 18px; color: var(--soft); }
         <div class="ch-head"><span class="ch-num">2</span><div class="ch-meta"><span>Step 2 of 5 · Buyer</span><span class="segs"><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span></div></div>
         <h2>You pay. We Hoolam!</h2>
         <p>The money comes to Hoolam, not the seller. It stays safe until the order is done.</p>
-        <div data-nosnippet class="bill"><div><span>Item</span><span>₦10,000</span></div><div><span data-p="story-fee-l">Hoolam fee</span><span data-p="story-fee">₦300</span></div><div class="t"><span>You pay</span><span data-p="story-total">₦10,300</span></div></div>
         <figure class="chat-shot"><div class="cs-bubble"><img src="{{ART:held}}" alt="{{ALT:held}}" loading="lazy" decoding="async" width="900" height="900"><span class="cs-time">9:41<svg class="ic" aria-hidden="true"><use href="#i-check-check"/></svg></span></div><figcaption><svg class="ic" aria-hidden="true"><use href="#i-circle-check"/></svg>What you get in WhatsApp</figcaption></figure>
       </div>
     </article>
@@ -974,7 +979,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
       </div>
       <div class="ch-text rv">
         <div class="ch-head"><span class="ch-num">3</span><div class="ch-meta"><span>Step 3 of 5 · Seller</span><span class="segs"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span></div></div>
-        <h2>The seller delivers. No fear.</h2>
+        <h2 class="fit"><span class="nw">The seller delivers.</span> No fear.</h2>
         <p><b class="nm">Mama Bella</b> can see the money is ready before the package leaves the shop.</p>
         <figure class="chat-shot"><div class="cs-bubble"><img src="{{ART:seller-held}}" alt="{{ALT:seller-held}}" loading="lazy" decoding="async" width="900" height="900"><span class="cs-time">9:41<svg class="ic" aria-hidden="true"><use href="#i-check-check"/></svg></span></div><figcaption><svg class="ic" aria-hidden="true"><use href="#i-circle-check"/></svg>What Mama Bella gets in WhatsApp</figcaption></figure>
       </div>
@@ -1010,7 +1015,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
           <div data-o="yes"><span class="ti g"><svg class="ic " aria-hidden="true"><use href="#i-circle-check"/></svg></span><div><strong>The seller gets paid.</strong><span class="s">Order done. Everybody happy.</span></div></div>
           <div data-o="no" hidden><span class="ti y"><svg class="ic " aria-hidden="true"><use href="#i-snowflake"/></svg></span><div><strong>The money freezes. Nobody can touch it.</strong><span class="s">A rep from Hoolam settles it with you both. Wrong item? You get all your money back.</span><figure class="chat-shot"><div class="cs-bubble"><img src="{{ART:frozen}}" alt="{{ALT:frozen}}" loading="lazy" decoding="async" width="900" height="900"><span class="cs-time">9:41<svg class="ic" aria-hidden="true"><use href="#i-check-check"/></svg></span></div><figcaption><svg class="ic" aria-hidden="true"><use href="#i-circle-check"/></svg>What you get when you tap Problem</figcaption></figure></div></div>
         </div>
-        <span class="hint"><svg class="ic " aria-hidden="true"><use href="#i-clock"/></svg>Buyer goes quiet? We remind them, and our team follows up.</span>
+        <span class="hint"><svg class="ic " aria-hidden="true"><use href="#i-clock"/></svg>Buyer goes quiet? Vendor paid within {{AUTO_RELEASE}} of handover.</span>
       </div>
     </article>
 
@@ -1049,7 +1054,7 @@ details p { padding: 0 20px 18px; color: var(--soft); }
       </div>
       <div class="ch-text rv">
         <div class="ch-head"><span class="ch-num">5</span><div class="ch-meta"><span>Step 5 of 5 · Seller</span><span class="segs"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span></div></div>
-        <h2>Happy? The seller gets paid.</h2>
+        <h2 class="fit">Happy?<br><span class="nw">The seller is paid.</span></h2>
         <p>Straight to her bank account. This time, nobody loses.</p>
         <figure class="chat-shot"><div class="cs-bubble"><img src="{{ART:paid}}" alt="{{ALT:paid}}" loading="lazy" decoding="async" width="900" height="900"><span class="cs-time">9:41<svg class="ic" aria-hidden="true"><use href="#i-check-check"/></svg></span></div><figcaption><svg class="ic" aria-hidden="true"><use href="#i-circle-check"/></svg>What Mama Bella gets in WhatsApp</figcaption></figure>
         <a class="btn btn-main" style="align-self:flex-start;margin-top:4px" href="#start-chat" data-wa target="_blank" rel="noopener"><span class="wa-slot" data-slot="whatsapp" data-alt=""><span class="fb" style="display:contents"><svg class="ic " aria-hidden="true"><use href="#i-message-circle"/></svg></span></span>Start your first order</a>
@@ -1101,8 +1106,8 @@ details p { padding: 0 20px 18px; color: var(--soft); }
       <div class="pillars">
         <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-landmark"/></svg></i><strong>Kept at a bank</strong><span class="s">Money is held at {{BANK_SHORT}}, licensed by the CBN.</span><a class="pl-link" href="/legal/money/">Where the money sits</a></div>
         <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-file-check"/></svg></i><strong>A registered company</strong><span class="s"><b>{{LEGAL_NAME}}</b>, RC {{RC}}.</span><a class="pl-link" href="https://search.cac.gov.ng/" target="_blank" rel="noopener">Verify on CAC</a></div>
-        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-shield-check"/></svg></i><strong>Every order protected</strong><span class="s">Seller: paid if you deliver. Buyer: full refund if it never comes.</span><a class="pl-link" href="/legal/disputes/">How refunds work</a></div>
-        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-shield-naira"/></svg></i><strong>Kept apart from our money</strong><span class="s">Recorded against your order. It can only go to the seller, or back to you.</span></div>
+        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-shield-check"/></svg></i><strong>Every order protected</strong><span class="s">Seller: paid if you deliver. Buyer: full refund if it never comes.</span><span class="pl-sub"><svg class="ic " aria-hidden="true"><use href="#i-lock"/></svg>Your data too: registered with the Nigeria Data Protection Commission.</span><a class="pl-link" href="/legal/disputes/">How refunds work</a></div>
+        <div class="pillar rv"><i><svg class="ic " aria-hidden="true"><use href="#i-badge-check"/></svg></i><strong>Registered with SCUML</strong><span class="s">With the EFCC’s Special Control Unit against Money Laundering.</span></div>
       </div>
       <aside class="profile rv" aria-label="An example of what buyers see about a seller"><span class="pro-tag">Example</span>
         <figure class="scene" data-slot="s4-1" data-alt="Mama Bella, a seller on Hoolam"><svg class="scene-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Portrait of Mama Bella, a seller on Hoolam, in her shoe shop."><defs>
@@ -1134,7 +1139,6 @@ details p { padding: 0 20px 18px; color: var(--soft); }
         </ul>
         <p class="proof-note"><span class="dot" aria-hidden="true"></span>Counted live from Hoolam orders. Test orders never count.</p>
       </div>
-      <div class="rv">{{OFFICIAL}}</div>
     </div>
   </div>
 </section>

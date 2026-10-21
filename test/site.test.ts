@@ -22,6 +22,7 @@ describe('landing page ↔ server', () => {
       // the ambassador programme: off until the owner turns it on (then the menu link, the page and the links appear)
       ambassadors: { on: false, applyWeb: true, sellerPct: 20, buyerPct: 10, bonus: 1000, bonusOrders: 3, payoutDay: 1, payoutMin: 5000, terms: [3, 6, 12], api: 'http://localhost:3000' },
       ambassadorLinks: [],
+      about: { founder: false }, // About's "Who's behind Hoolam": off until it's turned on
       show: expect.objectContaining({ voices: {}, proof: { completed: null, started: null, refunded: null, ambPaid: null } }), // the chat's pictures and voice notes, live numbers (test/site-show.test.ts)
     });
   });
@@ -103,7 +104,7 @@ describe('landing page ↔ server', () => {
       expect(read(p), p).not.toContain('<li><a href="/#pricing">Pricing</a></li>');
       expect(read(p), p).not.toMatch(/\{\{[A-Z_]+\}\}/);
     }
-    expect(read('v/1.0.0/index.html')).toContain('<li><a href="/#pricing">Pricing</a></li>');
+    expect(read('v/1.0.0/index.html')).toContain('<li><a href="/v/1.0.0/#pricing">Pricing</a></li>'); // a preview's links stay in its version
     expect(read('legal/ambassadors/index.html')).toContain('Ambassador agreement');
   });
 
@@ -127,10 +128,10 @@ describe('landing page ↔ server', () => {
     expect(about).toContain('Ivana · buyer');
     expect(about).toContain('Mama Bella · seller');
     expect(contact).toContain('When you need assistance, a rep is available to answer.');
-    expect(about).toContain('Pay on delivery, made digital</h2>');
+    expect(about).toContain('Pay on delivery, made digital (DPOD)</h2>'); // the live version (1.0.0 here) keeps the pages as they were
     expect(about).toContain('Hoolam is a social commerce platform for buying and selling');
     expect(about).not.toContain('cash to count');
-    expect(about).toContain('<dt>Anti-money laundering</dt><dd>Registration with the EFCC’s Special Control Unit against Money Laundering (SCUML)</dd>');
+    expect(about).toContain('<dt>Anti-money laundering</dt><dd>Registered with the EFCC’s Special Control Unit against Money Laundering (SCUML)</dd>');
     expect(about).toContain('<dd>Moniepoint Microfinance Bank (Monnify)</dd>');
     expect(about).not.toContain('in progress');
     expect(about).toContain('Mama Bella paid<span class="tag seller">');
@@ -140,8 +141,8 @@ describe('landing page ↔ server', () => {
     for (const f of ['dist-site/about/index.html', 'dist-site/contact/index.html', 'dist-site/v/1.2.0/index.html']) {
       const h = readFileSync(f, 'utf8');
       const drawer = h.slice(h.indexOf('<aside class="drawer"'), h.indexOf('</aside>'));
-      expect(drawer, f).toMatch(/<a href="\/about\/"[^>]*>About<svg/);
-      expect(drawer, f).toMatch(/<a href="\/contact\/"[^>]*>Contact us<svg/);
+      expect(drawer, f).toMatch(/<a href="(\/v\/1\.2\.0)?\/about\/"[^>]*>About<svg/); // previews link inside their version
+      expect(drawer, f).toMatch(/<a href="(\/v\/1\.2\.0)?\/contact\/"[^>]*>Contact us<svg/);
     }
     for (const [name, html] of [['about', about], ['contact', contact]] as const) {
       // the same top bar as the home page; About and Contact us live only in the footer
@@ -199,11 +200,11 @@ describe('landing page ↔ server', () => {
     expect(about).toContain('HOOLAM DIGITAL PLATFORM LTD');
     expect(about).not.toContain('8 October 2026'); // no registration date on About
     expect(contact).toContain('Hoolam on WhatsApp works any time.</b> Reps are available from 9am to 5pm, every day.');
-    expect(contact).toContain('Hoolam’s only WhatsApp number</span><b>08117663890</b>');
+    expect(contact).toContain('Hoolam only messages you from <b>08117663890</b>.');
     expect(contact).toContain('data-live-chat href="https://wa.me/2348117663890?text=');
     for (const s of ['/about/', '/contact/']) expect(readFileSync('dist-site/sitemap.xml', 'utf8')).toContain(`https://hoolam.example${s}`);
     // the footer: About and Contact us at the end of Product, everywhere except home versions 1.0.0 and 1.1.0
-    const has = (f: string) => readFileSync(f, 'utf8').includes('<li><a href="/legal/disputes/">If something goes wrong</a></li>\n          <li><a href="/about/">About</a></li>\n          <li><a href="/contact/">Contact us</a></li>');
+    const has = (f: string) => readFileSync(f, 'utf8').replace(/href="\/v\/[^/]+\//g, 'href="/').includes('<li><a href="/legal/disputes/">If something goes wrong</a></li>\n          <li><a href="/about/">About</a></li>\n          <li><a href="/contact/">Contact us</a></li>'); // previews link inside their version
     for (const f of ['dist-site/v/1.2.0/index.html', 'dist-site/v/draft/index.html', 'dist-site/legal/terms/index.html', 'dist-site/legal/index.html', 'dist-site/about/index.html']) expect(has(f), f).toBe(true);
     for (const f of ['dist-site/v/1.0.0/index.html', 'dist-site/v/1.1.0/index.html']) expect(has(f), f).toBe(false);
     expect(readFileSync('dist-site/v/1.0.0/index.html', 'utf8')).not.toContain('{{FOOTER_MORE}}');
@@ -254,29 +255,42 @@ describe('landing page ↔ server', () => {
     // 1.2.1: the chat's own cards in the steps, a voice note (once recorded), live numbers, the one number to save; 1.2.0 stays as it was
     const v121 = readFileSync('dist-site/v/1.2.1/index.html', 'utf8');
     expect(v121).not.toContain('Deposits insured by NDIC');
-    expect(v121).toContain('<strong>Kept apart from our money</strong>');
+    expect(v121).toContain('<strong>Registered with SCUML</strong>');
+    expect(v121).toContain('registered with the Nigeria Data Protection Commission');
+    expect(v121).not.toContain('class="bill"'); // the money held card shows the same
+    expect(v121).toContain('<span class="nw">The seller delivers.</span>');
+    expect(v121).toContain('<span class="nw">The seller is paid.</span>');
+    expect(v121).toContain('Buyer goes quiet? Vendor paid within 24 hours of handover.');
     expect(v121).toContain('Held at a CBN-licensed bank');
     expect(v121).toMatch(/<button type="button" class="vn" data-voice="voice-how" hidden>/);
     for (const id of ['held', 'seller-held', 'frozen', 'paid']) expect(v121, id).toContain(`src="https://hoolam.onrender.com/site/art/${id}"`); // offline: straight from the server
     expect(v121).toContain('<div class="proof rv" data-proof hidden>');
-    expect(v121).toContain('Hoolam’s only WhatsApp number</span><b>08012345678</b>');
+    expect(v121).not.toContain('class="official'); // the number is in the footer, with its QR code
+    expect(v121).toContain('href="/v/1.2.1/about/"'); // a preview's links stay in its version
     expect(v121).toContain('class="sf-official"');
     expect(v121).toMatch(/window\.HOOLAM_SHOW=\{"api":"https:\/\/hoolam\.onrender\.com","voices":\{\},"proof":null\}/);
     expect(v121).not.toMatch(/\{\{(ART|ALT|OFFICIAL)/);
     expect(v12).not.toContain('class="sf-official"');
     expect(v12).not.toContain('show.js');
     expect(readFileSync('dist-site/hoolam.vcf', 'utf8')).toMatch(/^BEGIN:VCARD\r\nVERSION:3\.0[\s\S]*FN:Hoolam\r\n[\s\S]*TEL;TYPE=CELL,VOICE:\+2348012345678\r\n[\s\S]*END:VCARD/);
-    const about = readFileSync('dist-site/about/index.html', 'utf8');
-    expect(about).toContain('Who’s behind Hoolam');
-    expect(about).toContain('data-voice="voice-founder"');
+    const about = readFileSync('dist-site/v/1.2.1/about/index.html', 'utf8');
+    expect(about).not.toContain('data-voice="voice-founder"'); // Who's behind Hoolam is off
     expect(about).not.toContain('(DPOD)');
     expect(about).toContain('Verify on CAC');
-    const contact = readFileSync('dist-site/contact/index.html', 'utf8');
+    const contact = readFileSync('dist-site/v/1.2.1/contact/index.html', 'utf8');
     expect(contact).toContain('A rep usually replies within <b>30 minutes</b>');
-    expect(contact).toContain('href="/hoolam.vcf" download="Hoolam.vcf"');
-    expect(readFileSync('dist-site/legal/money/index.html', 'utf8')).toContain('Two ways out. Nowhere else.');
-    expect(readFileSync('dist-site/legal/money/index.html', 'utf8')).toMatch(/minutes? to read/);
-    expect(readFileSync('dist-site/legal/disputes/index.html', 'utf8')).toContain('data-voice="voice-problem"');
+    expect(contact).toContain('href="/hoolam.vcf"');
+    expect(contact).not.toContain('download=');
+    expect(about).not.toContain('Who’s behind Hoolam'); // off until it's turned on in Settings → Features
+    expect(about).toContain('<dt>Data protection</dt><dd>Registered with the Nigeria Data Protection Commission (NDPC)');
+    expect(about).toContain('is insured by the Nigeria Deposit Insurance Corporation (NDIC)');
+    expect(about).toContain('<span class="wa-ic" aria-hidden="true"></span><span class="t">Start an order</span>');
+    // every page is versioned with the home page: older versions keep the pages as they were
+    expect(readFileSync('dist-site/v/1.2.0/about/index.html', 'utf8')).toContain('Pay on delivery, made digital (DPOD)');
+    expect(readFileSync('dist-site/v/1.2.1/about/index.html', 'utf8')).toContain('<meta name="robots" content="noindex');
+    expect(readFileSync('dist-site/v/1.2.1/legal/money/index.html', 'utf8')).toContain('Two ways out. Nowhere else.');
+    expect(readFileSync('dist-site/v/1.2.1/legal/money/index.html', 'utf8')).toMatch(/minutes? to read/);
+    expect(readFileSync('dist-site/v/1.2.1/legal/disputes/index.html', 'utf8')).toContain('data-voice="voice-problem"');
     expect(readFileSync('dist-site/sitemap.xml', 'utf8')).not.toContain('/v/');
     expect(readFileSync('dist-site/robots.txt', 'utf8')).not.toMatch(/Disallow: \/v\//); // crawlers must be able to read the noindex
     expect(readFileSync('render.yaml', 'utf8')).toMatch(/path: \/v\/\*[\s\S]*?X-Robots-Tag[\s\S]*?noindex/);
