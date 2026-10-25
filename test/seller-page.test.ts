@@ -177,3 +177,17 @@ describe('the page builds trust before the buyer taps Buy', () => {
     expect((await get(`/s/${t.slug}/video.mp4`)).statusCode).toBe(404);
   });
 });
+
+describe('a missing or hidden page says what to do next', () => {
+  it('offers Check a seller, Start a safe order and the official number', async () => {
+    const r = await h.app.app.inject({ url: '/s/nobody-like-this' });
+    expect(r.statusCode).toBe(404);
+    expect(r.body).toMatch(/This page isn(&#39;|')t available/);
+    expect(r.body).toMatch(/text=Check%20a%20seller/);
+    expect(r.body).toMatch(/Start a safe order/);
+    expect(r.body).toMatch(/only WhatsApp number/);
+    const o = await h.app.app.inject({ url: '/o/HL-ABCDE?k=wrongwrongwrong' });
+    expect(o.body).toMatch(/doesn(&#39;|')t open an order/);
+    expect(o.body).toMatch(/text=My%20orders/);
+  });
+});

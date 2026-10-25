@@ -289,15 +289,16 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   }
   // short links for buyers and sellers: /HL-ABCDE (pay) and /v/HL-ABCDE (see a deal) open the WhatsApp chat
   const CODE = /^HL-[A-Z2-9]{5}$/i;
+  const missing = (kind: 'seller' | 'order' | 'other') => notFoundPage({ kind, waNumber: settings.waNumber(), markUrl: siteMedia.url(base, 'mark'), siteUrl: c.SITE_URL ?? null });
   const toChat = (text: string) => `https://wa.me/${settings.waNumber()}?text=${encodeURIComponent(text)}`;
   app.get('/:code', async (req, reply) => {
     const { code } = req.params as { code: string };
-    if (!CODE.test(code)) return reply.code(404).type('text/html').send(notFoundPage());
+    if (!CODE.test(code)) return reply.code(404).type('text/html').send(missing('other'));
     return reply.header('cache-control', 'no-store').redirect(toChat(`Pay ${code.toUpperCase()}`));
   });
   app.get('/v/:code', async (req, reply) => {
     const { code } = req.params as { code: string };
-    if (!CODE.test(code)) return reply.code(404).type('text/html').send(notFoundPage());
+    if (!CODE.test(code)) return reply.code(404).type('text/html').send(missing('other'));
     return reply.header('cache-control', 'no-store').redirect(toChat(`View ${code.toUpperCase()}`));
   });
   // ---------- the private order page (link sent only to the buyer and the seller) ----------
@@ -316,7 +317,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const { code } = req.params as { code: string };
     const k = (req.query as { k?: string }).k;
     const v = await orderView(code, k);
-    if (!v) return reply.code(404).type('text/html').send(notFoundPage());
+    if (!v) return reply.code(404).type('text/html').send(missing('order'));
     const d = v.d;
     const photos = await db.query(`SELECT id FROM deal_photos WHERE deal_id=$1 AND kind='ITEM' AND bytes IS NOT NULL ORDER BY id LIMIT 3`, [d.id]);
     const name = async (id: string | null) => id ? (await db.query('SELECT COALESCE(business_name, display_name) AS n FROM users WHERE id=$1', [id])).rows[0]?.n ?? null : null;
@@ -421,7 +422,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const id = await trust.findSeller({ slug });
     const t = id ? await trust.seller(id) : null;
     const link = t?.socials.find((x) => x.kind === kind);
-    if (!id || !link) return reply.code(404).type('text/html').send(notFoundPage());
+    if (!id || !link) return reply.code(404).type('text/html').send(missing('seller'));
     if (!isBot(req.headers['user-agent'])) await trust.recordSocial(id).catch((e) => log(`seller page stats: ${(e as Error).message}`));
     return reply.header('cache-control', 'no-store').header('x-robots-tag', 'noindex').redirect(link.url, 302);
   });
@@ -481,7 +482,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const id = await trust.findSeller({ slug });
     if (id && !isBot(req.headers['user-agent'])) await trust.recordView(id, visitorCode(req)).catch((e) => log(`seller page stats: ${(e as Error).message}`));
     const t = id ? await trust.seller(id) : null;
-    if (!t) return reply.code(404).type('text/html').send(notFoundPage());
+    if (!t) return reply.code(404).type('text/html').send(missing('seller'));
     return reply.type('text/html').header('cache-control', 'public, max-age=300')
       .send(sellerPage(t, {
         slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: base, siteUrl: c.SITE_URL ?? null,

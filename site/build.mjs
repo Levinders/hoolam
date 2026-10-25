@@ -642,7 +642,22 @@ const pageImages = (p) => p === '/' ? Object.entries(baked.images ?? {}).filter(
   : baked.images?.mark ? [baked.images.mark.src] : [];
 const imageTags = (p) => pageImages(p).map((src) => `<image:image><image:loc>${esc(site + src)}</image:loc></image:image>`).join('');
 if (site) writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${pages.map((p) => { const d = lastChanged(sources(p)); return `  <url><loc>${site}${p}</loc>${d ? `<lastmod>${d}</lastmod>` : ''}${imageTags(p)}</url>`; }).join('\n')}\n</urlset>\n`);
-writeFileSync(join(out, '404.html'), page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'This page doesn’t exist, or it has moved.', body: `<p><a class="lg-btn" href="/">Go to the Hoolam home page</a></p>`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">'));
+// what to do next, for the 404 page and the campaign links' in-between page: check a seller, start an order, the official number
+const chatTo = (t) => wa ? `https://wa.me/${wa}?text=${encodeURIComponent(t)}` : `${app}/chat?text=${encodeURIComponent(t)}`;
+const NEXT_SPRITE = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="nx-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol><symbol id="nx-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol><symbol id="nx-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol><symbol id="i-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="i-user-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></symbol></defs></svg>`;
+const NEXT_CSS = `.nx-list{display:grid;gap:10px;margin:8px 0 22px;padding:0;list-style:none}
+.nx-list a{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:18px;background:var(--card,#FFFDF9);box-shadow:inset 0 0 0 1px var(--rule,#E8E1D5);text-decoration:none;color:inherit}
+.nx-list a:hover{box-shadow:inset 0 0 0 1.5px var(--teal,#0E5C63)}
+.nx-list i{flex:none;width:40px;height:40px;border-radius:12px;background:var(--mint,#E2EFEA);color:var(--teal,#0E5C63);display:grid;place-items:center}
+.nx-list i svg{width:20px;height:20px}
+.nx-list span{font-size:.9rem;color:var(--soft,#58615E);line-height:1.45}.nx-list b{display:block;color:var(--ink,#1B2321);font-size:1rem}`;
+const nextSteps = () => `${NEXT_SPRITE}<style>${NEXT_CSS}</style><ul class="nx-list">
+<li><a data-wa href="${esc(chatTo('Check a seller'))}" target="_blank" rel="noopener"><i><svg aria-hidden="true"><use href="#nx-search"/></svg></i><span><b>Check a seller</b>Send their number on WhatsApp and see their record before you pay.</span></a></li>
+<li><a data-wa href="${esc(chatTo('Hi Hoolam, I want to buy safely'))}" target="_blank" rel="noopener"><i><svg aria-hidden="true"><use href="#nx-lock"/></svg></i><span><b>Start a safe order</b>You pay Hoolam. The seller is paid when you’re happy.</span></a></li>
+<li><a href="/"><i><svg aria-hidden="true"><use href="#nx-home"/></svg></i><span><b>Go to the home page</b>See how Hoolam works and what it costs.</span></a></li>
+</ul>`;
+writeFileSync(join(out, '404.html'), withShow(page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'The link may be wrong or old. Here’s what you can do instead.', body: `${nextSteps()}{{OFFICIAL}}`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">')
+  .replace(/<ul class="lg-meta"[\s\S]*?<\/ul>/, '').replace(/<aside class="lg-end">[\s\S]*?<\/aside>/, '').replace('<style>.nx-list{', '<style>.lg-doc .nx-list{padding:0}.nx-list{')));
 
 // ---------- campaign links (Console → Settings → Links) ----------
 // hoolam.com/<slug>: a tiny page that counts the tap on the server, then moves the visitor on to the page with the tags
@@ -659,8 +674,9 @@ for (const l of campaignLinks) {
 <title>Hoolam</title><meta name="robots" content="noindex">${site ? `<link rel="canonical" href="${site}/">` : ''}
 <meta http-equiv="refresh" content="1; url=${target}">
 <script>(function(){try{navigator.sendBeacon&&navigator.sendBeacon(${JSON.stringify(`${app}/l/${l.slug}/tap`)})}catch(e){}location.replace(${JSON.stringify(l.target)}+(location.hash||''))})();</script>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F7F3EC;font:15px/1.5 Inter,system-ui,sans-serif;color:#1B2321}a{color:#0E5C63;font-weight:600}</style>
-</head><body><p><a href="${target}">Continue to Hoolam</a></p></body></html>
+<style>:root{--teal:#0E5C63;--card:#FFFDF9;--rule:#E8E1D5;--mint:#E2EFEA;--ink:#1B2321;--soft:#58615E}body{margin:0;min-height:100vh;background:#F7F3EC;font:16px/1.55 Inter,system-ui,sans-serif;color:#1B2321;padding:32px 16px}.w{max-width:440px;margin:0 auto}h1{font:700 1.3rem/1.3 Poppins,Inter,sans-serif;color:#0E5C63;margin:0 0 6px}p{margin:0 0 16px;color:#58615E}.go{display:flex;align-items:center;justify-content:center;min-height:52px;border-radius:16px;background:#0E5C63;color:#fff;font-weight:600;text-decoration:none;margin-bottom:22px}</style>
+</head><body><div class="w"><h1>Taking you to Hoolam…</h1><p>If nothing happens, tap the button.</p><a class="go" href="${target}">Continue to Hoolam</a>
+<p>Or, while you’re here:</p>${nextSteps()}</div></body></html>
 `);
   linksBuilt++;
 }

@@ -280,10 +280,50 @@ ${photo ? `<figure class="lightbox" id="photo" aria-label="${esc(t.name)}"><a cl
 ${video ? `<script>(function(){var f=document.querySelector('.vid-frame');if(!f)return;var v=f.querySelector('video'),b=f.querySelector('.vid-play');v.controls=false;b.onclick=function(){v.controls=true;v.play();};v.addEventListener('play',function(){f.classList.add('on');if(window.gtag)gtag('event','seller_video_play');});v.addEventListener('pause',function(){if(!v.seeking)f.classList.remove('on');});v.addEventListener('ended',function(){f.classList.remove('on');});})();</script>\n` : ''}${o.gaId && home ? `<script src="${esc(home.replace(/\/+$/, ''))}/assets/analytics.js" data-cookies="${esc(home.replace(/\/+$/, ''))}/legal/cookies/" defer></script>\n` : ''}</body></html>`;
 }
 
-export function notFoundPage(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hoolam</title>
-<style>body{font-family:Inter,system-ui,sans-serif;background:#FAFAF7;color:#17292b;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;text-align:center}h1{color:#0E5C63;font-size:22px;margin:14px 0 6px}p{color:#5d6b6c;max-width:34ch;margin:0 auto}</style></head>
-<body><div>${ICON.mark}<h1>This page isn't available</h1><p>The seller may have hidden it. You can still buy safely with Hoolam on WhatsApp.</p></div></body></html>`;
+export interface NotFoundOptions {
+  /** What was asked for: a seller's page, an order link, or anything else. */
+  kind?: 'seller' | 'order' | 'other';
+  waNumber?: string;
+  markUrl?: string | null;
+  siteUrl?: string | null;
+}
+
+/** "This page isn't available", with what to do next: check a seller, start an order, Hoolam's official number. */
+export function notFoundPage(o: NotFoundOptions = {}): string {
+  const kind = o.kind ?? 'other';
+  const wa = (o.waNumber ?? '').replace(/\D/g, '');
+  const chat = (t: string) => (wa ? `https://wa.me/${wa}?text=${encodeURIComponent(t)}` : '#');
+  const num = wa ? (wa.startsWith('234') ? `0${wa.slice(3)}` : `+${wa}`).replace(/^(\d{4})(\d{3})(\d{4})$/, '$1 $2 $3') : '';
+  const home = o.siteUrl ? o.siteUrl.replace(/\/+$/, '') : null;
+  const h1 = kind === 'seller' ? "This page isn't available" : kind === 'order' ? "This link doesn't open an order" : "This page doesn't exist";
+  const lead = kind === 'seller' ? 'The seller may have hidden it, or the link is wrong. You can still check them and buy safely.'
+    : kind === 'order' ? 'The link may be cut short or old. Your order is safe; open it in our WhatsApp chat instead.'
+    : 'The link may be wrong or old. Here is what you can do instead.';
+  const mark = o.markUrl ? `<img src="${esc(o.markUrl)}" alt="" width="44" height="44">` : ICON.mark;
+  const step = (icon: string, title: string, text: string, href: string) => `<a class="nx" href="${esc(href)}"${href.startsWith('http') ? ' target="_blank" rel="noopener"' : ''}><i>${icon}</i><span><b>${title}</b>${text}</span>${ICON.arrowUpRight}</a>`;
+  return `<!doctype html><html lang="en-NG"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(h1)} · Hoolam</title>
+<style>
+*{box-sizing:border-box}body{font:16px/1.55 Inter,system-ui,sans-serif;background:#F7F3EC;color:#1B2321;margin:0;padding:24px 16px 32px;-webkit-font-smoothing:antialiased}
+.w{max-width:440px;margin:0 auto}.mk{display:grid;place-items:center;width:44px;height:44px;border-radius:13px;overflow:hidden}.mk img,.mk svg{width:44px;height:44px}
+h1{font:700 1.45rem/1.25 Poppins,Inter,sans-serif;letter-spacing:-.02em;margin:18px 0 6px;color:#0E5C63}p{color:#58615E;margin:0}
+.list{display:grid;gap:10px;margin-top:22px}
+.nx{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:18px;background:#FFFDF9;box-shadow:inset 0 0 0 1px #E8E1D5;text-decoration:none;color:inherit}
+.nx:hover{box-shadow:inset 0 0 0 1.5px #0E5C63}.nx:focus-visible{outline:3px solid #C9992E;outline-offset:2px}
+.nx i{flex:none;width:40px;height:40px;border-radius:12px;background:#E2EFEA;color:#0E5C63;display:grid;place-items:center}.nx i .ic{width:20px;height:20px}
+.nx span{flex:1;min-width:0;font-size:.9rem;color:#58615E}.nx b{display:block;color:#1B2321;font-size:1rem}
+.nx>.ic{color:#0E5C63;flex:none}
+.off{margin-top:22px;padding:16px;border-radius:18px;background:#DDEFE3;color:#1F5B3A;font-size:.88rem}.off b{display:block;font-size:1.2rem;color:#1B2321;font-variant-numeric:tabular-nums;margin-top:2px}
+.home{display:inline-block;margin-top:20px;color:#0E5C63;font-weight:600;font-size:.92rem}
+</style></head>
+<body><div class="w"><span class="mk">${mark}</span><h1>${esc(h1)}</h1><p>${esc(lead)}</p>
+<div class="list">
+${kind === 'order' ? step(ICON.whatsapp, 'Open my orders', 'See every order and where the money is', chat('My orders')) : ''}
+${step(ICON.shieldCheck, 'Check a seller', 'Send their number. See their record before you pay', chat('Check a seller'))}
+${step(ICON.lock, 'Start a safe order', 'Pay Hoolam, not the seller. They\'re paid when you\'re happy', chat('Hi Hoolam, I want to buy safely'))}
+</div>
+${num ? `<p class="off">Hoolam's only WhatsApp number<b>${esc(num)}</b>We never ask for your PIN or OTP, or for payment into a personal account.</p>` : ''}
+${home ? `<a class="home" href="${esc(home)}/">Go to hoolam.com</a>` : ''}
+</div></body></html>`;
 }
 
 /** The Google tag for a seller's page: every consent starts "denied" (the banner on hoolam.com's analytics.js asks), and events carry the seller. */
