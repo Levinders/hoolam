@@ -678,7 +678,7 @@ for (const l of ambLinks) {
     writeFileSync(join(dir, 'index.html'), `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta http-equiv="refresh" content="0; url=/a/${esc(l.to)}/"><title>Hoolam</title><script>location.replace('/a/${l.to}/'+location.search)</script></head><body><a href="/a/${esc(l.to)}/">Continue to Hoolam</a></body></html>\n`);
     continue;
   }
-  writeFileSync(join(dir, 'index.html'), ambLinkPage(l));
+  writeFileSync(join(dir, 'index.html'), withShow(ambLinkPage(l)));
   ambBuilt++;
 }
 function ambLinkPage(l) {
@@ -689,6 +689,8 @@ function ambLinkPage(l) {
   const desc = 'Buy and sell on WhatsApp safely. Your money is held until you get what you ordered.';
   const og = l.photo || (site ? `${site}/assets/og.png` : '/assets/og.png');
   const mark = baked.images?.mark?.src;
+  const badge = name ? `<span class="ver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>Verified Hoolam ambassador${l.area ? ` · ${esc(l.area)}` : ''}</span>` : '';
+  const shot = (n, id, cap) => `<figure class="chat-shot"><div class="cs-bubble"><img src="{{ART:${id}}}" alt="{{ALT:${id}}}" loading="lazy" decoding="async" width="900" height="900"><span class="cs-time">9:41<svg class="ic" aria-hidden="true"><use href="#i-check-check"/></svg></span></div><figcaption><b>${n}</b>${cap}</figcaption></figure>`;
   return `<!doctype html>
 <html lang="en-NG"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#0E5C63">
@@ -720,16 +722,34 @@ ${site ? `<meta property="og:url" content="${esc(`${site}/a/${l.slug}/`)}">` : '
 .how div{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 1px var(--rule);font-size:.95rem}
 .how i{width:34px;height:34px;border-radius:11px;background:var(--mint);color:var(--teal);display:grid;place-items:center;flex:none}.how i svg{width:18px;height:18px}
 .foot{margin-top:18px;text-align:center;color:var(--soft);font-size:.8rem;line-height:1.5}.foot a{color:var(--teal);font-weight:600;text-decoration:none}
+/* their photo is the page: big, square, with who they are on it */
+.ph{position:relative;aspect-ratio:1/1;background:#EAF3F3}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph::after{content:"";position:absolute;inset:auto 0 0;height:46%;background:linear-gradient(transparent,rgba(8,62,67,.82))}
+.ph .ver{position:absolute;left:16px;bottom:16px;z-index:1;margin:0;background:rgba(255,253,249,.95);box-shadow:0 6px 18px -8px rgba(0,0,0,.4)}
+.sec{margin-top:26px}
+.sec h2{font:700 1.15rem/1.3 Poppins,Inter,sans-serif;letter-spacing:-.02em;margin:0 0 4px}
+.sec>p{color:var(--soft);font-size:.92rem;margin:0 0 12px}
+.shots{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:16px;margin:0 -16px;padding:4px 16px 10px;scrollbar-width:none}
+.shots::-webkit-scrollbar{display:none}
+.shots .chat-shot{flex:0 0 78%;scroll-snap-align:start;padding:12px;border-radius:22px;background:#E9E3D8}
+.shots .chat-shot .cs-bubble{max-width:none}
+.shots figcaption b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--teal);color:#fff;font-size:.72rem}
+.sec .proof h3{display:none}
+.sec .official{margin-top:4px}
+
 a:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
 </style></head>
-<body><div class="w">
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-check-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></symbol><symbol id="i-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="i-user-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></symbol></defs></svg>
+<div class="w">
 <a class="top" href="/"><span class="mk${mark ? ' img' : ''}">${mark ? `<img src="${esc(mark)}" alt="">` : '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="8.5" r="3.7" fill="#C9992E"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>'}</span><b>Hoolam</b></a>
 <main class="card">
-  <div class="cov" aria-hidden="true"></div>
-  <div class="av">${l.photo ? `<img src="${esc(l.photo)}" alt="${esc(name ?? '')}">` : esc((name ?? 'H')[0].toUpperCase())}</div>
+  ${l.photo && name ? `<div class="ph"><img src="${esc(l.photo)}" alt="${esc(name)}, a Hoolam ambassador" width="800" height="800">${badge}</div>`
+    : `<div class="cov" aria-hidden="true"></div><div class="av">${l.photo ? `<img src="${esc(l.photo)}" alt="">` : esc((name ?? 'H')[0].toUpperCase())}</div>`}
   <div class="in">
     <h1>${name ? `${esc(name)} invited you to Hoolam` : 'Buy and sell safely on WhatsApp'}</h1>
-    ${name ? `<span class="ver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>Verified Hoolam ambassador${l.area ? ` · ${esc(l.area)}` : ''}</span>` : ''}
+    ${l.photo && name ? '' : badge}
     <p class="lead">Buy and sell on WhatsApp safely. Your money is held until you get what you ordered.</p>
     <div class="btns">
       <a class="b buy" data-wa href="${esc(go('buy'))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>I’m buying</a>
@@ -737,11 +757,27 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
     </div>
   </div>
 </main>
-<div class="how">
-  <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg></i><span>The buyer pays Hoolam, not the seller</span></div>
-  <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></i><span>Held safely with a licensed bank</span></div>
-  <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></i><span>The seller is paid once the buyer is happy</span></div>
-</div>
+<section class="sec" aria-labelledby="how-h">
+  <h2 id="how-h">How it works, in WhatsApp</h2>
+  <p>These are the real messages you get. Swipe to see each step.</p>
+  <div class="shots">
+    ${shot(1, 'held', 'You pay Hoolam. The money is held')}
+    ${shot(2, 'handover', 'You see the item, then give the code')}
+    ${shot(3, 'paid', 'Only then is the seller paid')}
+  </div>
+</section>
+<section class="sec">
+  <div class="proof" data-proof hidden>
+    <h2>Real orders, counted live</h2>
+    <ul class="proof-row">
+      <li data-n="completed" hidden><b data-v></b><span>orders completed safely</span></li>
+      <li data-n="refunded" hidden><b data-v></b><span>buyers refunded in full</span></li>
+      <li data-n="started" hidden><b data-v></b><span>orders started on Hoolam</span></li>
+    </ul>
+    <p class="proof-note"><span class="dot" aria-hidden="true"></span>Counted from real Hoolam orders. Test orders never count.</p>
+  </div>
+</section>
+${wa ? `<section class="sec" aria-labelledby="real-h"><h2 id="real-h">Make sure it’s the real Hoolam</h2>{{OFFICIAL}}</section>` : ''}
 <p class="foot">No app to download. Everything happens in WhatsApp.<br>${COMPANY.legalName} · RC ${COMPANY.rc} · <a href="/">hoolam.com</a></p>
 </div>
 <script>(function(){try{navigator.sendBeacon&&navigator.sendBeacon(${JSON.stringify(`${app}/a/${l.slug}/tap`)})}catch(e){}})();</script>
