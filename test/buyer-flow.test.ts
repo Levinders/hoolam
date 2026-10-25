@@ -39,7 +39,11 @@ describe('the buyer form', () => {
     const flat = (cs: any[]): any[] => cs.flatMap((c) => (c.type === 'Form' ? flat(c.children) : c.type === 'If' ? flat([...c.then, ...(c.else ?? [])]) : [c]));
     const all = json.screens.flatMap((s) => flat(s.layout.children as any[]));
     expect(json.screens.map((s) => s.id)).toEqual(['ITEM', 'DELIVERY', 'PHOTOS']);
-    for (const c of all) if ('required' in c) expect(c.required).toBe(true); // every answer is required
+    const optional = all.filter((c) => c.required === false).map((c) => c.name);
+    expect(optional).toEqual(['description', 'arrive_by']); // only the details and the date can be left empty
+    expect(json.screens[0]!.data).toMatchObject({ first: { type: 'boolean' } }); // first time: "Hoolam holds your money"
+    expect(json.screens[0]!.layout.children[0]).toMatchObject({ type: 'If', condition: '${data.first}' });
+    for (const s of json.screens) expect(flat(s.layout.children as any[]).some((c) => c.type === 'TextCaption')).toBe(true); // a trust line on every screen
     expect(all.find((c) => c.type === 'PhotoPicker')).toMatchObject({ 'min-uploaded-photos': 1, 'photo-source': 'camera_gallery', 'max-file-size-kb': 25600 });
     expect(all.find((c) => c.type === 'Dropdown')['data-source'].length).toBeLessThanOrEqual(10);
     for (const c of all) {
@@ -54,7 +58,7 @@ describe('the buyer form', () => {
   });
 
   it('the real banner is small enough for WhatsApp', () => {
-    const src = (buyFlowJson().screens[0]!.layout.children[0] as { src: string }).src;
+    const src = ((buyFlowJson().screens[0]!.layout.children[0] as any).else[0] as { src: string }).src;
     expect(Buffer.from(src, 'base64').length).toBeLessThan(300 * 1024);
   });
 
@@ -303,13 +307,12 @@ describe('buyer side, edges', () => {
     expect(Number(after.seller_gets_minor)).toBe(1_350_000);
   });
 
-  it('the form: a missing answer is asked in the chat', async () => {
+  it('the form: the details are optional; a missing required answer is asked in the chat', async () => {
     const buyer = phone(), seller = phone();
     await h.say(buyer, 'hi', 'Ada Obi');
     await submitForm(buyer, { item: 'Rice, 50kg', category: 'food', price: '45000', address: 'Rumuola, Port Harcourt', other_phone: seller, arrive_by: '2026-10-12', photos: [{ id: 'p1' }] });
-    expect(h.last(buyer)).toMatch(/Describe it/); // description missing
-    await h.say(buyer, 'Mama Gold, sealed');
-    expect(h.last(buyer)).toMatch(/Check your order/);
+    expect(h.last(buyer)).toMatch(/Check your order/); // no details: fine
+    expect(h.last(buyer)).not.toMatch(/Describe it/);
     expect(h.last(buyer)).toMatch(/Expected by \*Mon 12 Oct\*/);
   });
 
@@ -319,8 +322,7 @@ describe('buyer side, edges', () => {
     await submitForm(buyer, { item: 'Laptop', description: 'HP, 16GB', category: 'electronics', price: '900000', address: 'GRA, Port Harcourt', other_phone: '08031112222', photos: [{ id: 'l1' }] });
     expect(h.last(buyer)).toMatch(/up to \*₦50,000\*/);
     await h.say(buyer, '45000');
-    expect(h.last(buyer)).toMatch(/When are you expecting it/); // no date came with the form: asked too
-    await h.tap(buyer, 'bdate:7');
+    expect(h.last(buyer)).not.toMatch(/When are you expecting it/); // the date is optional in the form
     expect(h.last(buyer)).toMatch(/Check your order/);
     expect(h.last(buyer)).toMatch(/Total price  ₦45,000/);
   });

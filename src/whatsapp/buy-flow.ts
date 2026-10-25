@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * THE BUYER'S AND SELLER'S FORMS (WhatsApp Flows). The same three screens for both sides, mirrored:
- *   1. ITEM:     banner, item name, description, category, total price (delivery included)
- *   2. DELIVERY: buyer: delivery address, when they expect it, the seller's WhatsApp
- *                seller: the buyer's address (optional: the buyer adds or changes it when accepting), ready by, the buyer's WhatsApp
+ *   1. ITEM:     the picture (first time: "Hoolam holds your money" in three steps; after that the banner), item name,
+ *                details (optional), category, total price (delivery included)
+ *   2. DELIVERY: buyer: delivery address, when they expect it (optional), the seller's WhatsApp
+ *                seller: the buyer's address (optional: the buyer adds or changes it when accepting), ready by (optional), the buyer's WhatsApp
  *   3. PHOTOS:   1 to 3 photos (gallery or camera), then "Review my order"
  * WhatsApp shows it in its own style; our branding is the banner image and the words.
- * Static form: no server endpoint. The answers arrive in the webhook when they tap "Review my order".
+ * Every screen ends with a short trust line. Static form: no server endpoint. The answers arrive in the webhook when they
+ * tap "Review my order"; the order to check (with the fee and the real total) opens next, before Send.
  *
  * Changing anything here creates a new form on Meta automatically (the name includes a hash of this JSON).
  */
@@ -24,7 +26,8 @@ export type Side = 'buy' | 'sell';
  * `edit`: the same form filled in with their answers (opened from "Edit order"); photos are optional there,
  * because the ones they already added are kept unless they add new ones.
  */
-function orderFormJson(bannerBase64: string, edit = false, side: Side = 'buy') {
+function orderFormJson(bannerBase64: string, edit = false, side: Side = 'buy', startPicture: string | null = null) {
+  const startBase64 = edit ? null : startPicture ?? bannerBase64; // the first screen always takes `first` (the message sends it)
   const sell = side === 'sell';
   const ex = (v: string) => ({ type: 'string', __example__: v });
   const itemData = { item: ex('Nike Air Force 1'), description: ex('White, size 43, new in box'), category: ex('shoes'), price: ex('45000') };
@@ -40,19 +43,25 @@ function orderFormJson(bannerBase64: string, edit = false, side: Side = 'buy') {
       {
         id: 'ITEM',
         title: edit ? 'Edit your order' : sell ? 'Sell safely' : 'Buy safely',
-        data: edit ? photosData : {},
+        // first time: "Hoolam holds your money" in three steps instead of the banner (the message says which)
+        data: edit ? photosData : startBase64 ? { first: { type: 'boolean', __example__: true } } : {},
         layout: {
           type: 'SingleColumnLayout',
           children: [
-            { type: 'Image', src: bannerBase64, height: 120, 'scale-type': 'cover', 'alt-text': 'Hoolam: paid safely, or not at all' },
+            startBase64 && !edit
+              ? { type: 'If', condition: '${data.first}',
+                  then: [{ type: 'Image', src: startBase64, height: 150, 'scale-type': 'contain', 'alt-text': 'You pay Hoolam, Hoolam holds it, the seller is paid when you\'re happy' }],
+                  else: [{ type: 'Image', src: bannerBase64, height: 120, 'scale-type': 'cover', 'alt-text': 'Hoolam: paid safely, or not at all' }] }
+              : { type: 'Image', src: bannerBase64, height: 120, 'scale-type': 'cover', 'alt-text': 'Hoolam: paid safely, or not at all' },
             {
               type: 'Form', name: 'form',
               children: [
                 { type: 'TextSubheading', text: edit ? 'Change what you need' : sell ? 'What are you selling?' : 'What are you buying?' },
                 { type: 'TextInput', name: 'item', label: 'Item name', 'input-type': 'text', required: true, 'max-chars': 80, 'helper-text': 'e.g. Nike Air Force 1', ...init('item') },
-                { type: 'TextArea', name: 'description', label: 'Description', required: true, 'max-length': 600, 'helper-text': 'Size, colour, model, condition', ...init('description') },
+                { type: 'TextArea', name: 'description', label: 'Details (optional)', required: false, 'max-length': 600, 'helper-text': 'Size, colour, model, condition', ...init('description') },
                 { type: 'Dropdown', name: 'category', label: 'Category', required: true, 'data-source': CATEGORIES.map((c) => ({ id: c.id, title: c.title })), ...init('category') },
                 { type: 'TextInput', name: 'price', label: 'Total price (₦)', 'input-type': 'text', required: true, 'max-chars': 20, 'helper-text': sell ? 'Delivery included, if any. e.g. 15000 or 15k' : 'The agreed price, delivery included if any. e.g. 15000 or 15k', ...init('price') },
+                { type: 'TextCaption', text: sell ? '🔒 The buyer pays Hoolam, not you directly. You\'re paid once they\'re happy.' : '🔒 Nothing is paid yet. You pay Hoolam after the seller accepts, never the seller.' },
                 {
                   type: 'Footer', label: 'Continue',
                   'on-click-action': { name: 'navigate', next: { type: 'screen', name: 'DELIVERY' }, payload: { ...carry(Object.keys(itemData), 'form'), ...(edit ? carry([...Object.keys(later), 'photo_note'], 'data') : {}) } },
@@ -76,8 +85,9 @@ function orderFormJson(bannerBase64: string, edit = false, side: Side = 'buy') {
                 sell
                   ? { type: 'TextArea', name: 'address', label: 'Buyer\'s delivery address', required: false, 'max-length': 300, 'helper-text': 'If you know it. The buyer can add or change it', ...init('address') }
                   : { type: 'TextArea', name: 'address', label: 'Delivery address', required: true, 'max-length': 300, 'helper-text': 'Street, area and city', ...init('address') },
-                { type: 'DatePicker', name: 'arrive_by', label: sell ? 'Ready by' : 'When are you expecting it?', required: true, ...(sell ? { 'helper-text': 'When it can be sent or picked up' } : {}), ...init('arrive_by') },
+                { type: 'DatePicker', name: 'arrive_by', label: sell ? 'Ready by (optional)' : 'Expected by (optional)', required: false, 'helper-text': sell ? 'When it can be sent or picked up' : 'We remind the seller if it\'s late', ...init('arrive_by') },
                 { type: 'TextInput', name: 'other_phone', label: sell ? 'Buyer\'s WhatsApp' : 'Seller\'s WhatsApp', 'input-type': 'phone', required: true, 'helper-text': 'We\'ll send them your order', ...init('other_phone') },
+                { type: 'TextCaption', text: '🛡️ Hoolam only messages them about this order, from Hoolam\'s one WhatsApp number.' },
                 {
                   type: 'Footer', label: 'Continue',
                   'on-click-action': {
@@ -120,9 +130,9 @@ function orderFormJson(bannerBase64: string, edit = false, side: Side = 'buy') {
 }
 
 const banner = () => readFileSync(BANNER).toString('base64');
-export function buyFlowJson(bannerBase64 = banner()) { return orderFormJson(bannerBase64); }
+export function buyFlowJson(bannerBase64 = banner(), startBase64: string | null = null) { return orderFormJson(bannerBase64, false, 'buy', startBase64); }
 export function buyEditFlowJson(bannerBase64 = banner()) { return orderFormJson(bannerBase64, true); }
-export function sellFlowJson(bannerBase64 = banner()) { return orderFormJson(bannerBase64, false, 'sell'); }
+export function sellFlowJson(bannerBase64 = banner(), startBase64: string | null = null) { return orderFormJson(bannerBase64, false, 'sell', startBase64); }
 export function sellEditFlowJson(bannerBase64 = banner()) { return orderFormJson(bannerBase64, true, 'sell'); }
 
 /** The form's name on Meta. Changes whenever the form changes, because published forms can't be edited. */

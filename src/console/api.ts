@@ -981,6 +981,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         await act(req, { action: 'chat_media.upload', targetType: 'chat_media', targetId: slot, details: { file: name, bytes: req.body.length } },
           async () => { try { await art.put(slot, req.body as Buffer, String(req.headers['content-type'] ?? ''), name, req.staff!.id); } catch (e) { throw e instanceof ChatArtError ? new HttpError(400, e.message) : e; } });
         d.siteSync.changed(); // the website shows some of these pictures and voice notes
+        if (slot.startsWith('form-')) void d.retryForms?.().catch(() => {}); // the forms carry their pictures: send them to Meta again
         return { ok: true, items: await art.list() };
       });
       api.delete('/chat-media/:slot', async (req) => {
@@ -988,6 +989,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         const { slot } = req.params as { slot: string };
         await act(req, { action: 'chat_media.remove', targetType: 'chat_media', targetId: slot }, () => art.remove(slot));
         d.siteSync.changed();
+        if (slot.startsWith('form-')) void d.retryForms?.().catch(() => {});
         return { ok: true, items: await art.list() };
       });
     }

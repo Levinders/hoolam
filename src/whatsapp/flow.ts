@@ -102,7 +102,7 @@ export interface FlowOptions {
  */
 interface BuyDraft {
   side?: Side;                                         // 'buy' (default) or 'sell'
-  item?: string; description?: string; category?: string; priceMinor?: number; // price = the total, delivery included
+  item?: string; description?: string | null; category?: string; priceMinor?: number; // price = the total, delivery included
   address?: string | null;                             // seller: null = the buyer adds it
   addressPin?: string | null;                          // "lat,lng" when the address came from a shared location
   arriveBy?: string | null;                            // buyer: expected by; seller: ready by
@@ -1024,7 +1024,7 @@ export class Conversation {
     const form = this.o.sellForm?.() ?? null;
     if (form) {
       await this.save(phone, 'BUY_FORM', { side: 'sell' });
-      const status = await this.send(phone, msg.sellForm(form.flowId, form.mode));
+      const status = await this.send(phone, msg.sellForm(form.flowId, form.mode, await this.neverOrdered(phone)));
       if (status !== 'FAILED') return;
       await this.o.onFormRefused?.('sell', phone);
     }
@@ -1229,12 +1229,18 @@ export class Conversation {
     }
   }
 
+  /** No order yet, on either side: the form opens with "Hoolam holds your money" in three steps. */
+  private async neverOrdered(phone: string): Promise<boolean> {
+    const r = await this.o.db.query(`SELECT 1 FROM deals d JOIN users u ON u.id IN (d.buyer_id, d.seller_id) WHERE u.phone=$1 LIMIT 1`, [phone]).catch(() => null);
+    return !!r && !r.rowCount;
+  }
+
   // ===== A NEW ORDER (Buy something, and its mirror Sell something) =====
   private async startBuying(phone: string) {
     const form = this.o.buyForm?.() ?? null;
     if (form) {
       await this.save(phone, 'BUY_FORM', { side: 'buy' });
-      const status = await this.send(phone, msg.buyForm(form.flowId, form.mode));
+      const status = await this.send(phone, msg.buyForm(form.flowId, form.mode, await this.neverOrdered(phone)));
       if (status !== 'FAILED') return;
       await this.o.onFormRefused?.('buy', phone);
     }
@@ -1248,7 +1254,7 @@ export class Conversation {
     const photos = f.photos.length ? f.photos : keptPhotos ?? [];
     const d: BuyDraft = { side, photos, photosDone: photos.length > 0, arriveBy: f.arriveBy };
     if (f.item) d.item = f.item.slice(0, 200);
-    if (f.description) d.description = f.description.slice(0, 600);
+    d.description = f.description ? f.description.slice(0, 600) : null; // optional in the form
     if (isCategory(f.category)) d.category = f.category;
     const major = f.price ? parseAmount(f.price) : null;
     const priceMinor = major ? toMinor(major, this.o.currency) : 0;
@@ -1276,7 +1282,7 @@ export class Conversation {
     const ask = async (state: State, m: Outbound) => { await this.save(phone, state, d as Record<string, any>); return this.send(phone, m); };
     const sell = d.side === 'sell';
     if (!d.item) return ask('BUY_ITEM', sell ? msg.askItem() : msg.askBuyItem());
-    if (!d.description) return ask('BUY_DESC', msg.askBuyDescription());
+    if (d.description === undefined) return ask('BUY_DESC', msg.askBuyDescription()); // the form may leave it empty
     if (!d.category) return ask('BUY_CATEGORY', msg.askCategory());
     if (!d.priceMinor) return ask('BUY_PRICE', sell ? msg.askPrice() : msg.askBuyPrice());
     const me = await this.userByPhone(phone);
@@ -1286,7 +1292,7 @@ export class Conversation {
       if (lim === 'too-big') { const { priceMinor: _p, ...rest } = d; d = rest; return ask('BUY_PRICE', msg.priceTooHigh({ minor: this.o.deals.reachFor(me), currency: this.o.currency })); }
     }
     if (sell ? d.address === undefined : !d.address) return ask('BUY_ADDRESS', sell ? msg.askSellAddress() : msg.askDeliveryAddress());
-    if (!d.arriveBy) return ask('BUY_DATE', sell ? msg.askReadyBy() : msg.askArriveBy());
+    if (d.arriveBy === undefined) return ask('BUY_DATE', sell ? msg.askReadyBy() : msg.askArriveBy());
     if (!d.photosDone) return ask('BUY_PHOTOS', sell ? msg.askSellPhotos() : msg.askBuyPhotos());
     if (!d.otherPhone) return ask('BUY_SELLER', sell ? msg.askBuyerPhone() : msg.askSellerPhone());
     if (sell && !d.accountId) {
@@ -1362,7 +1368,7 @@ export class Conversation {
   }
 
   /** The order someone is checking, for the review form. Null when there's nothing waiting to be sent. */
-  async buyPreview(phone: string): Promise<{ side: Side; item: string; about: string; key: string; info: string; warn: string; photos: string[] } | null> {
+  async buyPreview(phone: string): Promise<{ side: Side; item: string; about: string; key: string; info: string; warn: string; photos: string[]; card: { lines: { icon: string; text: string }[]; big: { label: string; value: string }; note: string } } | null> {
     const r = await this.o.db.query('SELECT state, data FROM chat_sessions WHERE phone=$1', [phone]);
     const d = (r.rows[0]?.data ?? {}) as BuyDraft;
     if (r.rows[0]?.state !== 'BUY_CONFIRM' || !d.item || !d.priceMinor) return null;
@@ -1384,18 +1390,32 @@ export class Conversation {
         ].filter(Boolean).join('\n'),
         info: `Minus the rider's fee, if you send one.${acct ? `\n🏦 Paid into ${acct.bank_name} ••••${String(acct.account_number).slice(-4)}` : ''}\n🛡️ You started the order, so you pay Hoolam's fee. The buyer pays a small transaction fee.`,
         warn: 'Nothing is paid yet. The buyer accepts, then pays Hoolam.',
+        card: {
+          lines: [{ icon: 'user', text: `Buyer: ${localPhone(d.otherPhone ?? '')}` }, { icon: 'banknote', text: `Price ${formatMoney(q.priceMinor, c)} · fee ${formatMoney(q.priceMinor - q.sellerGetsMinor, c)}` }],
+          big: { label: 'You receive', value: formatMoney(q.sellerGetsMinor, c) },
+          note: 'The buyer pays Hoolam first. You\'re paid once they\'re happy.',
+        },
       };
     }
+    // what the buyer pays at today's price (the seller can still change the price when they accept)
+    const qb = this.o.deals.previewDeal(d.priceMinor, 'buyer', Number.MAX_SAFE_INTEGER);
     return {
       side: 'buy', item: d.item, about, photos,
       key: [
         `💰 Total price ${formatMoney(d.priceMinor, c)}`,
+        `🧾 Hoolam fee ${formatMoney(qb.buyerPaysMinor - qb.priceMinor, c)}`,
+        `💳 You pay ${formatMoney(qb.buyerPaysMinor, c)}, after the seller accepts`,
         d.address ? `📍 Deliver to: ${d.address}` : '',
         d.arriveBy ? `📅 Expected by ${dayText(d.arriveBy)}` : '',
         `📨 Seller's WhatsApp: ${localPhone(d.otherPhone ?? '')}`,
       ].filter(Boolean).join('\n'),
-      info: `Delivery is included in the total, if any.\n🧾 Hoolam's fee is added when the seller accepts: ${this.feeRuleText()}.`,
-      warn: 'Nothing to pay yet. You pay after the seller accepts.',
+      info: 'Delivery is included in the total, if any. If the seller changes the price, you see the new total before you pay.',
+      warn: 'Nothing is paid yet. You pay after the seller accepts.',
+      card: {
+        lines: [{ icon: 'store', text: `Seller: ${localPhone(d.otherPhone ?? '')}` }, ...(d.address ? [{ icon: 'mapPin', text: d.address }] : [])],
+        big: { label: 'You pay, after they accept', value: formatMoney(qb.buyerPaysMinor, c) },
+        note: `Price ${formatMoney(d.priceMinor, c)} + Hoolam fee ${formatMoney(qb.buyerPaysMinor - qb.priceMinor, c)}. Nothing is paid yet.`,
+      },
     };
   }
 

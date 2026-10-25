@@ -307,14 +307,14 @@ describe('proof of shipping', () => {
 });
 
 describe('pieces', () => {
-  it('the seller form mirrors the buyer\'s: the address is optional, ready by and the buyer\'s number are required', () => {
+  it('the seller form mirrors the buyer\'s: the address and ready by are optional, the buyer\'s number is required', () => {
     const json = sellFlowJson('aGVsbG8=') as any;
     expect(json.screens.map((x: any) => x.id)).toEqual(['ITEM', 'DELIVERY', 'PHOTOS']);
     expect(json.screens[0].title).toBe('Sell safely');
     const delivery = json.screens[1].layout.children[0].children;
     const field = (name: string) => delivery.find((c: any) => c.name === name);
     expect(field('address').required).toBe(false);
-    expect(field('arrive_by')).toMatchObject({ type: 'DatePicker', label: 'Ready by', required: true });
+    expect(field('arrive_by')).toMatchObject({ type: 'DatePicker', label: 'Ready by (optional)', required: false });
     expect(field('other_phone')).toMatchObject({ label: 'Buyer\'s WhatsApp', required: true });
     expect(json.screens[2].data.price.type).toBe('string');
     expect(sellFlowName(json)).toMatch(/^hoolam_sell_/);

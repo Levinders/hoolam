@@ -434,13 +434,13 @@ export const msg = {
 
   // ===== BUYER STARTS A DEAL =====
   /** The button that opens the WhatsApp form. */
-  buyForm: (flowId: string, mode: 'draft' | 'published'): Outbound => ({
+  buyForm: (flowId: string, mode: 'draft' | 'published', first = false): Outbound => ({
     kind: 'form',
     header: '🛒 Buy safely',
     text: 'Tell us what you\'re buying. It takes a minute.\n\n💡 You only pay after the seller accepts, and your money stays with Hoolam until you\'re happy.',
     footer: 'Prefer typing? Just send the item name.',
     cta: 'Start my order',
-    flowId, flowToken: 'buy:v1', screen: 'ITEM', mode,
+    flowId, flowToken: 'buy:v1', screen: 'ITEM', mode, data: { first },
   }),
   // chat version, for phones or accounts where the form isn't available
   askBuyItem: (): Outbound => ({ kind: 'text', text: '🛒 What are you buying?\n\nFor example: _Black sneakers, size 42_\n\n💡 You only pay after the seller accepts.' }),
@@ -668,13 +668,13 @@ export const msg = {
     buttons: [{ id: 'bank:yes', title: 'Yes, that\'s me' }, { id: 'bank:no', title: 'No, change it' }],
   }),
   /** The seller's form (a mirror of the buyer's). */
-  sellForm: (flowId: string, mode: 'draft' | 'published'): Outbound => ({
+  sellForm: (flowId: string, mode: 'draft' | 'published', first = false): Outbound => ({
     kind: 'form',
     header: '🏷️ Sell safely',
     text: 'Tell us what you\'re selling. It takes a minute.\n\n💡 The buyer pays Hoolam first, and we pay you when they\'re happy.',
     footer: 'Prefer typing? Just send the item name.',
     cta: 'Start my order',
-    flowId, flowToken: 'sell:v2', screen: 'ITEM', mode,
+    flowId, flowToken: 'sell:v2', screen: 'ITEM', mode, data: { first },
   }),
   sellEditForm: (flowId: string, mode: 'draft' | 'published', data: Record<string, string>): Outbound => ({
     kind: 'form',
@@ -1105,7 +1105,7 @@ export const msg = {
     text: `${kycWhyText(why, limits)}\n\n🔒 We store only the result, never your BVN or NIN.${test ? '\n\n_TEST MODE: any 11 digits pass. 00000000000 is not found._' : ''}`,
     footer: 'Prefer typing? Reply BVN or NIN.',
     cta: 'Check my ID',
-    flowId, flowToken: 'kyc:v1', screen: 'ID', mode,
+    flowId, flowToken: 'kyc:v1', screen: 'WHY', mode,
   }),
   kycAskDob: (method: 'BVN' | 'NIN'): Outbound => ({ kind: 'text', text: `📅 What's your *date of birth*, as it is on your ${method}?\n\nFor example: _25/12/1995_` }),
   kycBadDob: (): Outbound => ({ kind: 'text', text: 'Please type your date of birth like this: _25/12/1995_ (day, month, year).' }),

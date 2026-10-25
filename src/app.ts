@@ -7,6 +7,8 @@ import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
 import { FakeKycChecker, KycService, NoKycChecker, PremblyChecker, type KycChecker } from './kyc.js';
+import { buyFlowJson, sellFlowJson } from './whatsapp/buy-flow.js';
+import { kycFlowJson } from './whatsapp/kyc-flow.js';
 import { ALL_TEMPLATES, ensureAmbApplyFlow, ensureAmbDetailsFlow, ensureSignInTemplate, SIGN_IN_CODE, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
@@ -116,7 +118,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     await db.query(`INSERT INTO chat_sessions (phone, state, data) VALUES ($1,$2,$3) ON CONFLICT (phone) DO UPDATE SET state=$2, data=$3, updated_at=now()`, [phone, state, JSON.stringify(data)]);
   };
   const orders = new OrdersFlow({
-    db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log, media,
+    db, deals, provider, currency: c.CURRENCY, secret: formSecret, setChatState, log, media, art: chatArt,
     // the buyer's order before it's sent: read from the chat, and Send / Edit / Start again work exactly like the chat buttons
     buyPreview: (phone) => chat.buyPreview(phone),
     buyAction: (phone, action, side) => chat.handle({ id: `form-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: `${side}:${action}`, mediaId: null }),
@@ -739,11 +741,14 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       // reworded templates: keep using the earlier approved version until Meta approves the new wording
       await refreshTemplates();
       if (c.WHATSAPP_BUY_FORM) {
-        await ensureBuyFlow(into('buy'));
+        // the forms carry their pictures (Console → Chat pictures → Form: …); a new picture makes a new form version
+        const start = await chatArt.formImage({ picture: 'form-start' }, 900);
+        const why = await chatArt.formImage({ picture: 'form-id' }, 900);
+        await ensureBuyFlow(into('buy'), buyFlowJson(undefined, start));
         await ensureBuyEditFlow(into('buyEdit'));
-        await ensureSellFlow(into('sell'));
+        await ensureSellFlow(into('sell'), sellFlowJson(undefined, start));
         await ensureSellEditFlow(into('sellEdit'));
-        await ensureKycFlow(into('kyc'));
+        await ensureKycFlow(into('kyc'), kycFlowJson(why));
         await ensureAmbApplyFlow(into('ambApply'));
       } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'ambApply'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
       if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {

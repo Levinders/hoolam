@@ -30,6 +30,9 @@ export const SLOTS: Slot[] = [
   { id: 'photo-tips', kind: 'picture', title: 'Good vs poor photo', when: 'Asking a seller or ambassador for their photo', size: '1600 × 900' },
   { id: 'real-hoolam', kind: 'picture', title: 'This is really Hoolam', when: 'Someone\'s first message, with "Save Hoolam"', size: '1080 × 1080' },
   { id: 'rider', kind: 'picture', title: 'Rider delivery', when: 'The delivery message to a rider or driver', size: '1600 × 900' },
+  // ----- pictures inside the WhatsApp forms (small and light; changing one sends the forms to Meta again) -----
+  { id: 'form-start', kind: 'picture', title: 'Form: Hoolam holds your money', when: 'The first screen of the Buy and Sell forms, the first time someone opens one', size: '1600 × 600' },
+  { id: 'form-id', kind: 'picture', title: 'Form: why we check your ID', when: 'The first screen of the ID check form', size: '1600 × 900' },
   { id: 'amb-intro', kind: 'picture', title: 'Become an ambassador', when: 'The ambassador intro (shows the live shares)', size: '1600 × 900' },
 
   // ----- live cards -----
@@ -44,6 +47,8 @@ export const SLOTS: Slot[] = [
   { id: 'card-trust-status', kind: 'card', title: 'Trust card for status', when: 'A seller shares their page (9:16 for WhatsApp status)', size: '1080 × 1920' },
   { id: 'card-complete', kind: 'card', title: 'Order complete', when: 'The buyer taps I\'m happy', size: '1080 × 1080' },
   { id: 'card-fees', kind: 'card', title: 'Fees', when: 'Fees (from the menu)', size: '1080 × 1080' },
+  { id: 'card-form-check', kind: 'card', title: 'Form: check your order', when: 'The last screen before Send in the Buy and Sell forms (the real total, or what the seller receives)', size: '1600 × 900' },
+  { id: 'card-form-status', kind: 'card', title: 'Form: order status', when: 'One order in My orders: where the money is, with the real amount', size: '1600 × 900' },
   { id: 'card-amb-month', kind: 'card', title: 'Ambassador month', when: 'An ambassador\'s month summary', size: '1080 × 1350' },
   { id: 'card-amb-welcome', kind: 'card', title: 'Ambassador welcome', when: 'An ambassador goes live', size: '1080 × 1080' },
 

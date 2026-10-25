@@ -161,6 +161,10 @@ describe('my orders, in the form', () => {
     expect(order.screen).toBe('ORDER');
     expect(order.data).toMatchObject({ primary: 'dispatch', primary_label: 'Dispatch now', secondary: 'cantfulfil', has_secondary: true, tertiary: 'receipts', has_tertiary: true }); // paid: the receipt link takes the free slot
     expect(order.data.has_photo3).toBe(true); // the receipt, in the third picture slot
+    expect(order.data.has_photo1).toBe(true); // one picture: where the money is, with the real amount
+    expect(order.data.photo1.startsWith('/9j/')).toBe(true); // a small JPEG
+    expect(Buffer.from(order.data.photo1, 'base64').length).toBeLessThan(200_000);
+    expect(order.data.has_photo2).toBe(false);
     expect(order.data.key).toMatch(/💰 Total price ₦20,000\n🧾 Transaction fee −₦500\n💸 You receive ₦19,500/);
 
     expect((await call(t, 'data_exchange', { action: 'dispatch', code })).screen).toBe('DISPATCH');
@@ -411,6 +415,10 @@ describe('the buyer checks their order before it goes to the seller', () => {
     expect(r.data.about).toMatch(/Bone straight, 22 inches/);
     expect(r.data.key).toMatch(/💰 Total price ₦30,000/);
     expect(r.data.key).toMatch(/📍 Deliver to: GRA/);
+    expect(r.data.key).toMatch(/🧾 Hoolam fee ₦\d[\d,]*\n💳 You pay ₦[\d,]+, after the seller accepts/); // the fee before Send
+    expect(r.data.warn).toBe('Nothing is paid yet. You pay after the seller accepts.');
+    expect(r.data.has_photo1).toBe(true); // one picture: the order with its real total
+    expect(r.data.has_photo2).toBe(false);
     expect(r.data.key).toContain(`Seller's WhatsApp: ${seller.replace('+234', '0')}`); // as people write it, no country code
     const sent = await call(t, 'data_exchange', { op: 'bsend', code: 'preview' });
     expect(sent.data.title).toBe('📨 Sent to the seller');

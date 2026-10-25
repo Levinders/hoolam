@@ -41,6 +41,12 @@ export const ART = {
   fees: (rows: { price: string; hoolam: string; txn: string }[]): Art => ({ card: 'fees', data: { rows } }),
   ambMonth: (d: { name: string; month: string; amount: string; bars: { label: string; value: number }[]; people: number; activeSellers: number }): Art => ({ card: 'ambMonth', data: { ...d } }),
   ambWelcome: (name: string, link: string | null): Art => ({ card: 'ambWelcome', data: { name, link } }),
+  /** The order before Send, inside the form: the photo, what to check, the real total (or what the seller receives). */
+  formCheck: (d: { side: 'buyer' | 'seller'; item: string; lines: { icon: string; text: string }[]; big: { label: string; value: string }; note: string; photo?: Buffer | null }): Art =>
+    ({ card: 'formCheck', data: { side: d.side, code: null, title: 'Check your order', item: d.item, lines: d.lines, big: d.big, note: d.note, photoBytes: d.photo ?? null } }),
+  /** One order in My orders: where the money is, with the real amount. */
+  formStatus: (d: { step: number; title: string; item: string; code: string; amountLabel: string; amount: string; money: string; tone?: 'teal' | 'gold' | 'green' | 'red'; photo?: Buffer | null; dealId?: string | null }): Art =>
+    ({ card: 'formStatus', data: { step: d.step, title: d.title, item: d.item, code: d.code, amountLabel: d.amountLabel, amount: d.amount, money: d.money, tone: d.tone ?? 'teal', photoBytes: d.photo ?? null, photoDeal: d.dealId ?? null } }),
   ambShare: (firstName: string, link: string, area: string | null, userId: string): Art => ({ card: 'ambShare', data: { firstName, link, area, photoAmb: userId } }),
 };
 

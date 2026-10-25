@@ -13,15 +13,15 @@ import { ACCEPT, MAX_BYTES, slot as slotOf, SLOTS, type Slot } from './slots.js'
  * Messages ask for art by name (`{ card: 'moneyHeld', data }`, `{ picture: 'how-it-works' }`); the Messenger turns
  * that into a picture on top of the message just before it goes. In dry run (tests, no WhatsApp) nothing is drawn.
  */
-export type CardName = 'moneyHeld' | 'payment' | 'handover' | 'paid' | 'refund' | 'frozen' | 'summary' | 'trust' | 'trustStatus' | 'complete' | 'fees' | 'ambMonth' | 'ambWelcome' | 'ambShare';
-export type PhotoRef = { photoDeal?: string | null; photoUser?: string | null; photoAmb?: string | null };
+export type CardName = 'moneyHeld' | 'payment' | 'handover' | 'paid' | 'refund' | 'frozen' | 'summary' | 'trust' | 'trustStatus' | 'complete' | 'fees' | 'ambMonth' | 'ambWelcome' | 'ambShare' | 'formCheck' | 'formStatus';
+export type PhotoRef = { photoDeal?: string | null; photoUser?: string | null; photoAmb?: string | null; photoBytes?: Buffer | null };
 export type Art = { card: CardName; data: Record<string, unknown> & PhotoRef } | { picture: string };
 export interface Clip { slot: string; once?: boolean }
 
 const CARD_SLOT: Partial<Record<CardName, string>> = { // the ambassador share card has its own design (their link page's picture)
   moneyHeld: 'card-money-held', payment: 'card-payment', handover: 'card-handover', paid: 'card-paid', refund: 'card-refund',
   frozen: 'card-frozen', summary: 'card-summary', trust: 'card-trust', trustStatus: 'card-trust-status', complete: 'card-complete',
-  fees: 'card-fees', ambMonth: 'card-amb-month', ambWelcome: 'card-amb-welcome',
+  fees: 'card-fees', ambMonth: 'card-amb-month', ambWelcome: 'card-amb-welcome', formCheck: 'card-form-check', formStatus: 'card-form-status',
 };
 const STICKER_SLOT = { held: 'sticker-held', paid: 'sticker-paid', welldone: 'sticker-welldone', thanks: 'sticker-thanks', verified: 'sticker-verified' } as const;
 export type StickerName = keyof typeof STICKER_SLOT;
@@ -43,6 +43,8 @@ const SAMPLE: Record<CardName, Record<string, unknown>> = {
   ambMonth: { name: 'Tobi', month: 'October', amount: '₦8,200', bars: [{ label: 'May', value: 1200 }, { label: 'Jun', value: 2400 }, { label: 'Jul', value: 1800 }, { label: 'Aug', value: 4100 }, { label: 'Sep', value: 6000 }, { label: 'Oct', value: 8200 }], people: 14, activeSellers: 5 },
   ambWelcome: { name: 'Tobi', link: 'hoolam.com/a/tobi' },
   ambShare: { firstName: 'Tobi', link: 'hoolam.com/a/tobi', area: 'UNILAG' },
+  formCheck: { side: 'buyer', title: 'Check your order', item: 'Brazilian wig, 18 inch', lines: [{ icon: 'store', text: 'Seller: 0803 123 4567' }, { icon: 'mapPin', text: '12 Woji Road, Port Harcourt' }], big: { label: 'You pay after they accept', value: '₦15,400' }, note: 'Nothing is paid yet. You pay after the seller accepts.' },
+  formStatus: { step: 3, title: 'Money held', item: 'Brazilian wig, 18 inch', code: 'HL-7K2QF', amountLabel: 'You paid', amount: '₦15,400', money: 'Held safely by Hoolam' },
 };
 
 export interface ChatArtOptions {
@@ -92,7 +94,8 @@ export class ChatArt {
     const st = /^status-([1-6])$/.exec(id);
     const b = st ? await K.status(Number(st[1]))
       : id === 'how-it-works' ? await K.howItWorks()
-      : id === 'id-check' ? await K.idCheck()
+      : id === 'id-check' || id === 'form-id' ? await K.idCheck()
+      : id === 'form-start' ? await K.formStart()
       : id === 'code-where' ? await K.codeWhere()
       : id === 'sample-trust' ? await K.trustCard({ name: 'Bayo Kicks', city: 'Lagos', since: 'Jan 2026', verified: true, isNew: false, completed: 120, happyPct: 98, rated: 80, ships: 'In 1 day', sample: true })
       : id === 'photo-tips' ? await K.photoTips()
@@ -109,8 +112,8 @@ export class ChatArt {
   private async card(name: CardName, data: Record<string, unknown> & PhotoRef): Promise<Buffer> {
     await refreshMark(); // the uploaded logo icon (or the drawn mark)
     const bg = CARD_SLOT[name] ? (await this.override(CARD_SLOT[name]!))?.bytes ?? null : null;
-    const photo = data.photoDeal || data.photoUser || data.photoAmb ? await this.photo(data) : null;
-    const d = { ...data, photo } as any;
+    const photo = data.photoBytes ?? (data.photoDeal || data.photoUser || data.photoAmb ? await this.photo(data) : null);
+    const d = { ...data, photoBytes: undefined, photo } as any;
     switch (name) {
       case 'moneyHeld': return K.moneyHeld(d, bg);
       case 'payment': return K.payment(d, bg);
@@ -118,7 +121,8 @@ export class ChatArt {
       case 'paid': return K.paid(d, bg);
       case 'refund': return K.refund(d, bg);
       case 'frozen': return K.frozen(d, bg);
-      case 'summary': return K.summary(d, bg);
+      case 'summary': case 'formCheck': return K.summary(d, bg);
+      case 'formStatus': return K.orderStatus(d, bg);
       case 'trust': return K.trustCard(d, bg);
       case 'trustStatus': return K.trustStatus(d, bg);
       case 'complete': return K.complete(d, bg);
@@ -126,6 +130,27 @@ export class ChatArt {
       case 'ambMonth': return K.ambMonth(d, bg);
       case 'ambWelcome': return K.ambWelcome(d, bg);
       case 'ambShare': return ambassadorCard(`chat:${d.link}:${photo ? createHash('sha256').update(photo).digest('hex').slice(0, 12) : ''}`, { firstName: d.firstName, link: d.link, area: d.area, photo });
+    }
+  }
+
+  /**
+   * A picture for inside a WhatsApp form: small and light (forms carry their pictures inline, ~300 KB at most),
+   * as base64 JPEG. Null if it can't be drawn (the form then shows no picture).
+   */
+  async formImage(art: Art, width = 800): Promise<string | null> {
+    try {
+      const { bytes } = await this.render(art);
+      const key = 'f:' + createHash('sha256').update(bytes).digest('hex') + ':' + width;
+      const hit = this.drawn.get(key);
+      if (hit) return hit.toString('base64');
+      let out = await sharp(bytes).resize(width, null, { withoutEnlargement: true }).jpeg({ quality: 72, mozjpeg: true }).toBuffer();
+      if (out.length > 200_000) out = await sharp(bytes).resize(Math.round(width * 0.75), null).jpeg({ quality: 60, mozjpeg: true }).toBuffer();
+      if (this.drawn.size > 300) this.drawn.clear();
+      this.drawn.set(key, out);
+      return out.toString('base64');
+    } catch (e) {
+      this.o.log?.(`form picture ${'card' in art ? art.card : art.picture} failed: ${(e as Error).message}`);
+      return null;
     }
   }
 

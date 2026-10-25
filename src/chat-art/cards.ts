@@ -409,6 +409,53 @@ export async function idCheck(bg?: Bg): Promise<Buffer> {
   return compose({ w, h, bg }, drawn, s);
 }
 
+// ---------------------------------------------------------------------------------------------
+// pictures inside the WhatsApp forms: small and light (they're sent inside the form), one per screen
+
+const FORM = { w: 1600, h: 600 };
+/** The Buy / Sell form's first screen (first time only): you pay Hoolam → Hoolam holds it → the seller is paid when you're happy. */
+export async function formStart(bg?: Bg): Promise<Buffer> {
+  const { w, h } = FORM;
+  const drawn = `<rect width="${w}" height="${h}" fill="${C.paper}"/>`;
+  let s = text('Hoolam holds your money', w / 2, 116, 64, C.ink, { font: 'brand', align: 'center' });
+  const steps: [string, string, string, string][] = [
+    ['wallet', 'You pay Hoolam', C.mint, C.teal], ['shieldCheck', 'Hoolam holds it', C.gold, '#fff'], ['banknote', 'Seller paid when you\'re happy', C.greenSoft, C.greenDark],
+  ];
+  const gap = (w - 520) / 2;
+  steps.forEach(([ic, label, bgc, fg], i) => {
+    const cx = 260 + gap * i, cy = 330;
+    if (i < 2) s += `<line x1="${cx + 110}" y1="${cy}" x2="${cx + gap - 110}" y2="${cy}" stroke="${C.line}" stroke-width="6" stroke-dasharray="2 16" stroke-linecap="round"/>` + icon('arrowRight', cx + gap / 2 - 24, cy - 24, 48, C.gold, 2.6);
+    s += iconDisc(ic, cx, cy, 92, bgc, fg, 0.5, 2);
+    wrap(label, 38, 420, 'semi', 2).forEach((l, j) => { s += text(l, cx, cy + 160 + j * 46, 38, C.ink, { font: 'semi', align: 'center' }); });
+  });
+  return compose({ w, h, bg }, drawn, s);
+}
+
+export interface OrderStatus {
+  step: number; title: string; item: string; code?: string | null; amountLabel: string; amount: string; money: string; tone?: 'teal' | 'gold' | 'green' | 'red'; photo?: Buffer | null;
+}
+/** One order's status inside My orders: the item photo, where the money is, the step strip, the real amount. */
+export async function orderStatus(d: OrderStatus, bg?: Bg): Promise<Buffer> {
+  const { w, h } = WIDE;
+  const tone = d.tone === 'green' ? C.green : d.tone === 'red' ? C.red : C.teal;
+  const drawn = `<rect width="${w}" height="${h}" fill="${C.paper}"/>`;
+  const ps = 260, px = 70, py = 70;
+  let s = '';
+  if (!d.photo) s += `<rect x="${px}" y="${py}" width="${ps}" height="${ps}" rx="36" fill="${C.mint}"/>` + icon('package', px + ps / 2 - 70, py + ps / 2 - 70, 140, C.teal, 1.6);
+  const x = px + ps + 50, maxW = w - x - 70;
+  if (d.code) { const cw = width(d.code, 28, 'semi') + 44; s += `<rect x="${w - 70 - cw}" y="${py}" width="${cw}" height="58" rx="29" fill="${C.mint}"/>` + text(d.code, w - 70 - cw / 2, py + 39, 28, C.teal, { font: 'semi', align: 'center' }); }
+  s += text(clip(d.title, 66, maxW - 260, 'brand'), x, py + 120, 66, tone, { font: 'brand' });
+  s += text(clip(d.item, 38, maxW), x, py + 190, 38, C.soft);
+  s += pill(d.money, x, py + 240, 30, d.tone === 'red' ? '#FBE9E7' : d.step >= 3 && d.step <= 5 ? C.goldBg : d.step === 6 ? C.greenSoft : C.mint,
+    d.tone === 'red' ? C.red : d.step >= 3 && d.step <= 5 ? C.goldInk : d.step === 6 ? C.greenDark : C.teal, { font: 'bold', iconName: d.tone === 'red' ? 'pause' : d.step >= 3 ? 'shieldCheck' : 'clock', align: 'left' }).svg;
+  if (d.step >= 1) s += strip(170, 520, w - 340, d.step === 6 ? 7 : d.step, { on: d.step === 3 ? C.gold : tone, done: d.step === 6 ? C.green : C.teal, idle: C.line, label: C.soft, labelOn: C.ink, size: 30 });
+  s += `<rect x="70" y="${h - 200}" width="${w - 140}" height="140" rx="32" fill="${C.white}" stroke="${C.line}" stroke-width="3"/>`;
+  s += text(d.amountLabel, 120, h - 115, 36, C.soft, { font: 'semi' });
+  s += text(d.amount, w - 120, h - 100, fit(d.amount, 64, 700, 'brand'), C.ink, { font: 'brand', align: 'right' });
+  const layers: OverlayOptions[] = d.photo ? [{ input: await photoLayer(d.photo, ps, ps, 36), left: px, top: py }] : [];
+  return compose({ w, h, bg }, drawn, s, layers);
+}
+
 /** Where the order code is: a seller's message with the code circled. */
 export async function codeWhere(bg?: Bg): Promise<Buffer> {
   const { w, h } = WIDE;

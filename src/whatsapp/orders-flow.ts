@@ -11,6 +11,8 @@ import { bankChoices, matchBank } from './banks.js';
 import { normalizePhone } from './inbound.js';
 import { msg, STATUS_WORDS } from './messages.js';
 import { localPhone } from '../phone.js';
+import { ART, stepOf } from '../chat-art/build.js';
+import type { Art } from '../chat-art/index.js';
 
 /**
  * "MY ORDERS": a WhatsApp form that loads live data from our server (the encrypted endpoint in app.ts).
@@ -63,6 +65,13 @@ async function thumb(bytes: Buffer): Promise<string | null> {
   try { return (await sharp(bytes).rotate().resize(640, 640, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()).toString('base64'); }
   catch { return null; }
 }
+/** A coloured dot for an order's status in My orders: 🟡 waiting, 🔵 money held, 🟢 done, 🔴 problem, ⚪ closed. */
+export function statusDot(d: Pick<Deal, 'status'>): string {
+  return ({ AWAITING_SELLER: '🟡', AWAITING_BUYER: '🟡', AWAITING_PAYMENT: '🟡', FUNDED: '🔵', SHIPPED: '🔵', RELEASING: '🟢', PAYOUT_PENDING: '🟢', COMPLETED: '🟢',
+    DISPUTED: '🔴', REFUNDING: '🔵', REFUNDED: '🟢', CANCELLED: '⚪', EXPIRED: '⚪' } as Record<string, string>)[d.status] ?? '⚪';
+}
+const cap = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
+
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 /**
@@ -368,7 +377,7 @@ export interface OrdersFlowOptions {
   /** Puts a chat into a typed-answer state (e.g. the seller's bank account), so the chat carries on. */
   setChatState: (phone: string, state: string, data: Record<string, unknown>) => Promise<void>;
   /** A new order before it's sent (from the chat, either side), and the chat's Send / Edit / Start again. */
-  buyPreview?: (phone: string) => Promise<{ side: 'buy' | 'sell'; item: string; about: string; key: string; info: string; warn: string; photos: string[] } | null>;
+  buyPreview?: (phone: string) => Promise<{ side: 'buy' | 'sell'; item: string; about: string; key: string; info: string; warn: string; photos: string[]; card?: { lines: { icon: string; text: string }[]; big: { label: string; value: string }; note: string } } | null>;
   buyAction?: (phone: string, action: 'send' | 'edit' | 'restart', side: 'buy' | 'sell') => Promise<void>;
   /** Hoolam's WhatsApp number (from the console): the example number in hints, and refused as someone else's number. */
   hoolamNumber?: () => string;
@@ -380,6 +389,8 @@ export interface OrdersFlowOptions {
   startKyc?: (user: User, why: KycWhy, next: KycNext) => Promise<void>;
   /** Downloads photos people sent (for the buyer's preview). */
   media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
+  /** Draws the one picture on an order's screen (its status, or the order before Send) with the real amounts. */
+  art?: { formImage(art: Art): Promise<string | null> };
   log?: (line: string) => void;
 }
 
@@ -516,7 +527,7 @@ export class OrdersFlow {
       return {
         id: d.code,
         title: rowTitle(d.other_name, d.other_phone, mode, d.code, this.m(amount)),
-        description: `${d.item.slice(0, 60)}\n${next.needsYou ? '👉 ' + next.hint : STATUS_WORDS[d.status] ?? d.status}`.slice(0, 300),
+        description: `${d.item.slice(0, 60)}\n${next.needsYou ? '👉 ' + next.hint : `${statusDot(d)} ${cap(STATUS_WORDS[d.status] ?? d.status)}`}`.slice(0, 300),
       };
     });
     // switching filter happens right here (WhatsApp forms can't route back to the first screen)
@@ -611,7 +622,8 @@ export class OrdersFlow {
     // a seller's new order, for its buyer: they confirm or type the delivery address right here, then Accept
     const accepting = mode === 'buyer' && d.status === 'AWAITING_BUYER' && !d.legacy_ship;
     const dateLine = d.arrive_by ? `📅 ${d.started_by === 'SELLER' ? 'Ready by' : 'Expected by'} ${dayText(String(d.arrive_by))}` : '';
-    const photos = await this.thumbs(d.id);
+    const pic = await this.statusPicture(d, mode);
+    const photos = pic ? [] : await this.thumbs(d.id);
     const fee = Number(d.delivery_fee_minor);
     const countered = d.status === 'AWAITING_SELLER' && d.counter_price_minor;
     // bold: the money, where and when, codes. Plain: everything else.
@@ -664,9 +676,10 @@ export class OrdersFlow {
         hint: plain(override ? override.note : (nx.needsYou ? '👉 ' : '') + nx.hint).slice(0, 400) || ' ',
         warn: plain(override?.warn ?? (accepting ? (d.delivery_address ? 'Is the address right? Leave the box empty to use it, or type another.' : 'Type your delivery address in the box below, then accept.') : '')),
         has_warn: !!override?.warn || accepting,
-        // WhatsApp allows 3 pictures here: once money has moved, the newest receipt takes the third
-        photo1: photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: receipt ?? photos[2] ?? PIXEL,
-        has_photo1: !!photos[0], has_photo2: !!photos[1], has_photo3: !!(receipt ?? photos[2]),
+        // one picture: where the money is, with the real amount and the item photo (or, without it, the photos);
+        // once money has moved, the newest receipt goes below it
+        photo1: pic ?? photos[0] ?? PIXEL, photo2: photos[1] ?? PIXEL, photo3: receipt ?? photos[2] ?? PIXEL,
+        has_photo1: !!(pic ?? photos[0]), has_photo2: !!photos[1], has_photo3: !!(receipt ?? photos[2]),
         primary: p.primary, primary_label: p.label.slice(0, 35),
         secondary: nx.secondary ?? 'none', secondary_label: (nx.secondaryLabel ?? ' ').slice(0, 25), has_secondary: !override && !!nx.secondary,
         tertiary: nx.tertiary ?? 'none', tertiary_label: (nx.tertiaryLabel ?? ' ').slice(0, 25), has_tertiary: !override && !!nx.tertiary,
@@ -680,13 +693,18 @@ export class OrdersFlow {
     const p = await this.o.buyPreview?.(user.phone);
     if (!p) return this.notice('ORDER', 'Nothing to check', 'This order has already been sent, or was started again. Check the chat.');
     const photos: string[] = [];
+    let first: Buffer | null = null;
     for (const id of p.photos.slice(0, 3)) {
       try {
         const d = await this.o.media?.download(id);
+        if (d && !first) first = d.bytes;
         const t = d ? await thumb(d.bytes) : null;
         if (t) photos.push(t);
       } catch { /* skip a photo we can't fetch */ }
     }
+    // one picture: the order before Send, with its real total (or what the seller receives), drawn with the first photo
+    const pic = p.card && this.o.art ? await this.o.art.formImage(ART.formCheck({ side: p.side === 'sell' ? 'seller' : 'buyer', item: p.item, ...p.card, photo: first })) : null;
+    if (pic) photos.splice(0, photos.length, pic);
     return {
       screen: 'ORDER',
       data: {
@@ -702,6 +720,26 @@ export class OrdersFlow {
         show_price: false, show_address: false,
       },
     };
+  }
+
+  /** The order's status picture for this person: the step, where the money is, their amount, the item photo. */
+  private async statusPicture(d: Deal, mode: Mode): Promise<string | null> {
+    if (!this.o.art) return null;
+    const handed = d.status === 'SHIPPED' && !!d.handed_over_at;
+    const step = handed ? 5 : stepOf(d.status);
+    const seller = mode === 'seller';
+    const paid = !['AWAITING_SELLER', 'AWAITING_BUYER', 'AWAITING_PAYMENT', 'CANCELLED', 'EXPIRED'].includes(d.status);
+    const title = ({ AWAITING_SELLER: seller ? 'New order' : 'Waiting to accept', AWAITING_BUYER: seller ? 'Waiting to accept' : 'New order', AWAITING_PAYMENT: 'Waiting for payment',
+      FUNDED: 'Money held', SHIPPED: handed ? 'Check it' : 'On the way', RELEASING: 'Paying the seller', PAYOUT_PENDING: 'Paying the seller', COMPLETED: 'Done',
+      DISPUTED: 'Problem: money frozen', REFUNDING: 'Refunding', REFUNDED: 'Refunded', CANCELLED: 'Cancelled', EXPIRED: 'Closed' } as Record<string, string>)[d.status] ?? cap(STATUS_WORDS[d.status] ?? d.status);
+    const money = d.status === 'DISPUTED' ? 'Frozen until a rep sorts it'
+      : ['REFUNDING', 'REFUNDED'].includes(d.status) ? 'Going back to the buyer in full'
+      : ['CANCELLED', 'EXPIRED'].includes(d.status) ? 'No money moved'
+      : step <= 2 ? 'No money has moved yet' : step <= 5 ? 'Held safely by Hoolam' : 'Paid to the seller';
+    const amount = seller ? d.seller_gets_minor : d.status === 'AWAITING_SELLER' ? d.price_minor : d.buyer_pays_minor;
+    const amountLabel = seller ? (step === 6 ? 'You received' : 'You receive') : d.status === 'AWAITING_SELLER' ? 'Total price' : paid ? 'You paid' : 'You pay';
+    const tone = d.status === 'DISPUTED' || ['CANCELLED', 'EXPIRED'].includes(d.status) ? 'red' : step === 6 || d.status === 'REFUNDED' ? 'green' : 'teal';
+    return this.o.art.formImage(ART.formStatus({ step: ['CANCELLED', 'EXPIRED'].includes(d.status) ? 0 : step, title, item: d.item, code: d.code, amountLabel, amount: this.m(amount), money, tone, dealId: d.id }));
   }
 
   /** Small, light copies of the order photos (Meta allows ~300 KB per image; we keep each well under). */

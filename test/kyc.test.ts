@@ -519,14 +519,18 @@ describe('forms', () => {
 
   it('the ID check form follows WhatsApp\'s rules', async () => {
     const { kycFlowJson, kycFlowName } = await import('../src/whatsapp/kyc-flow.js');
-    const j = kycFlowJson();
+    const j = kycFlowJson('aGVsbG8=');
     expect(j.version).toBe('7.3');
-    expect(j.screens).toHaveLength(1);
-    expect(j.screens[0]!.terminal).toBe(true);
-    const kids = (j.screens[0]!.layout.children[0] as any).children as any[];
-    expect(kids.map((k) => k.type)).toEqual(['TextSubheading', 'TextBody', 'RadioButtonsGroup', 'TextInput', 'DatePicker', 'TextCaption', 'Footer']);
+    expect(j.screens.map((x) => x.id)).toEqual(['WHY', 'NUMBER']);
+    expect(j.screens[1]!.terminal).toBe(true);
+    expect((j.screens[0]!.layout.children[0] as any).type).toBe('Image'); // why we check, as a picture
+    const why = (j.screens[0]!.layout.children[1] as any).children as any[];
+    expect(why.map((k) => k.type)).toEqual(['TextSubheading', 'TextBody', 'RadioButtonsGroup', 'TextCaption', 'Footer']);
+    const kids = (j.screens[1]!.layout.children[0] as any).children as any[];
+    expect(kids.map((k) => k.type)).toEqual(['TextInput', 'DatePicker', 'TextCaption', 'Footer']); // two fields
     expect(kids.at(-1).label.length).toBeLessThanOrEqual(35);
-    expect(kids.at(-1)['on-click-action']).toEqual({ name: 'complete', payload: { method: '${form.method}', number: '${form.number}', dob: '${form.dob}' } });
+    expect(kids.at(-1)['on-click-action']).toEqual({ name: 'complete', payload: { method: '${data.method}', number: '${form.number}', dob: '${form.dob}' } });
+    expect(kycFlowJson().screens[0]!.layout.children[0]).toMatchObject({ type: 'Form' }); // no picture: just the words
     expect(kycFlowName()).toMatch(/^hoolam_kyc_[0-9a-f]{8}$/);
   });
 });

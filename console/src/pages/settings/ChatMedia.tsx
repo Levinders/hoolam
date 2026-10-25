@@ -142,6 +142,7 @@ function Row({ it, canEdit, onItems }: { it: Item; canEdit: boolean; onItems: (i
               {it.custom && <div><dt>Yours</dt><dd>{it.fileName ?? 'Uploaded file'}{it.bytes ? ` · ${sizeText(it.bytes)}` : ''}{it.updatedAt ? ` · ${ago(it.updatedAt)}` : ''}</dd></div>}
             </dl>
             {it.kind === 'card' && <p className="small muted">The preview uses made-up details. Real messages show the order's own amounts, names and photos.</p>}
+            {it.id.startsWith('form-') && <p className="small muted">This picture goes inside the WhatsApp form. Changing it sends the forms to Meta again; until the new version is ready, people keep getting the current one.</p>}
             {it.script && (
               <div className="wam-script">
                 <button type="button" className="wam-script-toggle" aria-expanded={showScript} onClick={() => setShowScript(!showScript)}>
