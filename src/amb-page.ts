@@ -1,7 +1,8 @@
 import { ICON } from './icons.js';
 
 /**
- * The ambassador's private dashboard (go.hoolam.com/ambassador). One page: signing in (their WhatsApp number, then a
+ * The ambassador's private dashboard (go.hoolam.com/ambassador), in five sections (Home, Earnings, People, Share, Account:
+ * a bottom bar on phones, a side menu on computers). Signing in (their WhatsApp number, then a
  * 6-digit code sent to that WhatsApp), then everything from /ambassador/api/me: any month's earnings with the maths
  * behind every naira, a 12-month chart, their people, their link (copy, QR code, a picture to share), their photo,
  * term and payout account, and the rules in plain words. Never in search results.
@@ -139,6 +140,46 @@ footer{margin-top:26px;text-align:center;color:var(--muted);font-size:12.5px}
 :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media (max-width:360px){.tile b{font-size:19px}.tile.big b{font-size:28px}}
+/* sections: a bottom bar on phones, a side menu on computers */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:6px 6px max(6px,env(safe-area-inset-bottom))}
+.tabs[hidden]{display:none}
+.tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;border:0;background:none;padding:6px 2px;border-radius:12px;font-size:11.5px;font-weight:600;color:var(--faint);cursor:pointer}
+.tabs button .ic{width:22px;height:22px}
+.tabs button.on{color:var(--teal)}
+.tabs button.on .ic{background:var(--teal-50);border-radius:10px;padding:3px 10px;width:44px;height:28px;box-sizing:border-box;margin:-3px 0}
+body.in .wrap{padding-bottom:100px}
+.vh{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:6px}
+.vh h1{font:700 22px/1.2 Poppins,Inter,sans-serif;letter-spacing:-.02em}
+@media (min-width:900px){
+  body.in .wrap{max-width:900px;display:grid;grid-template-columns:200px minmax(0,1fr);column-gap:32px;padding-bottom:40px}
+  body.in header.top,body.in footer{grid-column:1/-1}
+  .tabs{position:sticky;top:16px;align-self:start;flex-direction:column;gap:4px;background:none;backdrop-filter:none;border:0;padding:6px 0;grid-column:1;grid-row:2}
+  .tabs button{flex:none;flex-direction:row;gap:12px;padding:11px 14px;font-size:14.5px;color:var(--muted);text-align:left}
+  .tabs button .ic{width:20px;height:20px}
+  .tabs button.on{background:var(--teal-50)}
+  .tabs button.on .ic{background:none;padding:0;width:20px;height:20px;margin:0}
+  .tabs button:hover{background:#F1F4F2}
+  body.in main{grid-column:2;grid-row:2;min-width:0}
+}
+/* home */
+.goal{padding:16px 18px}
+.goal .meter{height:10px;border-radius:99px;background:var(--teal-50);overflow:hidden;margin:10px 0 8px}
+.goal .meter i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--gold),#DDB352)}
+.goal b{font-weight:700}
+.goal small{display:block;color:var(--muted);font-size:13px}
+.vs{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 10px;border-radius:99px;background:rgba(255,255,255,.14);font-size:12.5px;font-weight:600}
+.top1{display:flex;gap:12px;align-items:center;padding:14px 18px;border-top:1px solid var(--line)}
+.top1 .dot{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:var(--gold-50);color:#9C7520;flex:none}
+.top1 .dot .ic{width:20px;height:20px}
+.cta-row{margin-top:14px}
+.cta-row .btn{width:100%;min-height:54px;font-size:16px}
+.state{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:1px}
+.state.on{background:var(--green-50);color:var(--green)}.state.off{background:#EEF0EE;color:var(--muted)}
+.qr{display:block;width:180px;height:180px;margin:12px auto 0;border-radius:14px;border:1px solid var(--line);background:#fff;padding:8px}
+.msg{padding:14px 18px;border-top:1px solid var(--line)}
+.msg small{display:block;font-weight:600;color:var(--muted);font-size:12.5px}
+.msg p{white-space:pre-line;font-size:14px;margin:6px 0 10px;background:#F4F7F5;border-radius:4px 14px 14px 14px;padding:10px 12px}
+.msg .btns{margin-top:0}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style></head><body>
 <div class="wrap">
@@ -148,6 +189,13 @@ footer{margin-top:26px;text-align:center;color:var(--muted);font-size:12.5px}
     <button type="button" role="menuitem" data-act="signout">${ICON.logOut}Sign out on this device</button>
     <button type="button" role="menuitem" data-act="signout-all">${ICON.shieldCheck}Sign out everywhere</button>
   </div></div></header>
+<nav class="tabs" id="tabs" hidden aria-label="Sections">
+  <button type="button" data-view="home">${ICON.home}<span>Home</span></button>
+  <button type="button" data-view="earnings">${ICON.wallet}<span>Earnings</span></button>
+  <button type="button" data-view="people">${ICON.users}<span>People</span></button>
+  <button type="button" data-view="share">${ICON.share}<span>Share</span></button>
+  <button type="button" data-view="account">${ICON.user}<span>Account</span></button>
+</nav>
 <main id="app"><div class="skel" style="height:220px;margin-top:14px"></div><div class="skel" style="height:120px;margin-top:14px"></div></main>
 <footer>Hoolam · Pay safe. Ship safe.<br>Questions? Talk to a rep from the WhatsApp menu.</footer>
 </div>
@@ -155,9 +203,15 @@ footer{margin-top:26px;text-align:center;color:var(--muted);font-size:12.5px}
 <dialog id="dlg"><h3 id="dlg-t"></h3><p id="dlg-p"></p><div class="btns"><button class="btn soft" type="button" id="dlg-no">Cancel</button><button class="btn danger" type="button" id="dlg-yes">Yes</button></div></dialog>
 <script>
 (function(){
-var I=${JSON.stringify({ left: ICON.chevronLeft, right: ICON.chevronRight, check: ICON.check, wallet: ICON.wallet, gift: ICON.gift, users: ICON.users, shield: ICON.shieldCheck, info: ICON.info, whatsapp: ICON.whatsapp, store: ICON.store, bag: ICON.shoppingBag })};
+var I=${JSON.stringify({ trophy: ICON.trophy, copy: ICON.copy, download: ICON.download, share: ICON.share, left: ICON.chevronLeft, right: ICON.chevronRight, check: ICON.check, wallet: ICON.wallet, gift: ICON.gift, users: ICON.users, shield: ICON.shieldCheck, info: ICON.info, whatsapp: ICON.whatsapp, store: ICON.store, bag: ICON.shoppingBag })};
 var WA=${JSON.stringify((o.waNumber ?? '').replace(/\D/g, ''))};
 var app=document.getElementById('app'),toastEl=document.getElementById('toast'),D=null,tab='sellers',month=new URLSearchParams(location.search).get('m')||'';
+var VIEWS=['home','earnings','people','share','account'],view=VIEWS.indexOf(location.hash.slice(1))>=0?location.hash.slice(1):'home';
+var tabsEl=document.getElementById('tabs');
+tabsEl.querySelectorAll('[data-view]').forEach(function(b){b.onclick=function(){go(b.getAttribute('data-view'))}});
+function go(v){view=v;try{history.replaceState(null,'',location.pathname+location.search+'#'+v)}catch(e){}
+  if(v!=='earnings'&&D&&D.month!==D.months[0]){load(D.months[0]);}else{render()}window.scrollTo(0,0)}
+window.addEventListener('hashchange',function(){var v=location.hash.slice(1);if(VIEWS.indexOf(v)>=0&&v!==view)go(v)});
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function naira(k){var n=Math.round(Number(k||0))/100;return '\\u20A6'+n.toLocaleString('en-NG',{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2})}
 function day(s){if(!s)return '';var d=new Date(String(s).length===10?s+'T12:00:00Z':s);return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'Africa/Lagos'})}
@@ -172,7 +226,7 @@ function confirmBox(t,p,yes){var d=document.getElementById('dlg');document.getEl
 
 // ---------- sign in ----------
 function signin(step,phone,msg){
-  document.getElementById('menu').hidden=true;
+  document.getElementById('menu').hidden=true;tabsEl.hidden=true;document.body.classList.remove('in');
   var codeStep=step==='code';
   app.innerHTML='<section class="signin"><span class="avatar" style="width:64px;height:64px;font-size:26px">'+I.shield+'</span><h1>'+(codeStep?'Enter your code':'Your ambassador dashboard')+'</h1>'+
    '<p>'+(codeStep?'We sent a 6-digit code to your WhatsApp ('+esc(phone)+'). It works for 10 minutes.':'Sign in with the WhatsApp number you use with Hoolam. We send a code to that WhatsApp: no password needed.')+'</p>'+
@@ -193,84 +247,129 @@ function signin(step,phone,msg){
 // ---------- the dashboard ----------
 function load(m){
   if(m)month=m;
-  return api('me'+(month?'?m='+encodeURIComponent(month):'')).then(function(d){D=d;month=d.month;try{history.replaceState(null,'','/ambassador?m='+d.month)}catch(e){}render()}).catch(function(x){if(x.status===401)signin('phone');else app.innerHTML='<div class="card pad"><p>'+esc(x.message)+'</p><button class="btn main" style="margin-top:12px" onclick="location.reload()">Try again</button></div>'})
+  return api('me'+(month?'?m='+encodeURIComponent(month):'')).then(function(d){D=d;month=d.month;try{history.replaceState(null,'','/ambassador?m='+d.month+'#'+view)}catch(e){}render()}).catch(function(x){if(x.status===401)signin('phone');else app.innerHTML='<div class="card pad"><p>'+esc(x.message)+'</p><button class="btn main" style="margin-top:12px" onclick="location.reload()">Try again</button></div>'})
 }
 function render(){
-  var d=D,s=d.summary,t=d.totals;
-  document.getElementById('menu').hidden=false;
-  var first=d.firstName||'there';
-  var initial=(first[0]||'H').toUpperCase();
+  var d=D;
+  document.getElementById('menu').hidden=false;tabsEl.hidden=false;document.body.classList.add('in');
+  tabsEl.querySelectorAll('[data-view]').forEach(function(b){var on=b.getAttribute('data-view')===view;b.classList.toggle('on',on);if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});
+  var h=({home:vHome,earnings:vEarnings,people:vPeople,share:vShare,account:vAccount})[view](d);
+  app.innerHTML=h;
+  bind();
+}
+function who(d){var first=d.firstName||'there';return {first:first,initial:(first[0]||'H').toUpperCase()}}
+function avatar(d,size){var w=who(d);return '<span class="avatar"'+(size?' style="width:'+size+'px;height:'+size+'px;font-size:'+Math.round(size*.38)+'px;box-shadow:0 0 0 2px #fff,0 0 0 3px var(--gold)"':'')+'>'+(d.photo?'<img src="'+esc(d.photo)+'" alt="">':esc(w.initial))+'</span>'}
+function head(t,sub){return '<div class="vh"><h1>'+t+'</h1>'+(sub||'')+'</div>'}
+function plural(n,w){return n+' '+w+(n===1?'':'s')}
+// who each of their people is this month, from the month's lines
+function byPerson(d){var m={};d.lines.forEach(function(l){if(l.status==='VOID')return;var k=l.personId||l.who;var x=m[k]||(m[k]={id:k,name:l.who,side:l.side,amount:0,codes:{}});x.amount+=l.amountMinor;if(l.kind==='SHARE')x.codes[l.code]=1});
+  return Object.keys(m).map(function(k){var x=m[k];x.orders=Object.keys(x.codes).length;return x})}
+
+// ---------- Home: this month at a glance ----------
+function vHome(d){
+  var w=who(d),t=d.totals,c=d.chart,cur=c[c.length-1]||{amountMinor:0},prev=c[c.length-2];
   var status={ACTIVE:'Active',PAUSED:'Paused',ENDED:'Ended',SETUP:'Setting up'}[d.status]||d.status;
-  var idx=d.months.indexOf(d.month);
-  var max=Math.max.apply(null,d.chart.map(function(c){return c.amountMinor}).concat([1]));
-  var h='';
-  // hero
-  h+='<section class="card hero"><div class="cover" aria-hidden="true"></div><div class="who"><span class="avatar">'+(d.photo?'<img src="'+esc(d.photo)+'" alt="">':esc(initial))+'</span>'+
-     '<div class="hello">Hi '+esc(first)+'</div><span class="pill '+esc(d.status)+'">'+esc(status)+(d.status==='ACTIVE'&&d.area?' · '+esc(d.area):'')+'</span>'+
+  var h='<section class="card hero"><div class="cover" aria-hidden="true"></div><div class="who">'+avatar(d)+
+     '<div class="hello">Hi '+esc(w.first)+'</div><span class="pill '+esc(d.status)+'">'+esc(status)+(d.status==='ACTIVE'&&d.area?' · '+esc(d.area):'')+'</span>'+
      (d.status==='PAUSED'?'<p class="lede">Paused for now: new orders don\\'t earn. What you earned is still paid.</p>':'')+
-     (d.status==='ENDED'?'<p class="lede">Your term ended on '+day(d.endedAt)+'. Everything you earned is paid to you.</p>':'')+
-     (d.link&&d.status!=='ENDED'?'<div class="linkrow"><b>'+esc(d.linkText)+'</b><button class="btn soft sm" data-copy="'+esc(d.link)+'">Copy link</button></div>':'')+
-     '</div></section>';
-  // month switcher + tiles
+     (d.status==='ENDED'?'<p class="lede">Your term ended on '+day(d.endedAt)+'. Everything you earned is paid to you.</p>':'')+'</div></section>';
+  var diff=prev?cur.amountMinor-prev.amountMinor:0;
+  var vs=prev?(diff>0?naira(diff)+' more than '+mlabel(prev.month).split(' ')[0]:diff<0?naira(-diff)+' less than '+mlabel(prev.month).split(' ')[0]:'Same as '+mlabel(prev.month).split(' ')[0]):'';
+  h+='<div class="tiles"><div class="tile big"><small>Earned this month</small><b>'+naira(cur.amountMinor)+'</b>'+(vs?'<span class="vs">'+esc(vs)+'</span>':'')+'</div></div>';
+  // the next payout
+  var owed=t.owedMinor,min=d.next.minMinor,pct=d.status==='ENDED'||owed>=min?100:Math.round(100*owed/Math.max(1,min));
+  h+='<section class="card goal"><h2>Next payout</h2>'+
+     '<div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+pct+'"><i style="width:'+Math.max(4,pct)+'%"></i></div>'+
+     (d.status==='ENDED'?'<b>'+naira(owed)+' still to pay</b><small>Paid to you whatever the amount.</small>'
+      :owed>=min?'<b>'+naira(owed)+' will be paid on '+day(d.next.date)+'</b><small>To '+(d.bank?esc(d.bank.name)+' ••••'+esc(d.bank.last4):'your bank account. Add it in WhatsApp first')+'.</small>'
+      :'<b>'+naira(min-owed)+' more to reach '+naira(min)+'</b><small>'+naira(owed)+' so far · paid on the '+ord(d.payoutDay)+' once you reach '+naira(min)+'</small>')+
+     (t.pendingMinor?'<small style="margin-top:8px">Plus '+naira(t.pendingMinor)+' on the way from '+plural(t.pendingOrders,'order')+' in progress.</small>':'')+'</section>';
+  // top seller this month
+  var top=d.month===d.months[0]?byPerson(d).filter(function(x){return x.side==='SELLER'}).sort(function(a,b){return b.amount-a.amount})[0]:null;
+  h+='<section class="card"><div class="pad" style="padding-bottom:12px"><h2>Your top seller this month</h2></div>'+
+     (top?'<div class="top1"><span class="dot">'+I.trophy+'</span><span class="main" style="flex:1;min-width:0"><b>'+esc(top.name)+'</b><small style="display:block;color:var(--muted);font-size:12.5px">'+plural(top.orders,'completed order')+'</small></span><b>'+naira(top.amount)+'</b></div>'
+      :'<p class="empty">No completed orders from your sellers yet this month. Sellers who sell every day bring the most.</p>')+'</section>';
+  if(d.link&&d.status==='ACTIVE')h+='<div class="cta-row"><button class="btn main" type="button" data-go="share">'+I.whatsapp+'Share your card</button></div>';
+  return h;
+}
+
+// ---------- Earnings: any month, the maths behind each naira, payouts ----------
+function vEarnings(d){
+  var s=d.summary,t=d.totals,idx=d.months.indexOf(d.month);
+  var max=Math.max.apply(null,d.chart.map(function(c){return c.amountMinor}).concat([1]));
+  var h=head('Earnings');
   h+='<div class="monthbar"><button class="icon-btn" data-m="'+esc(d.months[idx+1]||'')+'" '+(d.months[idx+1]?'':'disabled')+' aria-label="Earlier month">'+I.left+'</button>'+
      '<label class="sr" for="msel">Month</label><select id="msel">'+d.months.map(function(k){return '<option value="'+k+'"'+(k===d.month?' selected':'')+'>'+mlabel(k)+'</option>'}).join('')+'</select>'+
      '<button class="icon-btn" data-m="'+esc(d.months[idx-1]||'')+'" '+(idx>0?'':'disabled')+' aria-label="Later month">'+I.right+'</button></div>';
-  h+='<div class="tiles"><div class="tile big"><small>Earned in '+esc(d.monthLabel)+'</small><b>'+naira(s.earned)+'</b><span>'+s.orders+' order'+(s.orders===1?'':'s')+' · '+s.activeSellers+' active seller'+(s.activeSellers===1?'':'s')+(s.held?' · '+naira(s.held)+' on hold':'')+'</span></div>'+
+  h+='<div class="tiles"><div class="tile big"><small>Earned in '+esc(d.monthLabel)+'</small><b>'+naira(s.earned)+'</b><span>'+plural(s.orders,'order')+' · '+plural(s.activeSellers,'active seller')+(s.held?' · '+naira(s.held)+' on hold':'')+'</span></div>'+
      '<div class="tile"><small>Paid so far</small><b>'+naira(t.paidMinor)+'</b><span>All time: '+naira(t.allTimeMinor)+'</span></div>'+
-     (d.status==='ENDED'
-       ?'<div class="tile"><small>Still to pay</small><b>'+naira(t.owedMinor)+'</b><span>Paid whatever the amount</span></div>'
-       :'<div class="tile"><small>Next payout · '+day(d.next.date)+'</small><b>'+naira(t.owedMinor)+'</b><span>'+(d.next.belowMin?'Paid from '+naira(d.next.minMinor)+'; the rest waits':'For earnings up to last month')+'</span></div>')+
-     (t.pendingMinor?'<div class="tile" style="grid-column:1/-1"><small>On the way</small><b>'+naira(t.pendingMinor)+'</b><span>From '+t.pendingOrders+' order'+(t.pendingOrders===1?'':'s')+' in progress. They count once each order is complete.</span></div>':'')+
-     '</div>';
-  // chart
+     (d.status==='ENDED'?'<div class="tile"><small>Still to pay</small><b>'+naira(t.owedMinor)+'</b><span>Paid whatever the amount</span></div>'
+       :'<div class="tile"><small>Next payout · '+day(d.next.date)+'</small><b>'+naira(t.owedMinor)+'</b><span>'+(d.next.belowMin?'Paid from '+naira(d.next.minMinor)+'; the rest waits':'For earnings up to last month')+'</span></div>')+'</div>';
   h+='<section class="card pad"><h2>Last 12 months</h2><p class="lede">Tap a month to see it.</p><div class="chart" role="group" aria-label="Earnings by month">'+d.chart.map(function(c){
        var pct=Math.max(3,Math.round(100*c.amountMinor/max));var on=c.month===d.month;var ok=d.months.indexOf(c.month)>=0;
        return '<button class="bar'+(on?' on':'')+'" '+(ok?'data-m="'+c.month+'"':'disabled')+' aria-label="'+mlabel(c.month)+': '+naira(c.amountMinor)+'"><i style="height:'+pct+'%"></i><span>'+mlabel(c.month).slice(0,1)+'</span></button>'}).join('')+'</div></section>';
-  // breakdown + lines
-  h+='<section class="card"><div class="pad"><h2>'+esc(d.monthLabel)+', every naira</h2><p class="lede">Your share is worked out from what Hoolam earned on each completed order.</p></div>'+
+  h+='<section class="card"><div class="pad"><h2>'+esc(d.monthLabel)+', every naira</h2><p class="lede">Your share of what Hoolam earned on each completed order.</p></div>'+
      '<div class="split"><div><small>From sellers</small><b>'+naira(s.fromSellers)+'</b></div><div><small>From buyers</small><b>'+naira(s.fromBuyers)+'</b></div><div><small>Seller bonuses</small><b>'+naira(s.bonuses)+'</b></div><div><small>New people</small><b>'+(s.newSellers+s.newBuyers)+'</b></div></div>'+
      (d.lines.length?'<ul class="list">'+d.lines.map(function(l){
         var bonus=l.kind==='BONUS';
         var maths=bonus?d.bonus.orders+'-order seller bonus':(l.percent)+'% of '+naira(l.revenueMinor)+' Hoolam earned';
         var tag=l.status==='HELD'?'<span class="tag held">On hold: '+esc(l.holdReason)+'</span>':l.status==='VOID'?'<span class="tag void">Cancelled after review</span>':l.paid?'<span class="tag paid">Paid</span>':'';
         return '<li><span class="dot '+(bonus?'gold':l.side==='SELLER'?'':'green')+'">'+(bonus?I.gift:l.side==='SELLER'?I.store:I.bag)+'</span><span class="main"><b>'+esc(l.who)+'</b><small>'+short(l.at)+' · '+esc(l.code)+' · '+(l.side==='SELLER'?'seller':'buyer')+'<br>'+esc(maths)+'</small>'+tag+'</span><span class="amt">'+naira(l.amountMinor)+'</span></li>'}).join('')+'</ul>'
-      :'<p class="empty">No earnings in '+esc(d.monthLabel)+' yet. They show here as soon as an order from your people is complete.</p>')+
-     '</section>';
-  // people
-  var ppl=tab==='sellers'?d.people.sellers:d.people.buyers;
-  h+='<section class="card"><div class="pad" style="padding-bottom:0"><h2>Your people</h2><p class="lede">'+d.people.sellers.length+' seller'+(d.people.sellers.length===1?'':'s')+' ('+d.people.activeSellers+' active) · '+d.people.buyers.length+' buyer'+(d.people.buyers.length===1?'':'s')+' · '+d.taps+' link tap'+(d.taps===1?'':'s')+'</p></div>'+
-     '<div class="seg" role="tablist"><button role="tab" data-tab="sellers" class="'+(tab==='sellers'?'on':'')+'">Sellers</button><button role="tab" data-tab="buyers" class="'+(tab==='buyers'?'on':'')+'">Buyers</button></div>'+
+      :'<p class="empty">No earnings in '+esc(d.monthLabel)+' yet. They show here as soon as an order from your people is complete.</p>')+'</section>';
+  h+='<section class="card"><div class="pad" style="padding-bottom:6px"><h2>Payouts</h2><p class="lede">On the '+ord(d.payoutDay)+' of every month, for the month before. From '+naira(d.next.minMinor)+'; anything less waits for the next month.</p></div>'+
+     (d.payouts.length?'<ul class="list">'+d.payouts.map(function(p){return '<li><span class="dot '+(p.status==='PAID'?'green':'')+'">'+I.wallet+'</span><span class="main"><b>'+mlabel(p.month)+(p.final?' (final)':'')+'</b><small>'+(p.status==='PAID'?'Paid '+day(p.paidAt)+(p.reference?' · Ref '+esc(p.reference):''):'Being paid')+'</small></span><span class="amt">'+naira(p.amountMinor)+'<small><span class="tag '+(p.status==='PAID'?'paid':'due')+'">'+(p.status==='PAID'?'Paid':'Due')+'</span></small></span></li>'}).join('')+'</ul>':'<p class="empty">No payouts yet.</p>')+'</section>';
+  return h;
+}
+
+// ---------- People: who they brought, active or quiet, this month, bonus progress ----------
+function vPeople(d){
+  var ppl=tab==='sellers'?d.people.sellers:d.people.buyers,m={};
+  if(d.month===d.months[0])byPerson(d).forEach(function(x){m[x.id]=x});
+  var h=head('Your people','<span class="lede">'+plural(d.taps,'link tap')+'</span>');
+  h+='<section class="card"><div class="split" style="border-top:0"><div><small>Sellers</small><b>'+d.people.sellers.length+'</b> <span class="lede" style="display:inline">'+d.people.activeSellers+' active</span></div><div><small>Buyers</small><b>'+d.people.buyers.length+'</b></div></div>'+
+     '<div class="seg" role="tablist"><button role="tab" data-tab="sellers" aria-selected="'+(tab==='sellers')+'" class="'+(tab==='sellers'?'on':'')+'">Sellers</button><button role="tab" data-tab="buyers" aria-selected="'+(tab==='buyers')+'" class="'+(tab==='buyers'?'on':'')+'">Buyers</button></div>'+
      (ppl.length?'<ul class="list">'+ppl.map(function(p){
-        var sub=p.orders+' completed order'+(p.orders===1?'':'s')+' · '+(p.active?'active':'not active lately')+' · joined '+short(p.joinedAt);
+        var mo=m[p.id];
+        var sub=(mo&&mo.orders?plural(mo.orders,'order')+' this month · ':'No orders this month · ')+plural(p.orders,'completed order')+' in all · joined '+short(p.joinedAt);
         var prog='';if(tab==='sellers'&&D.bonus.amountMinor){var done=Math.min(D.bonus.orders,p.orders);prog=p.bonus?'<span class="tag paid">'+naira(D.bonus.amountMinor)+' bonus earned</span>':'<div class="prog" aria-label="'+done+' of '+D.bonus.orders+' orders for your bonus"><i style="width:'+Math.round(100*done/D.bonus.orders)+'%"></i></div><small>'+done+' of '+D.bonus.orders+' orders for your '+naira(D.bonus.amountMinor)+' bonus</small>'}
-        return '<li><span class="dot '+(p.active?'green':'')+'">'+(tab==='sellers'?I.store:I.bag)+'</span><span class="main"><b>'+esc(p.name)+'</b><small>'+sub+'</small>'+prog+'</span></li>'}).join('')+'</ul>'
+        return '<li><span class="dot '+(p.active?'green':'')+'">'+(tab==='sellers'?I.store:I.bag)+'</span><span class="main"><b>'+esc(p.name)+'<span class="state '+(p.active?'on':'off')+'">'+(p.active?'Active':'Quiet')+'</span></b><small>'+sub+'</small>'+prog+'</span>'+(mo?'<span class="amt">'+naira(mo.amount)+'<small>this month</small></span>':'')+'</li>'}).join('')+'</ul>'
       :'<p class="empty">'+(tab==='sellers'?'No sellers yet. Share your link with people who sell on Instagram, WhatsApp and TikTok: they bring the most orders.':'No buyers yet. Share your link on your status and in your groups.')+'</p>')+
-     '</section>';
-  // share
-  if(d.link&&d.status==='ACTIVE'){
-    h+='<section class="card pad"><h2>Share your link</h2><p class="lede">People who join with your link are yours for good.</p>'+
-       '<div class="linkrow"><b>'+esc(d.linkText)+'</b><button class="btn soft sm" data-copy="'+esc(d.link)+'">Copy</button></div>'+
-       '<img class="share-img" src="/ambassador/api/card.jpg?v='+esc(d.photoVersion||'0')+'" alt="Your share picture: your photo, your name and your link" loading="lazy">'+
-       '<div class="btns"><a class="btn main" href="https://wa.me/?text='+encodeURIComponent(d.share||d.link)+'" target="_blank" rel="noopener">'+I.whatsapp+'Share on WhatsApp</a>'+
-       '<a class="btn soft" href="/ambassador/api/card.jpg?download=1">Download picture</a><a class="btn soft" href="/ambassador/api/qr.png">Download QR code</a>'+
-       '<button class="btn soft" data-copy-text="1">Copy message</button></div></section>';
-  }
-  // account
-  h+='<section class="card"><div class="pad" style="padding-bottom:6px"><h2>Your account</h2></div>'+
-     '<div class="row"><span class="avatar" style="width:48px;height:48px;font-size:18px;box-shadow:0 0 0 2px #fff,0 0 0 3px var(--gold)">'+(d.photo?'<img src="'+esc(d.photo)+'" alt="">':esc(initial))+'</span><span class="txt"><b>Your photo</b><small>Shows on your link with your first name.</small></span>'+
+     '<p class="note">Active means they had an order in the last 30 days. A quiet seller may just need a reminder that buyers pay faster with Hoolam.</p></section>';
+  return h;
+}
+
+// ---------- Share: the card, the link, the QR code, ready-made messages ----------
+function vShare(d){
+  var h=head('Share');
+  if(!d.link||d.status!=='ACTIVE')return h+'<section class="card pad"><p>'+(d.status==='ENDED'?'Your term has ended, so there\\'s nothing to share.':'Your link works again once you\\'re active.')+'</p></section>';
+  h+='<section class="card pad"><h2>Your card</h2><p class="lede">Your photo, your name and your link, ready for WhatsApp status.</p>'+
+     '<img class="share-img" src="/ambassador/api/card.jpg?v='+esc(d.photoVersion||'0')+'" alt="Your share card: your photo, your name and your link" loading="lazy">'+
+     '<div class="btns">'+(navigator.share&&navigator.canShare?'<button class="btn main" type="button" data-act="sharecard">'+I.share+'Share the picture</button>':'')+
+     '<a class="btn '+(navigator.share&&navigator.canShare?'soft':'main')+'" href="/ambassador/api/card.jpg?download=1">'+I.download+'Download picture</a></div></section>';
+  h+='<section class="card pad"><h2>Your link</h2><p class="lede">People who join with it are yours for good.</p>'+
+     '<div class="linkrow"><b>'+esc(d.linkText)+'</b><button class="btn soft sm" data-copy="'+esc(d.link)+'">'+I.copy+'Copy</button></div>'+
+     '<img class="qr" src="/ambassador/api/qr.png" alt="QR code for your link" width="180" height="180" loading="lazy">'+
+     '<div class="btns"><a class="btn soft" href="/ambassador/api/qr.png" download>'+I.download+'Download QR code</a></div></section>';
+  var msgs=d.shares&&d.shares.length?d.shares:[{label:'Message',text:d.share||d.link}];
+  h+='<section class="card"><div class="pad" style="padding-bottom:6px"><h2>Ready-made messages</h2><p class="lede">Pick one, then send it or copy it.</p></div>'+msgs.map(function(m,i){
+       return '<div class="msg"><small>'+esc(m.label)+'</small><p>'+esc(m.text)+'</p><div class="btns"><a class="btn main sm" href="https://wa.me/?text='+encodeURIComponent(m.text)+'" target="_blank" rel="noopener">'+I.whatsapp+'Send on WhatsApp</a><button class="btn soft sm" type="button" data-msg="'+i+'">'+I.copy+'Copy</button></div></div>'}).join('')+'</section>';
+  return h;
+}
+
+// ---------- Account: photo, link name, term, payout account, rules ----------
+function vAccount(d){
+  var h=head('Account');
+  h+='<section class="card">'+
+     '<div class="row" style="border-top:0">'+avatar(d,48)+'<span class="txt"><b>Your photo</b><small>Shows on your link and card, with your first name.</small></span>'+
        (d.status!=='ENDED'?'<label class="btn soft sm" style="cursor:pointer">'+(d.photo?'Change':'Add photo')+'<input type="file" accept="image/*" id="photo" hidden></label>'+(d.photo?'<button class="btn soft sm" data-act="rmphoto">Remove</button>':''):'')+'</div>'+
+     (d.linkText?'<div class="row"><span class="txt"><b>Your link</b><small>'+esc(d.linkText)+'. To change the name, ask a rep in WhatsApp; the old link keeps working.</small></span></div>':'')+
      (d.term?'<div class="row"><span class="txt"><b>Term: '+d.term+' months</b><small>'+(d.status==='ENDED'?'Ended':'Renews by itself on '+day(d.termEnds)+(d.nextTerm?', then '+d.nextTerm+' months':'')+'. We remind you '+d.noticeDays+' days before.')+'</small></span>'+
        (d.status!=='ENDED'?'<select id="term" aria-label="Next term">'+d.terms.map(function(n){var cur=(d.nextTerm||d.term)===n;return '<option value="'+n+'"'+(cur?' selected':'')+'>'+n+' months</option>'}).join('')+'</select>':'')+'</div>':'')+
      '<div class="row"><span class="txt"><b>Your share</b><small>'+d.pct.seller+'% on sellers you bring · '+d.pct.buyer+'% on buyers'+(d.bonus.amountMinor?' · '+naira(d.bonus.amountMinor)+' per new seller after '+d.bonus.orders+' orders':'')+'</small></span></div>'+
      '<div class="row"><span class="txt"><b>Payout account</b><small>'+(d.bank?esc(d.bank.name)+' ••••'+esc(d.bank.last4)+'. To change it, open <b>Payout account</b> in the WhatsApp menu.':'Not set yet. Add it in WhatsApp.')+'</small></span></div>'+
      (d.status!=='ENDED'?'<div class="row"><span class="txt"><b>End your term</b><small>You stop earning. Everything you earned is paid, whatever the amount.</small></span><button class="btn danger sm" data-act="end">End now</button></div>':'')+
      '<p class="note">Your term is just how often you renew. Whatever term you pick, your share grows when you bring more active sellers and buyers.</p></section>';
-  // payouts
-  h+='<section class="card"><div class="pad" style="padding-bottom:6px"><h2>Payouts</h2><p class="lede">On the '+ord(d.payoutDay)+' of every month, for the month before. From '+naira(d.next.minMinor)+'; anything less waits for the next month.</p></div>'+
-     (d.payouts.length?'<ul class="list">'+d.payouts.map(function(p){return '<li><span class="dot '+(p.status==='PAID'?'green':'')+'">'+I.wallet+'</span><span class="main"><b>'+mlabel(p.month)+(p.final?' (final)':'')+'</b><small>'+(p.status==='PAID'?'Paid '+day(p.paidAt)+(p.reference?' · Ref '+esc(p.reference):''):'Being paid')+'</small></span><span class="amt">'+naira(p.amountMinor)+'<small><span class="tag '+(p.status==='PAID'?'paid':'due')+'">'+(p.status==='PAID'?'Paid':'Due')+'</span></small></span></li>'}).join('')+'</ul>':'<p class="empty">No payouts yet.</p>')+
-     '</section>';
-  // how it works
-  h+='<section class="card"><div class="pad" style="padding-bottom:10px"><h2>How it works</h2></div><ul class="rules">'+
+  h+='<section class="card"><div class="pad" style="padding-bottom:10px"><h2>The rules</h2></div><ul class="rules">'+
      '<li>'+I.check+'<span><b>You earn on completed orders.</b> When an order from your people is complete (the buyer is happy, or the time to report a problem has passed), you get your share of what Hoolam earned on it.</span></li>'+
      '<li>'+I.check+'<span><b>'+d.pct.seller+'% on sellers, '+d.pct.buyer+'% on buyers</b> you bring, for as long as you are an ambassador.'+(d.bonus.amountMinor?' Plus <b>'+naira(d.bonus.amountMinor)+'</b> for each new seller once they complete '+d.bonus.orders+' orders.':'')+'</span></li>'+
      '<li>'+I.check+'<span><b>Only new people count.</b> Someone who already used Hoolam can\\'t be linked to you. Each person is linked to one ambassador, for good.</span></li>'+
@@ -278,8 +377,7 @@ function render(){
      '<li>'+I.check+'<span><b>Paid monthly</b> on the '+ord(d.payoutDay)+', to your bank account in your name.</span></li>'+
      '<li class="warn">'+I.info+'<span><b>Never collect money for Hoolam</b> or ask anyone for a PIN, OTP or password. All money goes through Hoolam only.</span></li>'+
      '</ul><p class="note">Full rules: <a href="https://hoolam.com/legal/ambassadors/" target="_blank" rel="noopener">Ambassador agreement</a></p></section>';
-  app.innerHTML=h;
-  bind();
+  return h;
 }
 function ord(n){return n+([11,12,13].indexOf(n%100)>=0?'th':(['th','st','nd','rd'][n%10]||'th'))}
 function bind(){
@@ -287,11 +385,13 @@ function bind(){
   var sel=document.getElementById('msel');if(sel)sel.onchange=function(){load(sel.value)};
   app.querySelectorAll('[data-tab]').forEach(function(b){b.onclick=function(){tab=b.getAttribute('data-tab');render()}});
   app.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){copy(b.getAttribute('data-copy'),'Link copied')}});
-  app.querySelectorAll('[data-copy-text]').forEach(function(b){b.onclick=function(){copy(D.share||D.link,'Message copied')}});
+  app.querySelectorAll('[data-msg]').forEach(function(b){b.onclick=function(){var m=(D.shares||[])[+b.getAttribute('data-msg')];copy(m?m.text:(D.share||D.link),'Message copied')}});
+  app.querySelectorAll('[data-go]').forEach(function(b){b.onclick=function(){go(b.getAttribute('data-go'))}});
   var ph=document.getElementById('photo');if(ph)ph.onchange=function(){var f=ph.files&&ph.files[0];if(!f)return;if(f.size>8e6){toast('That photo is too big. Use one under 8 MB.');return}
     confirmBox('Use this photo?','Your photo and first name will show on your link.','Use photo').then(function(ok){if(!ok)return;toast('Uploading…');api('photo',{method:'POST',body:f,type:f.type||'image/jpeg'}).then(function(){toast('Photo saved. Your link shows it in about 2 minutes.');load()}).catch(function(x){toast(x.message)})})};
   var term=document.getElementById('term');if(term)term.onchange=function(){api('term',{method:'POST',json:{action:'switch',months:Number(term.value)}}).then(function(){toast(Number(term.value)===D.term?'You\\'ll stay on '+D.term+' months':'From your next term: '+term.value+' months');load()}).catch(function(x){toast(x.message)})};
   app.querySelectorAll('[data-act]').forEach(function(b){b.onclick=function(){var a=b.getAttribute('data-act');
+    if(a==='sharecard')fetch('/ambassador/api/card.jpg',{credentials:'same-origin'}).then(function(r){return r.blob()}).then(function(bl){var f=new File([bl],'hoolam-card.jpg',{type:'image/jpeg'});var data={files:[f],text:D.share||D.link};if(navigator.canShare(data))return navigator.share(data);return navigator.share({text:D.share||D.link})}).catch(function(){});
     if(a==='rmphoto')confirmBox('Remove your photo?','Your link will show your first initial instead.','Remove').then(function(ok){if(ok)api('photo',{method:'DELETE'}).then(function(){toast('Photo removed');load()})});
     if(a==='end')confirmBox('End your ambassador term now?','You stop earning from today. Everything you earned is paid to your account, whatever the amount.','Yes, end it').then(function(ok){if(ok)api('term',{method:'POST',json:{action:'end'}}).then(function(){toast('Your term has ended');load()}).catch(function(x){toast(x.message)})});
   }});

@@ -651,6 +651,7 @@ export class Ambassadors {
        FROM ambassador_earnings e JOIN deals d ON d.id=e.deal_id JOIN users p ON p.id=e.referred_id LEFT JOIN ambassador_payouts ap ON ap.id=e.payout_id
        WHERE e.ambassador_id=$1 AND e.month=$2 ORDER BY e.created_at DESC LIMIT 400`, [userId, monthStart(mk)])).rows.map((x) => ({
       id: Number(x.id), at: x.created_at, kind: x.kind as 'SHARE' | 'BONUS', side: x.side as 'SELLER' | 'BUYER', code: x.code,
+      personId: x.referred_id as string,
       who: x.side === 'SELLER' ? (x.person ?? 'Seller') : (firstOf(x.person) || 'Buyer'),
       revenueMinor: Number(x.revenue_minor), percent: x.percent != null ? Number(x.percent) : null, amountMinor: Number(x.amount_minor),
       status: x.status as 'CONFIRMED' | 'HELD' | 'VOID', holdReason: x.hold_reason, paid: x.payout_status === 'PAID',

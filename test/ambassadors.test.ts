@@ -302,6 +302,9 @@ describe('the web dashboard', () => {
     const me = await h.app.app.inject({ url: '/ambassador/api/me', headers: { cookie } });
     expect(me.json()).toMatchObject({ status: 'ACTIVE', slug, firstName: 'Ifeoma', pct: { seller: 20, buyer: 10 }, payoutDay: 1 });
     expect(me.json().phone).toBeUndefined();
+    expect(me.json().shares.map((x: { label: string }) => x.label)).toEqual(['For sellers', 'For buyers', 'For your status']);
+    const dash = (await h.app.app.inject({ url: '/ambassador' })).body;
+    for (const v of ['home', 'earnings', 'people', 'share', 'account']) expect(dash).toMatch(new RegExp(`data-view="${v}"`));
     expect(me.headers['cache-control']).toMatch(/no-store/);
     expect((await h.app.app.inject({ url: '/ambassador/api/me' })).statusCode).toBe(401);
     expect((await post('/ambassador/api/term', { action: 'switch', months: 12 }, { cookie })).statusCode).toBe(403); // no header

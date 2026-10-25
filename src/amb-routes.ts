@@ -133,7 +133,7 @@ export function registerAmbassadorRoutes(app: FastifyInstance, o: { ambassadors:
     if (!ov) return reply.code(401).send({ error: 'Please sign in again.' });
     const { phone: _p, userId: _u, ...rest } = ov;
     const cfg = a.cfg();
-    return reply.send({ ...rest, payoutDay: cfg.payoutDay, noticeDays: cfg.noticeDays, defaults: { seller: cfg.sellerPct, buyer: cfg.buyerPct }, share: shareText(ov.link) });
+    return reply.send({ ...rest, payoutDay: cfg.payoutDay, noticeDays: cfg.noticeDays, defaults: { seller: cfg.sellerPct, buyer: cfg.buyerPct }, share: shareText(ov.link), shares: shareTexts(ov.link) });
   });
   app.post('/ambassador/api/term', async (req, reply) => {
     noStore(reply);
@@ -184,6 +184,13 @@ export function registerAmbassadorRoutes(app: FastifyInstance, o: { ambassadors:
 /** The message ambassadors share (the same as "Share my link" in WhatsApp). */
 export const shareText = (link: string | null) => link
   ? `Buying or selling on WhatsApp? Use Hoolam 🛡️\nYour money is held safely until you get what you ordered. No more "pay first and pray".\n\nStart here 👉 ${link}` : null;
+
+/** Three ready-made messages for the Share section: for sellers, for buyers, and a short one for a status. */
+export const shareTexts = (link: string | null) => link ? [
+  { label: 'For sellers', text: `Do you sell on Instagram or WhatsApp? 🛍️\nWith Hoolam your buyers pay without fear: their money is held safely and you're paid as soon as they get it. More buyers say yes.\n\nStart here 👉 ${link}` },
+  { label: 'For buyers', text: `Buying from someone online? 🛡️\nPay through Hoolam. Your money is held safely until you get what you ordered. If anything is wrong, you get it back.\n\nTry it 👉 ${link}` },
+  { label: 'For your status', text: `No more "pay first and pray" 🙏🏾\nBuy and sell safely on WhatsApp with Hoolam 👉 ${link}` },
+] : [];
 
 function parseBody(body: unknown): Record<string, any> {
   if (typeof body === 'string') { try { return JSON.parse(body) ?? {}; } catch { return {}; } }
