@@ -322,7 +322,17 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     const name = async (id: string | null) => id ? (await db.query('SELECT COALESCE(business_name, display_name) AS n FROM users WHERE id=$1', [id])).rows[0]?.n ?? null : null;
     return reply.type('text/html').header('cache-control', 'private, no-store').header('x-robots-tag', 'noindex').send(orderPage(d, {
       photoIds: photos.rows.map((r) => r.id), photoUrl: (id) => `/o/${d.code}/p/${id}.jpg?k=${encodeURIComponent(String(k))}`,
-      chatUrl: toChat('menu'), markUrl: siteMedia.url(base, 'mark'), sellerName: await name(d.seller_id), buyerName: await name(d.buyer_id), viewer: v.viewer,
+      chatUrl: toChat('menu'), viewUrl: toChat(`View ${d.code}`), payUrl: toChat(`Pay ${d.code}`),
+      markUrl: siteMedia.url(base, 'mark'), sellerName: await name(d.seller_id), buyerName: await name(d.buyer_id), viewer: v.viewer,
+      artBase: base, autoReleaseMinutes: settings.autoReleaseMinutes(), problemReplyHours: settings.problemReplyHours(),
+      sellerTrust: v.viewer === 'buyer' && d.seller_id ? await (async () => {
+        const t = await trust.seller(d.seller_id!);
+        if (!t) return null;
+        const bits = [t.verified ? 'Verified seller' : null, t.isNew ? 'New on Hoolam' : null,
+          t.completed ? `${t.completed} order${t.completed === 1 ? '' : 's'} completed` : null,
+          t.rated >= 5 ? `${Math.round((100 * t.happy) / t.rated)}% happy` : null].filter(Boolean);
+        return { line: [t.name, ...bits].join(' · '), url: t.isPublic && t.slug ? `${base}/s/${t.slug}` : null };
+      })() : null,
       receipts: v.viewer ? (await deals.receiptsFor(d.id, v.viewer)).map((r, i) => ({ label: r.label, url: `/o/${d.code}/r/${i}.jpg?k=${encodeURIComponent(String(k))}` })) : [],
     }));
   });

@@ -281,6 +281,24 @@ describe('the private order page', () => {
     expect((await h.app.app.inject({ method: 'GET', url: `/o/${code}?k=wrongwrongwrong` })).statusCode).toBe(404);
     expect((await h.app.app.inject({ method: 'GET', url: `/o/${code}` })).statusCode).toBe(404);
   });
+  it('says where the money is now and what happens next, for whoever opened it', async () => {
+    const { viewKey } = await import('../src/deals/service.js');
+    const { seller, code } = await paidBuyerOrder();
+    const open = async (side: 'buyer' | 'seller') => (await h.app.app.inject({ url: `/o/${code}?k=${viewKey((await deal(code)).view_token, side)}` })).body;
+    let b = await open('buyer');
+    expect(b).toMatch(/Your money is held by Hoolam/);
+    expect(b).toMatch(/\/site\/art\/status-3/);
+    expect(b).toMatch(/class="trustline"/);
+    expect(b).toMatch(new RegExp(`text=View%20${code}`));
+    expect(await open('seller')).toMatch(/The money is held\. Send the item/);
+    await h.handOver(seller, code);
+    b = await open('buyer');
+    expect(b).toMatch(/Check it now/);
+    expect(b).toMatch(/status-5/);
+    expect(b).toMatch(/data-until="/);
+    expect(b).toMatch(/left · until/);
+    expect(b).not.toMatch(/Only pay through Hoolam/); // already paid
+  });
 });
 
 describe('a seller opens a new order in the form', () => {
