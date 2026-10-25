@@ -330,7 +330,7 @@ export const msg = {
     buttons: [{ id: 'card:wname', title: 'Keep this name' }],
   }),
   /** What a seller can change on their page. */
-  editMyPage: (t: SellerStats, hasPhoto: boolean): Outbound => {
+  editMyPage: (t: SellerStats, hasPhoto: boolean, proof: { video: { live: boolean; pending: boolean } | null } = { video: null }): Outbound => {
     const now = (k: SocialKind) => t.socials.find((s) => s.kind === k)?.label;
     const row = (k: SocialKind, icon: string) => ({ id: `card:s-${k}`, title: `${icon} ${SOCIAL_NAMES[k]}`.slice(0, 24), description: now(k) ? `Now: ${now(k)}`.slice(0, 72) : `Add your ${k === 'website' ? 'website or online store' : SOCIAL_NAMES[k]}` });
     return {
@@ -343,6 +343,10 @@ export const msg = {
           { id: 'card:name', title: '🏷️ Name & city', description: `Now: ${t.name}${t.city ? ', ' + t.city : ''}`.slice(0, 72) },
         ] },
         { title: 'Where you sell', rows: [row('instagram', '📷'), row('tiktok', '🎵'), row('facebook', '👥'), row('website', '🌐')] },
+        { title: 'Proof for buyers', rows: [
+          ...(proof.video ? [{ id: 'card:video', title: '🎥 Video', description: proof.video.pending ? 'Waiting for Hoolam\'s check' : proof.video.live ? 'On your page. Change or remove it' : 'Let buyers see and hear you' }] : []),
+          { id: 'card:delivered', title: '📦 Delivered photos', description: t.showDelivered ? 'On: your delivered items show. Tap to hide' : 'Off: show items you\'ve delivered' },
+        ] },
       ],
     };
   },
@@ -352,6 +356,22 @@ export const msg = {
     text: '📸 Send a clear photo of *you* or *your shop*.\n\nIt shows in a circle on your page, so keep the face or the shop in the middle.',
     buttons: [...(hasPhoto ? [{ id: 'card:rmphoto', title: '🗑️ Remove photo' }] : []), { id: 'card:cancel', title: 'Cancel' }],
   }),
+  // ===== MY PAGE: VIDEO AND DELIVERED PHOTOS =====
+  askSellerVideo: (state: { live: boolean; pending: boolean }): Outbound => ({
+    kind: 'buttons',
+    text: `🎥 *A short video for your page*\n\nBuyers trust a face and a voice. Record 30 seconds or less on your phone, then send it here.\n\n1️⃣ Say your name and what you sell\n2️⃣ Show your shop or your products\n3️⃣ Say: _"Pay through Hoolam, your money is safe"_\n\nHoolam checks every video before buyers see it.${state.pending ? '\n\n⏳ Your last video is still being checked. A new one replaces it.' : ''}`,
+    buttons: [...(state.live || state.pending ? [{ id: 'card:rmvideo', title: '🗑️ Remove video' }] : []), { id: 'card:cancel', title: 'Cancel' }],
+  }),
+  videoNeeded: (): Outbound => ({ kind: 'buttons', text: '🎥 Please send a video (not a photo, file or link). 30 seconds or less.', buttons: [{ id: 'card:cancel', title: 'Cancel' }] }),
+  videoTooBig: (): Outbound => ({ kind: 'buttons', text: '😕 That video is too long. Please send one of 30 seconds or less.', buttons: [{ id: 'card:cancel', title: 'Cancel' }] }),
+  videoFailed: (): Outbound => ({ kind: 'buttons', text: '😕 We couldn\'t use that video. Please try again.', buttons: [{ id: 'card:cancel', title: 'Cancel' }] }),
+  videoReceived: (): Outbound => withMenu('✅ Got it! Hoolam checks your video, usually within a day. We\'ll tell you here once it\'s on your page.'),
+  videoApproved: (url: string | null): Outbound => withMenu(`🎉 Your video is on your page now. Buyers can see and hear you before they pay.${url ? `\n\n${url}` : ''}`),
+  videoRejected: (reason: string): Outbound => withMenu(`😕 We couldn't put your video on your page.\n\n*Why:* ${reason}\n\nYou can send a new one any time: My page → Edit my page → Video.`),
+  deliveredOn: (count: number): Outbound => withMenu(count
+    ? `📦 Done. Photos of items you've delivered now show on your page (your own order photos only, never a buyer's).`
+    : `📦 Done. Once you complete an order with photos you added, they'll show on your page (your own photos only, never a buyer's).`),
+  deliveredOff: (): Outbound => withMenu('📦 Done. Delivered photos are hidden from your page.'),
   photoNeeded: (): Outbound => ({ kind: 'buttons', text: '📸 Please send a photo (not a file or a link).', buttons: [{ id: 'card:cancel', title: 'Cancel' }] }),
   photoFailed: (): Outbound => ({ kind: 'buttons', text: '😕 We couldn\'t use that photo. Please try another one.', buttons: [{ id: 'card:cancel', title: 'Cancel' }] }),
   askSocial: (kind: SocialKind, current: string | null): Outbound => ({
@@ -380,6 +400,30 @@ export const msg = {
 
   // ===== RATINGS =====
   ratedUp: (sellerName: string): Outbound => ({ ...withMenu(`🙏 Thanks! It's on *${sellerName}*'s record now, and it helps the next buyer.`), sticker: 'thanks' }),
+  askReview: (sellerName: string, code: string): Outbound => ({
+    kind: 'buttons',
+    text: `🙏 Thanks! It's on *${sellerName}*'s record now.\n\nWant to say a few words for the next buyer? (Optional)`,
+    buttons: [{ id: `revw:${code}`, title: '✍️ Say a few words' }, { id: `revno:${code}`, title: 'No thanks' }],
+    sticker: 'thanks',
+  }),
+  askReviewText: (sellerName: string): Outbound => ({
+    kind: 'text', noMenu: true,
+    text: `✍️ Type a few words about *${sellerName}* (up to 160 letters).\n\nFor example: _"Fast delivery, exactly like the pictures."_`,
+  }),
+  reviewNotOk: (why: 'short' | 'long' | 'contact'): Outbound => ({
+    kind: 'text', noMenu: true,
+    text: why === 'long' ? '✂️ That\'s a bit long. Please keep it to 160 letters.'
+      : why === 'contact' ? '🔒 Please leave out links, phone numbers and usernames. Just a few words about the order.'
+      : '✍️ Please type a few words, or send *skip*.',
+  }),
+  askReviewConsent: (text: string, name: string, area: string | null, code: string): Outbound => ({
+    kind: 'buttons',
+    text: `Can we show this on the seller's Hoolam page?\n\n_"${text}"_\n— ${name}${area ? `, ${area}` : ''}\n\nOnly your first name${area ? ' and area' : ''} show. Never your number.`,
+    buttons: [{ id: `revyes:${code}`, title: '✅ Yes, show it' }, { id: `revpriv:${code}`, title: '🔒 Keep it private' }],
+  }),
+  reviewShown: (sellerName: string): Outbound => withMenu(`💚 Thank you! Your words are on *${sellerName}*'s page now.`),
+  reviewPrivate: (): Outbound => withMenu('🙏 Thank you. Only the Hoolam team will see it.'),
+  reviewSkipped: (): Outbound => withMenu('👍 No problem. Thanks for buying safely!'),
   askRatingComment: (code: string): Outbound => ({
     kind: 'buttons',
     text: '😕 Sorry it wasn\'t great. What went wrong? (Optional. Only our team sees this.)',

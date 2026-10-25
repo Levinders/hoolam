@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, UserRound, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, UserRound, Clapperboard, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -8,6 +8,7 @@ import { useData } from '../../hooks';
 import { Button, ConfirmAction, ErrorBanner, Pill, Skeleton, Switch, useToast } from '../../ui';
 import { SectionHead, useUnsaved } from '../Settings';
 import { ChatMediaPanel } from './ChatMedia';
+import { SellerVideos } from './SellerVideos';
 
 type Band = { upTo: number | null; fee: number };
 type Val = number | boolean | string | Band[];
@@ -479,7 +480,7 @@ const AMB_GROUPS: { title: string; help: string; keys: string[] }[] = [
  */
 export function FeaturesPage() {
   const { can } = useAuth();
-  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key), 'feature_about_founder'];
+  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key), 'feature_about_founder', 'feature_seller_video'];
   const s = useDraft(keys);
   if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
   if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={120} /><Skeleton h={120} /></div>;
@@ -511,6 +512,11 @@ export function FeaturesPage() {
               </div>
             ))}
           </div>
+        </FeatureCard>
+        <FeatureCard s={s} k="feature_seller_video" icon={Clapperboard} title="Seller videos" editable={editable}
+          line="Sellers send a short video in WhatsApp; once you approve it, buyers see and hear them on their page."
+          more="Videos" open={on('feature_seller_video')}>
+          <SellerVideos />
         </FeatureCard>
         <FeatureCard s={s} k="feature_about_founder" icon={UserRound} title="Who's behind Hoolam on About" editable={editable}
           line="Your photo, name, a one-line promise and your voice note on the About page."

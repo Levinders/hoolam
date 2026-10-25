@@ -883,3 +883,18 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 11px; resize: ver
 .sn-n { font: 700 1.5rem/1.1 Poppins, Inter, sans-serif; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .sn-bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
 .sn-bar i { display: block; height: 100%; background: var(--gold); border-radius: inherit; }
+
+/* Settings → Features → Seller videos */
+.sv-h { display: flex; align-items: center; gap: 8px; font-size: .95rem; font-weight: 600; margin: 0 0 10px; }
+.sv-h svg { width: 18px; height: 18px; color: var(--teal); }
+.sv-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.sv-item { display: grid; gap: 10px; padding: 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); min-width: 0; }
+.sv-item.pending { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--gold) 55%, transparent); }
+.sv-player { width: 100%; aspect-ratio: 4 / 5; max-height: 360px; border-radius: 10px; background: #0b2427; object-fit: contain; }
+.sv-meta { display: grid; gap: 4px; min-width: 0; }
+.sv-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* a person: what buyers wrote */
+.rev-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rev-list li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r); background: var(--sunk); }
+.rev-list li.off { opacity: .6; }
+.rev-list blockquote { margin: 0; font-size: .92rem; }

@@ -40,6 +40,7 @@ import { configureMessages, msg } from './whatsapp/messages.js';
 import { ChatArt } from './chat-art/index.js';
 import { setMarkSource } from './brand-mark.js';
 import { SiteShow } from './site-show.js';
+import { ART } from './chat-art/build.js';
 import { localPhone } from './phone.js';
 import { formatMoney } from './money.js';
 import { Conversation } from './whatsapp/flow.js';
@@ -63,6 +64,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const trust = new Trust(db, c.TRUST_COUNT_TEST_DEALS, skipAccountMatch);
   const settings = new Settings(db, c);
   trust.statsOn = () => settings.get<boolean>('feature_seller_stats') === true; // Console → Settings → Features
+  trust.videoOn = () => settings.get<boolean>('feature_seller_video') === true; // Console → Settings → Features → Seller videos
   const links = new CampaignLinks(db); // hoolam.com/<name> campaign links (Console → Settings → Links)
   // messages mention reply times and use Hoolam's number as the example: always the console's current values
   configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
@@ -413,10 +415,21 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     if (!isBot(req.headers['user-agent'])) await trust.recordSocial(id).catch((e) => log(`seller page stats: ${(e as Error).message}`));
     return reply.header('cache-control', 'no-store').header('x-robots-tag', 'noindex').redirect(link.url, 302);
   });
-  // the picture shown when a seller's link is shared (their photo in the Hoolam card)
+  // the picture shown when a seller's link is shared: their trust card with today's numbers (else their photo in the Hoolam card)
+  const shareCards = new Map<string, Buffer>();
   app.get('/s/:slug/share.jpg', async (req, reply) => {
     const s = await publicSeller((req.params as { slug: string }).slug);
     if (!s?.t) return reply.redirect('/share.png');
+    try {
+      const key = JSON.stringify([s.id, s.t.photoVersion, s.t.completed, s.t.buyers, s.t.happy, s.t.rated, s.t.verified, s.t.isNew, s.t.name, s.t.city, siteMedia.current().mark ?? '']);
+      let img = shareCards.get(key);
+      if (!img) {
+        img = (await chatArt.render(ART.trust(s.t, s.id))).bytes;
+        if (shareCards.size > 300) shareCards.clear();
+        shareCards.set(key, img);
+      }
+      return reply.type('image/jpeg').header('cache-control', 'public, max-age=3600').send(img);
+    } catch (e) { log(`seller share card: ${(e as Error).message}`); }
     const markV = siteMedia.current().mark ?? '';
     const markFile = markV ? await siteMedia.get('mark') : null;
     const photo = s.t.photoVersion ? await trust.photo(s.id) : null;
@@ -426,6 +439,33 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // a one-way code for "this browser on this network today", so a visitor counts once a day; the IP itself is never stored
   const visitorCode = (req: { ip?: string; headers: Record<string, unknown> }) =>
     createHash('sha256').update(`${req.ip ?? ''}|${String(req.headers['user-agent'] ?? '')}|${new Date().toISOString().slice(0, 10)}|${formSecret}`).digest('hex').slice(0, 32);
+  // the seller's video (Seller videos on, checked by Hoolam). Phones ask for it in pieces (Range), so it plays straight away.
+  app.get('/s/:slug/video.mp4', async (req, reply) => {
+    const s = await publicSeller((req.params as { slug: string }).slug);
+    const v = s ? await trust.liveVideo(s.id) : null;
+    if (!v) return reply.code(404).type('text/plain').send('No video');
+    const total = v.bytes.length;
+    reply.header('accept-ranges', 'bytes').header('x-content-type-options', 'nosniff').header('x-robots-tag', 'noindex')
+      .header('cache-control', (req.query as { v?: string }).v === v.version ? 'public, max-age=31536000, immutable' : 'public, max-age=300').type(v.mime);
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    if (!m) return reply.header('content-length', total).send(v.bytes);
+    let start = m[1] ? Number(m[1]) : total - Number(m[2]);
+    let end = m[1] && m[2] ? Number(m[2]) : total - 1;
+    if (!m[1]) end = total - 1;
+    if (start < 0) start = 0;
+    if (start >= total || end < start) return reply.code(416).header('content-range', `bytes */${total}`).send();
+    end = Math.min(end, total - 1);
+    return reply.code(206).header('content-range', `bytes ${start}-${end}/${total}`).header('content-length', end - start + 1).send(v.bytes.subarray(start, end + 1));
+  });
+  // a photo of an item the seller delivered (only theirs, only when they chose to show them)
+  app.get('/s/:slug/delivered/:file', async (req, reply) => {
+    const { slug, file } = req.params as { slug: string; file: string };
+    const id = Number(/^(\d+)\.webp$/.exec(file)?.[1] ?? NaN);
+    const s = Number.isFinite(id) ? await publicSeller(slug) : null;
+    const img = s ? await trust.deliveredPhoto(s.id, id) : null;
+    if (!img) return reply.code(404).type('text/plain').send('No photo');
+    return reply.type('image/webp').header('x-content-type-options', 'nosniff').header('cache-control', 'public, max-age=86400').send(img);
+  });
   app.get('/s/:slug', async (req, reply) => {
     const { slug } = req.params as { slug: string };
     const id = await trust.findSeller({ slug });
@@ -436,6 +476,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       .send(sellerPage(t, {
         slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: base, siteUrl: c.SITE_URL ?? null,
         markUrl: siteMedia.url(base, 'mark'),
+        feeFrom: formatMoney(settings.pricing().min * (c.CURRENCY === "NGN" ? 100 : 1), c.CURRENCY),
+        artBase: base,
         gaId: c.GA_MEASUREMENT_ID === 'off' ? null : (c.GA_MEASUREMENT_ID || 'G-J2YB5ZF1NE'),
       }));
   });

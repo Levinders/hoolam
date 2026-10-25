@@ -38,6 +38,15 @@ export interface SellerStats {
   pageViews?: number | null;
   /** The seller's own numbers (My page), only with Seller page stats on. */
   ownStats?: { views30: number; buys30: number; total: number } | null;
+  /** When their last order was completed (the buyer was happy), for "Last order completed 2 days ago". */
+  lastCompletedAt?: Date | null;
+  /** Their approved video (only while Seller videos is on): its version, for /s/:slug/video.mp4?v= */
+  video?: { version: string; mime: string } | null;
+  /** Photo ids of items they've delivered (only when they chose to show them): /s/:slug/delivered/:id.webp */
+  delivered?: number[];
+  /** What buyers wrote and agreed to show (newest first). */
+  reviews?: { text: string; name: string; area: string | null; at: Date }[];
+  showDelivered?: boolean;
 }
 
 /** Short counts: 950, 1.2k, 15.4k, 1.2m (one decimal, dropped when it's .0). */
@@ -63,6 +72,8 @@ export class Trust {
 
   /** Console → Settings → Features → Seller page stats. Counting never stops; this only decides whether anyone sees the numbers. */
   statsOn: () => boolean = () => false;
+  /** Console → Settings → Features → Seller videos. */
+  videoOn: () => boolean = () => false;
 
   /** Counts a page view, once per visitor per day (visitor: a one-way code, never stored beyond 2 days). */
   async recordView(userId: string, visitor: string): Promise<void> { await this.recordOnce(userId, visitor, 'views'); }
@@ -100,14 +111,15 @@ export class Trust {
 
   async seller(userId: string): Promise<SellerStats | null> {
     const u = (await this.db.query(`SELECT u.id, u.display_name, u.business_name, u.city, u.created_at, u.profile_slug, u.profile_public, u.kyc_status, u.kyc_verified_at, u.kyc_name,
-        u.social_instagram, u.social_tiktok, u.social_facebook, u.social_website, p.sha256 AS photo_sha
+        u.social_instagram, u.social_tiktok, u.social_facebook, u.social_website, u.show_delivered, p.sha256 AS photo_sha
       FROM users u LEFT JOIN user_photos p ON p.user_id=u.id WHERE u.id=$1`, [userId])).rows[0];
     if (!u) return null;
     const scope = `seller_id=$1 AND buyer_id IS NOT NULL AND buyer_id<>seller_id AND ($2 OR NOT is_test)`;
-    const [d, disputes, ratings, bank] = await Promise.all([
+    const [d, disputes, ratings, bank, video, delivered, reviews] = await Promise.all([
       this.db.query(
         `SELECT count(*) FILTER (WHERE status IN ${DONE})::int AS completed,
                 count(DISTINCT buyer_id) FILTER (WHERE status IN ${DONE})::int AS buyers,
+                max(coalesce(closed_at, updated_at)) FILTER (WHERE status IN ${DONE}) AS last_done,
                 count(*) FILTER (WHERE shipped_at IS NOT NULL AND funded_at IS NOT NULL)::int AS ship_samples,
                 percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM shipped_at - funded_at) / 3600)
                   FILTER (WHERE shipped_at IS NOT NULL AND funded_at IS NOT NULL) AS ship_hours
@@ -123,6 +135,15 @@ export class Trust {
         `SELECT count(*) FILTER (WHERE r.happy)::int AS happy, count(*)::int AS rated
          FROM deal_ratings r JOIN deals d ON d.id=r.deal_id WHERE r.seller_id=$1 AND ($2 OR NOT d.is_test)`, [userId, this.includeTest]),
       this.db.query('SELECT account_name FROM bank_accounts WHERE user_id=$1 AND is_default ORDER BY created_at DESC LIMIT 1', [userId]),
+      this.videoOn() ? this.db.query(`SELECT sha256, mime FROM seller_videos WHERE user_id=$1 AND status='APPROVED' ORDER BY reviewed_at DESC NULLS LAST, id DESC LIMIT 1`, [userId]) : Promise.resolve({ rows: [] as any[] }),
+      // the seller's own item photos (never a buyer's), one per completed order, newest first
+      u.show_delivered ? this.db.query(
+        `SELECT DISTINCT ON (d.id) p.id, d.closed_at FROM deal_photos p JOIN deals d ON d.id=p.deal_id
+         WHERE d.seller_id=$1 AND d.status IN ${DONE} AND p.kind='ITEM' AND p.uploaded_by=$1 AND p.bytes IS NOT NULL AND ($2 OR NOT d.is_test)
+         ORDER BY d.id, p.id`, [userId, this.includeTest]) : Promise.resolve({ rows: [] as any[] }),
+      this.db.query(
+        `SELECT r.text, r.created_at, b.display_name, b.city FROM seller_reviews r JOIN users b ON b.id=r.buyer_id JOIN deals d ON d.id=r.deal_id
+         WHERE r.seller_id=$1 AND r.public AND NOT r.hidden AND ($2 OR NOT d.is_test) ORDER BY r.created_at DESC LIMIT 3`, [userId, this.includeTest]),
     ]);
     const row = d.rows[0];
     const bankName: string | null = bank.rows[0]?.account_name ?? null;
@@ -149,6 +170,11 @@ export class Trust {
       isPublic: u.profile_public,
       socials: SOCIAL_KINDS.map((k) => socialLink(k, u[`social_${k}`])).filter((x): x is SocialLink => !!x),
       photoVersion: u.photo_sha ? String(u.photo_sha).slice(0, 12) : null,
+      lastCompletedAt: row.last_done ? new Date(row.last_done) : null,
+      video: video.rows[0] ? { version: String(video.rows[0].sha256).slice(0, 12), mime: video.rows[0].mime } : null,
+      delivered: delivered.rows.sort((a: any, b: any) => +new Date(b.closed_at ?? 0) - +new Date(a.closed_at ?? 0)).slice(0, 6).map((x: any) => Number(x.id)),
+      reviews: reviews.rows.map((x: any) => ({ text: x.text, name: firstName(x.display_name) ?? 'A buyer', area: x.city ?? null, at: new Date(x.created_at) })),
+      showDelivered: !!u.show_delivered,
     };
   }
 
@@ -238,6 +264,97 @@ export class Trust {
   async rateComment(dealId: string, buyerId: string, comment: string) {
     await this.db.query('UPDATE deal_ratings SET comment=$3 WHERE deal_id=$1 AND buyer_id=$2', [dealId, buyerId, comment.slice(0, 500)]);
   }
+
+  // ---------- a buyer's few words about the seller (shown only with their yes) ----------
+  /** Saves what a buyer wrote after a happy order. `show`: they agreed it goes on the seller's page with their first name and area. */
+  async saveReview(dealId: string, buyerId: string, sellerId: string, text: string, show: boolean): Promise<void> {
+    await this.db.query(`INSERT INTO seller_reviews (deal_id, buyer_id, seller_id, text, public) VALUES ($1,$2,$3,$4,$5)
+      ON CONFLICT (deal_id) DO UPDATE SET text=EXCLUDED.text, public=EXCLUDED.public`, [dealId, buyerId, sellerId, text.slice(0, REVIEW_MAX), show]);
+  }
+  /** Every review of a seller, for the console. */
+  async reviewsFor(sellerId: string): Promise<{ dealId: string; text: string; public: boolean; hidden: boolean; buyer: string; buyerId: string; at: string }[]> {
+    const r = await this.db.query(`SELECT r.deal_id, r.text, r.public, r.hidden, r.created_at, r.buyer_id, coalesce(b.display_name, b.phone) AS buyer
+      FROM seller_reviews r JOIN users b ON b.id=r.buyer_id WHERE r.seller_id=$1 ORDER BY r.created_at DESC LIMIT 50`, [sellerId]);
+    return r.rows.map((x) => ({ dealId: x.deal_id, text: x.text, public: x.public, hidden: x.hidden, buyer: x.buyer, buyerId: x.buyer_id, at: x.created_at }));
+  }
+  async hideReview(dealId: string, hidden: boolean, staffId: string | null): Promise<boolean> {
+    return ((await this.db.query('UPDATE seller_reviews SET hidden=$2, hidden_by=$3 WHERE deal_id=$1', [dealId, hidden, hidden ? staffId : null])).rowCount ?? 0) > 0;
+  }
+
+  // ---------- photos of items they've delivered (the seller chooses) ----------
+  async setShowDelivered(userId: string, on: boolean): Promise<void> {
+    await this.db.query('UPDATE users SET show_delivered=$2 WHERE id=$1', [userId, on]);
+  }
+  /** One delivered item's photo, only if it's theirs, on a completed order, and they chose to show them. */
+  async deliveredPhoto(userId: string, photoId: number): Promise<Buffer | null> {
+    const r = await this.db.query(
+      `SELECT p.bytes FROM deal_photos p JOIN deals d ON d.id=p.deal_id JOIN users u ON u.id=d.seller_id
+       WHERE p.id=$2 AND d.seller_id=$1 AND u.show_delivered AND d.status IN ${DONE} AND p.kind='ITEM' AND p.uploaded_by=$1 AND p.bytes IS NOT NULL AND ($3 OR NOT d.is_test)`,
+      [userId, photoId, this.includeTest]);
+    if (!r.rows[0]) return null;
+    return sharp(r.rows[0].bytes, { failOn: 'none' }).rotate().resize(480, 480, { fit: 'cover', position: 'attention' }).webp({ quality: 78 }).toBuffer();
+  }
+
+  // ---------- the seller's video (Hoolam checks each one) ----------
+  /** A new video from the seller: waits for Hoolam's check. Replaces one that was still waiting. */
+  async setVideo(userId: string, bytes: Buffer, mime: string): Promise<void> {
+    if (bytes.length > VIDEO_MAX_BYTES) throw new Error('too big');
+    const sha = createHash('sha256').update(bytes).digest('hex');
+    await this.db.query(`DELETE FROM seller_videos WHERE user_id=$1 AND status IN ('PENDING','REJECTED')`, [userId]);
+    await this.db.query(`INSERT INTO seller_videos (user_id, mime, bytes, sha256, size_bytes) VALUES ($1,$2,$3,$4,$5)`, [userId, mime, bytes, sha, bytes.length]);
+  }
+  /** Where their video stands, for My page. */
+  async videoState(userId: string): Promise<{ live: boolean; pending: boolean; rejected: string | null }> {
+    const r = await this.db.query(`SELECT status, reason FROM seller_videos WHERE user_id=$1 ORDER BY id DESC`, [userId]);
+    const by = (st: string) => r.rows.find((x) => x.status === st);
+    return { live: !!by('APPROVED'), pending: !!by('PENDING'), rejected: by('REJECTED') && !by('PENDING') ? (by('REJECTED').reason ?? '') : null };
+  }
+  async removeVideo(userId: string): Promise<boolean> {
+    return ((await this.db.query('DELETE FROM seller_videos WHERE user_id=$1', [userId])).rowCount ?? 0) > 0;
+  }
+  /** The live video's file (only while Seller videos is on). */
+  async liveVideo(userId: string): Promise<{ bytes: Buffer; mime: string; version: string } | null> {
+    if (!this.videoOn()) return null;
+    const r = (await this.db.query(`SELECT bytes, mime, sha256 FROM seller_videos WHERE user_id=$1 AND status='APPROVED' ORDER BY reviewed_at DESC NULLS LAST, id DESC LIMIT 1`, [userId])).rows[0];
+    return r ? { bytes: r.bytes, mime: r.mime, version: String(r.sha256).slice(0, 12) } : null;
+  }
+  /** Videos for the console: waiting first, then the recently checked. */
+  async videos(): Promise<{ id: number; userId: string; name: string; status: string; reason: string | null; size: number; at: string; reviewedAt: string | null; reviewedBy: string | null }[]> {
+    const r = await this.db.query(`SELECT v.id, v.user_id, coalesce(nullif(u.business_name, ''), u.display_name, u.phone) AS name, v.status, v.reason, v.size_bytes, v.created_at, v.reviewed_at, s.name AS reviewed_by
+      FROM seller_videos v JOIN users u ON u.id=v.user_id LEFT JOIN staff s ON s.id=v.reviewed_by
+      ORDER BY (v.status='PENDING') DESC, coalesce(v.reviewed_at, v.created_at) DESC LIMIT 40`);
+    return r.rows.map((x) => ({ id: Number(x.id), userId: x.user_id, name: x.name, status: x.status, reason: x.reason, size: x.size_bytes, at: x.created_at, reviewedAt: x.reviewed_at, reviewedBy: x.reviewed_by }));
+  }
+  async videoFile(id: number): Promise<{ bytes: Buffer; mime: string } | null> {
+    const r = (await this.db.query('SELECT bytes, mime FROM seller_videos WHERE id=$1', [id])).rows[0];
+    return r ? { bytes: r.bytes, mime: r.mime } : null;
+  }
+  /** Approve (it goes live, replacing their old one) or reject (with a reason they're told). Returns the seller, or null. */
+  async reviewVideo(id: number, approve: boolean, reason: string | null, staffId: string | null): Promise<string | null> {
+    const v = (await this.db.query(`SELECT user_id FROM seller_videos WHERE id=$1 AND status='PENDING'`, [id])).rows[0];
+    if (!v) return null;
+    if (approve) await this.db.query(`DELETE FROM seller_videos WHERE user_id=$1 AND status='APPROVED'`, [v.user_id]);
+    await this.db.query(`UPDATE seller_videos SET status=$2, reason=$3, reviewed_by=$4, reviewed_at=now() WHERE id=$1`, [id, approve ? 'APPROVED' : 'REJECTED', approve ? null : reason, staffId]);
+    return v.user_id;
+  }
+  /** Take a live video down (it's deleted). */
+  async takeDownVideo(id: number): Promise<string | null> {
+    const r = await this.db.query('DELETE FROM seller_videos WHERE id=$1 RETURNING user_id', [id]);
+    return r.rows[0]?.user_id ?? null;
+  }
+}
+
+/** What a buyer can write about a seller, at most. */
+export const REVIEW_MAX = 160;
+/** A seller's video, at most (about 30 seconds from a phone, as WhatsApp sends it). */
+export const VIDEO_MAX_BYTES = 16 * 1024 * 1024;
+/** Words a buyer may show on a seller's page: no links, no phone numbers, no emails. */
+export function reviewProblem(text: string): string | null {
+  const t = text.trim();
+  if (t.length < 3) return 'short';
+  if (t.length > REVIEW_MAX) return 'long';
+  if (/https?:|www\.|\.(com|ng|net|org)\b|@[a-z0-9_]{2,}|(\+?234|0)[789][01]\d{8}|\d{10,}/i.test(t)) return 'contact';
+  return null;
 }
 
 // ---------- small helpers, exported for tests ----------

@@ -17,6 +17,21 @@ export interface SellerPageOptions {
   slug: string; waNumber: string; baseUrl: string; siteUrl?: string | null;
   markUrl?: string | null;
   gaId?: string | null;      // Google Analytics (with consent: no cookies until the visitor accepts on the banner)
+  /** The smallest Hoolam fee, for the line under Buy ("Fee from ₦300"). */
+  feeFrom?: string | null;
+  /** The chat's pictures, as the website shows them (/site/art/<id>), for "What happens when you buy". */
+  artBase?: string | null;
+}
+
+/** "today", "yesterday", "3 days ago", "2 weeks ago", "4 months ago" */
+export function agoText(d: Date, now = new Date()): string {
+  const days = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 730) return `${Math.floor(days / 30)} months ago`;
+  return `${Math.floor(days / 365)} years ago`;
 }
 
 export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
@@ -28,7 +43,7 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
   const open = t.problems - t.refunded - t.released;
   const page = `${o.baseUrl}/s/${o.slug}`;
   const photo = t.photoVersion ? `${page}/photo.webp?v=${t.photoVersion}` : null;
-  const share = `${page}/share.jpg?v=${t.photoVersion ?? '0'}`;
+  const share = `${page}/share.jpg?v=${[t.photoVersion ?? '0', t.completed, t.rated, t.verified ? 1 : 0].join('-')}`; // changes when the card's numbers do
   const home = o.siteUrl || null;
 
   const stats: { icon: string; big: string; small: string; tone?: string }[] = [];
@@ -61,6 +76,17 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
     },
   };
   const brand = `${o.markUrl ? `<img class="mark-img" src="${esc(o.markUrl)}" alt="">` : ICON.mark}<span>Hoolam</span>`;
+  const name = esc(t.name);
+  // what Hoolam checked: each line only when it's true
+  const checks = [
+    t.verified ? `<span><b>ID checked</b>BVN or NIN, once, through a licensed checker</span>` : '',
+    t.verified || (t.bankName && t.bankMatches) ? `<span><b>Payout account in their own name</b>Checked with the bank${t.bankName ? ` (${esc(shortBankName(t.bankName))})` : ''}</span>`
+      : t.bankName ? `<span><b>Payout account checked with the bank</b>Money goes only to that account (${esc(shortBankName(t.bankName))})</span>` : '',
+    `<span><b>Their own WhatsApp number</b>Every order runs through Hoolam's chat with them</span>`,
+  ].filter(Boolean);
+  const video = t.video ? `${page}/video.mp4?v=${t.video.version}` : null;
+  const art = (id: string) => `${esc((o.artBase ?? o.baseUrl).replace(/\/+$/, ''))}/site/art/${id}`;
+  const howSteps: [string, string][] = [['status-3', 'You pay Hoolam. We hold the money.'], ['status-4', `${name} sends your order.`], ['status-5', 'You check it, then tap I\'m happy.'], ['status-6', `${name} is paid. Everybody happy.`]];
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(title)}</title>
@@ -72,7 +98,7 @@ export function sellerPage(t: SellerStats, o: SellerPageOptions): string {
 <link rel="icon" href="${esc(o.markUrl ?? `${o.baseUrl}/favicon.svg`)}">
 <meta property="og:type" content="profile"><meta property="og:site_name" content="Hoolam">
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:url" content="${esc(page)}">
-<meta property="og:image" content="${esc(share)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image" content="${esc(share)}"><meta property="og:image:width" content="1600"><meta property="og:image:height" content="900">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
 <style>
@@ -139,14 +165,53 @@ h1{font:700 26px/1.15 Poppins,Inter,sans-serif;letter-spacing:-.02em;margin-top:
 .row.good .ic{color:var(--green)}
 .note{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--muted);padding:12px 20px 18px;background:#FCFCFA;border-top:1px solid var(--line)}
 .note .ic{margin-top:2px;color:var(--faint)}
-.how{margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px 20px}
-.how h2{font:600 16px Poppins,Inter,sans-serif;color:var(--ink);margin-bottom:12px}
-.steps{list-style:none;padding:0;display:flex;flex-direction:column;gap:0}
-.steps li{display:flex;gap:12px;align-items:center;position:relative;padding:7px 0;font-size:14px}
-.steps li:not(:last-child):after{content:"";position:absolute;left:17px;top:42px;bottom:-8px;width:2px;background:var(--line)}
-.steps .si{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:var(--teal-50);color:var(--teal);flex:none;position:relative;z-index:1}
-.steps li:last-child .si{background:var(--green-50);color:var(--green)}
-.steps .ic{width:18px;height:18px}
+.how{margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px 0 16px}
+.how h2{font:600 16px Poppins,Inter,sans-serif;color:var(--ink);padding:0 20px}
+.how-sub{color:var(--muted);font-size:13px;padding:2px 20px 0}
+.shots{list-style:none;padding:12px 20px 4px;margin:0;display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.shots::-webkit-scrollbar{display:none}
+.shots li{flex:0 0 78%;scroll-snap-align:center;display:flex;flex-direction:column;gap:8px}
+.shots img{width:100%;height:auto;aspect-ratio:16/9;border-radius:14px;border:1px solid var(--line);background:var(--teal-50);display:block}
+.shots span{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;line-height:1.35;font-weight:500}
+.shots b{flex:none;width:22px;height:22px;border-radius:50%;background:var(--teal);color:#fff;display:grid;place-items:center;font-size:12px}
+.shots li:last-child b{background:var(--green)}
+/* the seller's video */
+.vid{margin:0 20px 20px}
+.vid-frame{position:relative;border-radius:18px;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#14595f,#0b2427);aspect-ratio:4/5;max-height:400px;margin:0 auto}
+.vid video{width:100%;height:100%;object-fit:cover;display:block}
+.vid-frame.on video{object-fit:contain}
+.vid-play{position:absolute;inset:0;margin:auto;width:72px;height:72px;border-radius:50%;border:0;background:rgba(255,255,255,.94);color:var(--teal);display:grid;place-items:center;cursor:pointer;box-shadow:0 12px 30px -8px rgba(0,0,0,.55),0 0 0 8px rgba(255,255,255,.22);transition:transform .2s}
+.vid-play:hover{transform:scale(1.06)}
+.vid-play .ic{width:30px;height:30px;margin-left:4px}
+.vid-frame.on .vid-play{display:none}
+.vid figcaption{display:flex;gap:6px;align-items:center;justify-content:center;margin-top:8px;font-size:12.5px;color:var(--muted);font-weight:500}
+.vid figcaption .ic{width:15px;height:15px;color:var(--green)}
+/* the last order, what Hoolam checked, what buyers say, recently delivered */
+.recent{display:flex;align-items:center;gap:10px;padding:12px 20px;font-size:13.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+.recent b{color:var(--ink)}
+.pulse{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(46,139,87,.16);flex:none}
+.checked,.words,.delivered{padding:16px 20px 18px}
+.sec h2{font:600 14.5px Poppins,Inter,sans-serif;margin-bottom:10px}
+.checked ul{list-style:none;padding:0;display:grid;gap:10px}
+.checked li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.35}
+.checked .tick{width:22px;height:22px;border-radius:50%;background:var(--green-50);color:var(--green);display:grid;place-items:center;flex:none;margin-top:1px}
+.checked .tick .ic{width:14px;height:14px}
+.checked li span:not(.tick){display:flex;flex-direction:column;color:var(--muted)}
+.checked li span b{color:var(--ink);font-weight:600}
+.q{margin:0;padding:12px 14px;border-radius:14px;background:#FCFCFA;border:1px solid var(--line)}
+.q+.q{margin-top:8px}
+.q blockquote{margin:0;font-size:14px;line-height:1.45}
+.q figcaption{margin-top:6px;font-size:12px;color:var(--muted);font-weight:500}
+.dgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.dph{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:1;background:var(--teal-50)}
+.dph img{width:100%;height:100%;object-fit:cover;display:block}
+.dph i{position:absolute;left:6px;bottom:6px;display:inline-flex;align-items:center;gap:3px;font:600 10.5px Inter,sans-serif;font-style:normal;color:#fff;background:rgba(46,139,87,.92);padding:3px 7px 3px 5px;border-radius:99px}
+.dph i .ic{width:11px;height:11px}
+/* only pay through Hoolam; what the Buy button does */
+.safe{display:flex;gap:10px;align-items:flex-start;margin:0 0 4px;padding:13px 16px;border-radius:16px;background:var(--gold-50);color:#5B430C;font-size:13.5px;line-height:1.45}
+.safe .ic{color:#8A6418;margin-top:2px}
+.safe b{color:#3F2E08}
+.cta-note{text-align:center;color:var(--muted);font-size:12px;margin-top:8px;line-height:1.4}
 .cta-bar{position:sticky;bottom:0;padding:12px 0 calc(12px + env(safe-area-inset-bottom));background:linear-gradient(rgba(250,250,247,0),var(--bg) 30%)}
 .cta{display:flex;align-items:center;justify-content:center;gap:10px;background:var(--teal);color:#fff;text-decoration:none;font-weight:600;font-size:16px;min-height:56px;padding:0 20px;border-radius:16px;box-shadow:0 14px 28px -14px rgba(14,92,99,.75);transition:transform .2s,background .2s}
 .cta:hover{background:var(--teal-d)}
@@ -185,31 +250,34 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
       ${t.isNew ? `<span class="chip gold">${ICON.sprout}New on Hoolam</span>` : ''}
     </div>
   </div>
+  ${video ? `<figure class="vid" aria-label="A video from ${name}">
+    <div class="vid-frame"><video controls playsinline preload="none"${photo ? ` poster="${esc(photo)}"` : ''} src="${esc(video)}"></video><button type="button" class="vid-play" aria-label="Play ${name}'s video">${ICON.play}</button></div>
+    <figcaption>${ICON.shieldCheck}<span>A message from ${name}, checked by Hoolam</span></figcaption>
+  </figure>` : ''}
   ${t.socials.length ? `<nav class="socials" aria-label="Where ${esc(t.name)} sells">${t.socials.map((s) => `<a class="soc ${s.kind}" href="${esc(`${page}/go/${s.kind}`)}" data-social="${s.kind}" target="_blank" rel="noopener nofollow ugc"><span class="si">${ICON[s.kind]}</span><span class="txt"><b>${{ instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', website: 'Website' }[s.kind]}</b><span>${esc(s.label)}</span></span><span class="go">${ICON.arrowUpRight}</span></a>`).join('')}</nav>` : ''}
   <div class="sec stats">${stats.map((s) => `<div class="stat"><span class="si ${s.tone ?? ''}">${s.icon}</span><span><b>${esc(s.big)}</b><small>${esc(s.small)}</small></span></div>`).join('')}${stats.length % 2 ? '<div class="stat"></div>' : ''}</div>
-  ${disputes || t.bankName || t.isNew || t.verified ? `<div class="rows">
-    ${t.verified ? `<div class="row good">${ICON.badgeCheck}<span><b>Verified seller.</b> ID and bank account name checked by Hoolam.</span></div>` : ''}
+  ${t.lastCompletedAt ? `<p class="recent"><span class="pulse" aria-hidden="true"></span>Last order completed <b>${agoText(t.lastCompletedAt)}</b></p>` : ''}
+  ${disputes || t.isNew ? `<div class="rows">
     ${disputes ? `<div class="row${t.problems ? '' : ' good'}">${ICON.scale}<span>${esc(disputes)}</span></div>` : ''}
-    ${t.bankName ? `<div class="row">${ICON.landmark}<span>Paid out to ${esc(shortBankName(t.bankName))}, bank-verified${t.bankMatches ? ' · matches their name' : ''}</span></div>` : ''}
     ${t.isNew ? `<div class="row">${ICON.shieldCheck}<span>New on Hoolam. Every order is still protected: your money is held until you're happy.</span></div>` : ''}
   </div>` : ''}
+  <div class="sec checked"><h2>What Hoolam checked</h2><ul>${checks.map((c) => `<li><span class="tick">${ICON.check}</span>${c}</li>`).join('')}</ul></div>
+  ${t.reviews?.length ? `<div class="sec words"><h2>What buyers say</h2>${t.reviews.map((r) => `<figure class="q"><blockquote>“${esc(r.text)}”</blockquote><figcaption>${esc(r.name)}${r.area ? `, ${esc(r.area)}` : ''} · ${agoText(r.at)}</figcaption></figure>`).join('')}</div>` : ''}
+  ${t.delivered?.length ? `<div class="sec delivered"><h2>Recently delivered</h2><div class="dgrid">${t.delivered.map((id) => `<span class="dph"><img src="${esc(`${page}/delivered/${id}.webp`)}" alt="An item ${name} delivered" width="160" height="160" loading="lazy" decoding="async"><i>${ICON.check}Delivered</i></span>`).join('')}</div></div>` : ''}
   <p class="note">${ICON.info}<span>Counted from real orders paid through Hoolam. Nobody can edit these numbers, not even the seller.</span></p>
 </main>
 <section class="how" aria-labelledby="how-h">
-  <h2 id="how-h">How buying safely works</h2>
-  <ol class="steps">
-    <li><span class="si">${ICON.wallet}</span>You pay Hoolam, not the seller</li>
-    <li><span class="si">${ICON.shieldCheck}</span>We hold the money safely</li>
-    <li><span class="si">${ICON.truck}</span>${esc(t.name)} delivers</li>
-    <li><span class="si">${ICON.check}</span>You're happy, then they get paid</li>
-  </ol>
+  <h2 id="how-h">What happens when you buy</h2>
+  <p class="how-sub">What you'll see in WhatsApp, step by step.</p>
+  <ol class="shots">${howSteps.map(([id, cap], i) => `<li><img src="${art(id)}" alt="" width="900" height="506" loading="lazy" decoding="async"><span><b>${i + 1}</b>${cap}</span></li>`).join('')}</ol>
 </section>
-<div class="cta-bar"><a class="cta" href="${esc(buyGo)}" data-wa>${ICON.whatsapp}Buy from ${esc(t.name)} safely</a></div>
+<p class="safe">${ICON.lock}<span><b>Only pay through Hoolam.</b> Pay into the account Hoolam sends you in our WhatsApp chat, never to ${name} directly. That's what keeps your money safe.</span></p>
+<div class="cta-bar"><a class="cta" href="${esc(buyGo)}" data-wa>${ICON.whatsapp}Buy from ${name} safely</a><p class="cta-note">Opens WhatsApp · No app or account · You pay only after ${name} accepts${o.feeFrom ? ` · Fee from ${esc(o.feeFrom)}` : ''}</p></div>
 <a class="sub" href="${esc(check)}">Have an order code? Open Hoolam on WhatsApp</a>
 <footer>${home ? `<a href="${esc(home)}">Hoolam</a>` : '<b>Hoolam</b>'}<span>Pay safe. Ship safe.</span></footer>
 </div>
 ${photo ? `<figure class="lightbox" id="photo" aria-label="${esc(t.name)}"><a class="x" href="#" aria-label="Close"></a><img src="${esc(photo)}" alt="${esc(t.name)}"><a class="close" href="#" aria-label="Close">${ICON.close}</a><figcaption>${esc(t.name)}</figcaption></figure>` : ''}
-${o.gaId && home ? `<script src="${esc(home.replace(/\/+$/, ''))}/assets/analytics.js" data-cookies="${esc(home.replace(/\/+$/, ''))}/legal/cookies/" defer></script>\n` : ''}</body></html>`;
+${video ? `<script>(function(){var f=document.querySelector('.vid-frame');if(!f)return;var v=f.querySelector('video'),b=f.querySelector('.vid-play');v.controls=false;b.onclick=function(){v.controls=true;v.play();};v.addEventListener('play',function(){f.classList.add('on');if(window.gtag)gtag('event','seller_video_play');});v.addEventListener('pause',function(){if(!v.seeking)f.classList.remove('on');});v.addEventListener('ended',function(){f.classList.remove('on');});})();</script>\n` : ''}${o.gaId && home ? `<script src="${esc(home.replace(/\/+$/, ''))}/assets/analytics.js" data-cookies="${esc(home.replace(/\/+$/, ''))}/legal/cookies/" defer></script>\n` : ''}</body></html>`;
 }
 
 export function notFoundPage(): string {

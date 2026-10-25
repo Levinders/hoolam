@@ -504,6 +504,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const k = d.kyc ? await d.kyc.status(id) : null;
       return {
         user: u, seller: await d.trust.seller(id), buyer: await d.trust.buyer(id),
+        reviews: await d.trust.reviewsFor(id), video: await d.trust.videoState(id), videoOn: d.trust.videoOn(),
         pageStats: await d.trust.pageStats(id), pageStatsShown: d.trust.statsOn(),
         ambassador: d.ambassadors ? await d.ambassadors.personLinks(id) : null,
         banks: banks.rows, deals: deals.rows, support: support.rows, refusals: optout.rows, trail: trail.rows,
@@ -525,6 +526,51 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       await act(req, { action: 'user.photo.remove', targetType: 'user', targetId: id, reason }, () => d.trust.removePhoto(id));
       return { ok: true };
     });
+    // what buyers wrote about a seller: the team can hide any of it from their page (and show it again)
+    api.post('/people/:id/reviews/:deal', async (req) => {
+      need(req, 'user.block');
+      const { id, deal } = req.params as { id: string; deal: string };
+      const hidden = (req.body as { hidden?: boolean }).hidden !== false;
+      const reason = reasonOf(req.body);
+      const ok = await act(req, { action: hidden ? 'review.hide' : 'review.show', targetType: 'user', targetId: id, reason, details: { deal } }, () => d.trust.hideReview(deal, hidden, req.staff!.id));
+      if (!ok) throw new HttpError(404, 'No such review');
+      return { ok: true };
+    });
+
+    // ----- sellers' videos (Settings → Features → Seller videos): every one is checked before buyers see it -----
+    const sellerOf = async (userId: string) => (await db.query('SELECT phone, profile_slug, profile_public FROM users WHERE id=$1', [userId])).rows[0];
+    api.get('/seller-videos', async (req) => {
+      need(req, 'settings.view');
+      return { items: await d.trust.videos(), on: d.trust.videoOn(), canReview: permissionsOf(req.staff!).includes('user.block') };
+    });
+    api.get('/seller-videos/:id/file', async (req, reply) => {
+      need(req, 'settings.view');
+      const f = await d.trust.videoFile(Number((req.params as { id: string }).id));
+      if (!f) throw new HttpError(404, 'No such video');
+      return reply.type(f.mime).header('cache-control', 'private, max-age=300').send(f.bytes);
+    });
+    api.post('/seller-videos/:id', async (req) => {
+      need(req, 'user.block');
+      const id = Number((req.params as { id: string }).id);
+      const b = req.body as { action?: 'approve' | 'reject' | 'remove'; reason?: string };
+      const why = String(b.reason ?? '').trim();
+      if (b.action !== 'approve' && why.length < 5) throw new HttpError(400, 'Say why in a few words. The seller is told.');
+      if (b.action === 'remove') {
+        const userId = await act(req, { action: 'seller_video.remove', targetType: 'seller_video', targetId: String(id), reason: why }, () => d.trust.takeDownVideo(id));
+        if (!userId) throw new HttpError(404, 'No such video');
+        const u = await sellerOf(userId);
+        if (u) await d.messenger.send(u.phone, msg.videoRejected(why)).catch(() => null);
+        return { ok: true, items: await d.trust.videos() };
+      }
+      const approve = b.action === 'approve';
+      const userId = await act(req, { action: approve ? 'seller_video.approve' : 'seller_video.reject', targetType: 'seller_video', targetId: String(id), ...(approve ? {} : { reason: why }) },
+        () => d.trust.reviewVideo(id, approve, approve ? null : why, req.staff!.id));
+      if (!userId) throw new HttpError(409, 'This video was already checked.');
+      const u = await sellerOf(userId);
+      if (u) await d.messenger.send(u.phone, approve ? msg.videoApproved(u.profile_public && u.profile_slug ? `${d.config.PUBLIC_BASE_URL.replace(/\/+$/, '')}/s/${u.profile_slug}` : null) : msg.videoRejected(why)).catch(() => null);
+      return { ok: true, items: await d.trust.videos() };
+    });
+
     api.put('/people/:id/social', async (req) => {
       need(req, 'user.block');
       const id = (req.params as { id: string }).id;

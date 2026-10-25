@@ -240,3 +240,60 @@ describe('helpers and limits', () => {
     ]) expect(() => checkLimits(m)).not.toThrow();
   });
 });
+
+describe('the seller page shows more proof', () => {
+  it('a happy buyer can leave a few words; they show only with their yes, with first name and area, never contact details', async () => {
+    const seller = await newSeller(); const buyer = phone();
+    const code = await completeDeal(seller, buyer, { rate: 'up' });
+    expect(h.last(buyer)).toMatch(/Want to say a few words for the next buyer\?[\s\S]*\[✍️ Say a few words\] \[No thanks\]/);
+    await h.db.query(`UPDATE users SET city='Ikeja' WHERE phone=$1`, [buyer]);
+    await h.tap(buyer, `revw:${code}`);
+    await h.say(buyer, 'Call me on 08031234567');
+    expect(h.last(buyer)).toMatch(/leave out links, phone numbers/);
+    await h.say(buyer, 'Fast delivery, exactly like the pictures.');
+    expect(h.last(buyer)).toMatch(/"Fast delivery, exactly like the pictures\."_\n— Ada, Ikeja[\s\S]*\[✅ Yes, show it\] \[🔒 Keep it private\]/);
+    let t = (await h.app.trust.seller(await userId(seller)))!;
+    expect(t.reviews).toEqual([]); // nothing shows before their yes
+    await h.tap(buyer, `revyes:${code}`);
+    expect(h.last(buyer)).toMatch(/Your words are on/);
+    t = (await h.app.trust.seller(await userId(seller)))!;
+    expect(t.reviews).toMatchObject([{ text: 'Fast delivery, exactly like the pictures.', name: 'Ada', area: 'Ikeja' }]);
+    expect(t.lastCompletedAt).toBeInstanceOf(Date);
+    // the team can hide it
+    const deal = (await h.db.query('SELECT id FROM deals WHERE code=$1', [code])).rows[0].id;
+    await h.app.trust.hideReview(deal, true, null);
+    expect((await h.app.trust.seller(await userId(seller)))!.reviews).toEqual([]);
+    // "Keep it private" never shows
+    const b2 = phone(); const c2 = await completeDeal(seller, b2, { rate: 'up' });
+    await h.tap(b2, `revw:${c2}`); await h.say(b2, 'Nice one'); await h.tap(b2, `revpriv:${c2}`);
+    expect(h.last(b2)).toMatch(/Only the Hoolam team will see it/);
+    expect((await h.app.trust.seller(await userId(seller)))!.reviews).toEqual([]);
+  });
+
+  it('videos: only while the switch is on, only once Hoolam approves; delivered photos only when the seller chooses', async () => {
+    const seller = await newSeller(); const id = await userId(seller);
+    await h.tap(seller, 'menu:card'); await h.tap(seller, 'setup:wname'); await h.tap(seller, 'setup:nocity');
+    await h.tap(seller, 'card:edit');
+    expect(h.last(seller)).not.toMatch(/🎥 Video/); // Seller videos is off
+    await h.db.query(`INSERT INTO settings (key, value) VALUES ('feature_seller_video', 'true') ON CONFLICT (key) DO UPDATE SET value='true'`);
+    await h.app.settings.load();
+    await h.tap(seller, 'card:video');
+    expect(h.last(seller)).toMatch(/30 seconds or less[\s\S]*Hoolam checks every video/);
+    await h.say(seller, 'here it is');
+    expect(h.last(seller)).toMatch(/Please send a video/);
+    await h.app.trust.setVideo(id, Buffer.from('fake mp4 bytes'), 'video/mp4');
+    expect((await h.app.trust.seller(id))!.video).toBeNull(); // waiting for a check
+    const [v] = await h.app.trust.videos();
+    expect(v).toMatchObject({ userId: id, status: 'PENDING' });
+    expect(await h.app.trust.reviewVideo(v!.id, true, null, null)).toBe(id);
+    expect((await h.app.trust.seller(id))!.video).toMatchObject({ mime: 'video/mp4' });
+    await h.db.query(`UPDATE settings SET value='false' WHERE key='feature_seller_video'`); await h.app.settings.load();
+    expect((await h.app.trust.seller(id))!.video).toBeNull(); // kept, but hidden while it's off
+    // delivered photos: off until the seller turns it on
+    await h.tap(seller, 'card:delivered');
+    expect(h.last(seller)).toMatch(/your own photos only, never a buyer's/);
+    expect((await h.app.trust.seller(id))!.showDelivered).toBe(true);
+    await h.tap(seller, 'card:delivered');
+    expect(h.last(seller)).toMatch(/hidden from your page/);
+  });
+});

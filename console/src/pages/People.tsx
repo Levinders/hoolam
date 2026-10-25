@@ -1,4 +1,4 @@
-import { ArrowUpRight, BadgeCheck, CirclePause, ChevronRight, Eraser, Gauge, Globe, IdCard, ImageOff, Link2Off, Play, Search, ShieldX, Users } from 'lucide-react';
+import { ArrowUpRight, BadgeCheck, CirclePause, ChevronRight, Clapperboard, Eraser, EyeOff, Eye, Gauge, Globe, IdCard, ImageOff, Link2Off, Play, Search, ShieldX, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, post } from '../api';
@@ -62,7 +62,7 @@ export function Person() {
   const { can } = useAuth();
   const toast = useToast();
   const { data, error, loading, reload } = useData<any>(`/people/${id}`);
-  const [open, setOpen] = useState<null | 'pause' | 'cap' | 'photo' | 'kyc-approve' | 'kyc-remove' | 'kyc-clear' | 'kyc-decline' | { social: string; label: string }>(null);
+  const [open, setOpen] = useState<null | 'pause' | 'cap' | 'photo' | 'kyc-approve' | 'kyc-remove' | 'kyc-clear' | 'kyc-decline' | { social: string; label: string } | { review: string; hide: boolean }>(null);
   const [cap, setCap] = useState<string>('');
   const [idName, setIdName] = useState<string>('');
   if (error) return <div className="page"><ErrorBanner error={error} onRetry={reload} /></div>;
@@ -143,7 +143,7 @@ export function Person() {
           )}
           {can('support.reply') && <SupportMessage endpoint={`/people/${id}/message`} title="Message them"
             note={data.deals?.[0] ? `Sent as an update about their latest order, ${data.deals[0].code}. Works any time; their reply comes to Support.` : 'They have no orders yet, so it goes as a chat message: only if they messaged Hoolam in the last 24 hours.'} />}
-          {s && (s.photoVersion || s.socials.length > 0 || u.profile_slug) && (
+          {s && (s.photoVersion || s.socials.length > 0 || u.profile_slug || data.reviews?.length > 0) && (
             <section className="panel">
               <div className="panel-head"><h2>Their public page</h2>{u.profile_public ? <span className="pill green plain" style={{ marginLeft: 'auto' }}>Live</span> : <span className="pill grey plain" style={{ marginLeft: 'auto' }}>Hidden</span>}</div>
               <div className="panel-body stack" style={{ gap: 12 }}>
@@ -170,6 +170,28 @@ export function Person() {
                     {can('user.block') && <Button size="sm" variant="ghost" icon={Link2Off} onClick={() => setOpen({ social: l.kind, label: l.label })}>Remove</Button>}
                   </div>
                 ))}</div>}
+                {data.videoOn && (data.video?.live || data.video?.pending) && (
+                  <div className="row" style={{ gap: 10 }}>
+                    <Clapperboard style={{ width: 18, height: 18 }} className="faint" />
+                    <div style={{ flex: 1 }}><div className="cell-main">Video</div><div className="cell-sub">{data.video.pending ? 'A new one is waiting for a check' : 'On their page'}{data.video.live && data.video.pending ? ' (the old one stays up until then)' : ''}</div></div>
+                    <Link className="btn sm ghost" to="/settings/features">Check videos</Link>
+                  </div>
+                )}
+                {s.showDelivered && <p className="small muted" style={{ margin: 0 }}>Shows photos of items they've delivered ({s.delivered?.length ?? 0} now). Only their own order photos, never a buyer's.</p>}
+                {data.reviews?.length > 0 && (
+                  <div>
+                    <div className="small muted" style={{ marginBottom: 6 }}>What buyers wrote</div>
+                    <ul className="rev-list">{data.reviews.map((r: any) => (
+                      <li key={r.dealId} className={r.hidden || !r.public ? 'off' : ''}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <blockquote>“{r.text}”</blockquote>
+                          <div className="cell-sub"><Link to={`/people/${r.buyerId}`}>{r.buyer}</Link> · {ago(r.at)} · {!r.public ? 'Private: only the team sees it' : r.hidden ? 'Hidden from their page' : 'On their page'}</div>
+                        </div>
+                        {can('user.block') && r.public && <Button size="sm" variant="ghost" icon={r.hidden ? Eye : EyeOff} onClick={() => setOpen({ review: r.dealId, hide: !r.hidden })}>{r.hidden ? 'Show' : 'Hide'}</Button>}
+                      </li>
+                    ))}</ul>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -250,7 +272,12 @@ export function Person() {
         reasonPlaceholder="e.g. Not a photo of the seller or their shop"
         onClose={() => setOpen(null)}
         onConfirm={async (reason) => { await api(`/people/${id}/photo`, { method: 'DELETE', body: { reason } }); toast({ kind: 'ok', title: 'Photo removed' }); reload(); }} />}
-      {open && typeof open === 'object' && <ConfirmAction icon={Link2Off} tone="danger" title={`Remove ${open.label}?`} confirmLabel="Remove link"
+      {open && typeof open === 'object' && 'review' in open && <ConfirmAction icon={open.hide ? EyeOff : Eye} tone={open.hide ? 'danger' : 'teal'} title={open.hide ? 'Hide these words from their page?' : 'Show these words again?'} confirmLabel={open.hide ? 'Hide' : 'Show again'}
+        description={open.hide ? 'Buyers stop seeing them on the seller\'s page. The team still sees them here.' : 'They show on the seller\'s page again.'}
+        reasonPlaceholder="e.g. Not about the order"
+        onClose={() => setOpen(null)}
+        onConfirm={async (reason) => { await post(`/people/${id}/reviews/${open.review}`, { hidden: open.hide, reason }); toast({ kind: 'ok', title: open.hide ? 'Hidden' : 'Shown again' }); reload(); }} />}
+      {open && typeof open === 'object' && 'social' in open && <ConfirmAction icon={Link2Off} tone="danger" title={`Remove ${open.label}?`} confirmLabel="Remove link"
         description="It disappears from their page. They can add a link again on WhatsApp."
         reasonPlaceholder="e.g. Links to someone else's shop"
         onClose={() => setOpen(null)}

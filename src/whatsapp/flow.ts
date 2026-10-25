@@ -18,7 +18,7 @@ import { normalizePhone } from './inbound.js';
 import { bankChoices, matchBank, parseBankInput } from './banks.js';
 import type { Bank } from '../payments/provider.js';
 import { dayText } from '../deals/service.js';
-import type { Trust } from '../trust.js';
+import { firstName, reviewProblem, VIDEO_MAX_BYTES, type Trust } from '../trust.js';
 import type { Ambassadors } from '../ambassadors.js';
 import { AmbassadorChat, SENT_ME_RE } from './amb-flow.js';
 import { ART } from '../chat-art/build.js';
@@ -35,7 +35,7 @@ type State =
   | 'BUY_FORM' | 'BUY_ITEM' | 'BUY_DESC' | 'BUY_CATEGORY' | 'BUY_PRICE' | 'BUY_ADDRESS' | 'BUY_DATE' | 'BUY_PHOTOS' | 'BUY_SELLER' | 'BUY_CONFIRM'
   | 'SELLER_BANK' | 'SELLER_BANK_CONFIRM'
   | 'SELL_FORM' | 'SELL_PHOTOS' | 'SELL_BUYER' | 'SELLER_COUNTER_PRICE' | 'SELLER_COUNTER_REASON' | 'SHIP_PROOF'
-  | 'CHECK_SELLER' | 'RATE_COMMENT' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
+  | 'CHECK_SELLER' | 'RATE_COMMENT' | 'REVIEW_TEXT' | 'REVIEW_CONSENT' | 'PROFILE_VIDEO' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
   | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE' | 'BUYER_ADDRESS'
   | 'KYC_METHOD' | 'KYC_DOB' | 'KYC_NUMBER' | 'PIN_NOTE'
   | 'AMB_NAME' | 'AMB_PHOTO' | 'AMB_ASK';
@@ -84,7 +84,7 @@ export interface FlowOptions {
   /** The ID check form, once it exists on Meta. Null = ask in the chat instead. */
   kycForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   /** Fetches photos people send (for a seller's page photo). */
-  media?: { download(mediaId: string): Promise<{ bytes: Buffer } | null> };
+  media?: { download(mediaId: string): Promise<{ bytes: Buffer; mimeType?: string } | null> };
   /** The ambassador programme (menu row, applying, setup, the Ambassador screen, links from ambassadors). */
   ambassadors?: Ambassadors;
   /** Its WhatsApp forms: the application, and Details (live). */
@@ -335,6 +335,20 @@ export class Conversation {
           if ((await this.o.deals.rateDeal(code!, user, false)) === 'ok') return this.save(m.phone, 'RATE_COMMENT', { code });
           return this.save(m.phone, 'IDLE');
         case 'ratenote': await this.save(m.phone, 'IDLE'); return this.send(m.phone, msg.ratingCommentThanks());
+        // ----- a few words for the seller's page (after a happy rating), shown only with their yes -----
+        case 'revw': {
+          const seller = (await this.sellerNameFor(code!)) ?? 'the seller';
+          await this.save(m.phone, 'REVIEW_TEXT', { code, seller });
+          return this.send(m.phone, msg.askReviewText(seller));
+        }
+        case 'revno': await this.save(m.phone, 'IDLE'); return this.send(m.phone, msg.reviewSkipped());
+        case 'revyes': case 'revpriv': {
+          if (s.state !== 'REVIEW_CONSENT' || s.data.code !== code) return this.send(m.phone, msg.reviewSkipped());
+          await this.save(m.phone, 'IDLE');
+          const show = action === 'revyes';
+          await this.o.deals.saveReview(code!, user, String(s.data.text), show);
+          return this.send(m.phone, show ? msg.reviewShown(String(s.data.seller ?? 'the seller')) : msg.reviewPrivate());
+        }
         case 'buyfrom': return this.buyFrom(m.phone, user, code!);
         case 'card': return this.cardAction(m.phone, user, code!);
         // ----- the buyer's side of a seller's order -----
@@ -577,6 +591,32 @@ export class Conversation {
         return this.continueBuying(m.phone, { ...s.data, otherPhone: phone });
       }
       case 'CHECK_SELLER': return this.checkSeller(m.phone, user, text);
+      case 'REVIEW_TEXT': {
+        if (!text || /^(skip|no|cancel)$/i.test(text)) { await this.save(m.phone, 'IDLE'); return this.send(m.phone, msg.reviewSkipped()); }
+        const problem = reviewProblem(text);
+        if (problem) return this.send(m.phone, msg.reviewNotOk(problem as 'short' | 'long' | 'contact'));
+        const words = text.trim().replace(/\s+/g, ' ');
+        await this.save(m.phone, 'REVIEW_CONSENT', { ...s.data, text: words });
+        const city = (await this.o.db.query('SELECT city FROM users WHERE id=$1', [user.id])).rows[0]?.city ?? null;
+        return this.send(m.phone, msg.askReviewConsent(words, firstName(user.display_name) ?? 'A buyer', city, s.data.code));
+      }
+      case 'PROFILE_VIDEO': {
+        if (m.type !== 'video' || !m.mediaId) {
+          if (/^(cancel|stop|no)$/i.test(text)) { await this.save(m.phone, 'IDLE'); return this.showMyCard(m.phone, user); }
+          return this.send(m.phone, this.fix(m.phone, msg.videoNeeded()));
+        }
+        try {
+          const file = this.o.media ? await this.o.media.download(m.mediaId) : null;
+          if (!file || !this.o.trust) return this.send(m.phone, msg.videoFailed());
+          if (file.bytes.length > VIDEO_MAX_BYTES) return this.send(m.phone, msg.videoTooBig());
+          await this.o.trust.setVideo(user.id, file.bytes, /^video\/(mp4|3gpp)$/.test(file.mimeType ?? '') ? file.mimeType! : 'video/mp4');
+        } catch (e) {
+          this.o.log?.(`seller video for ${m.phone}: ${(e as Error).message}`);
+          return this.send(m.phone, /too big/.test((e as Error).message) ? msg.videoTooBig() : msg.videoFailed());
+        }
+        await this.save(m.phone, 'IDLE');
+        return this.send(m.phone, msg.videoReceived());
+      }
       case 'RATE_COMMENT': {
         await this.save(m.phone, 'IDLE');
         if (!text) return this.send(m.phone, msg.ratingCommentThanks());
@@ -638,7 +678,7 @@ export class Conversation {
         return this.showMyCard(m.phone, user);
       }
       case 'HUMAN_MESSAGE': {
-        const body = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
+        const body = m.type === 'image' || m.type === 'audio' || m.type === 'video' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
         if (!body) return this.send(m.phone, msg.askHumanMessage());
         const about = s.data.code ? `[Order ${s.data.code}] ` : '';
         const r = await this.o.db.query(
@@ -649,7 +689,7 @@ export class Conversation {
         return this.send(m.phone, msg.humanLogged('S-' + r.rows[0].id, m.id));
       }
       case 'DISPUTE_DETAIL': {
-        const detail = m.type === 'image' || m.type === 'audio' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
+        const detail = m.type === 'image' || m.type === 'audio' || m.type === 'video' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
         const ref = await this.o.deals.addDisputeDetail(s.data.code, user, detail);
         const hasAccount = await this.o.deals.defaultBankAccount(user.id);
         if (hasAccount) {
@@ -1131,12 +1171,29 @@ export class Conversation {
         const t = await this.o.trust.seller(user.id);
         if (!t) return;
         await this.save(phone, 'IDLE');
-        return this.send(phone, msg.editMyPage(t, !!t.photoVersion));
+        return this.send(phone, msg.editMyPage(t, !!t.photoVersion, { video: this.o.trust.videoOn() ? await this.o.trust.videoState(user.id) : null }));
       }
       case 'name': {
         const t = await this.o.trust.seller(user.id);
         await this.save(phone, 'PROFILE_NAME');
         return this.send(phone, msg.askBusinessName(t?.name ?? user.display_name ?? ''));
+      }
+      case 'video': {
+        if (!this.o.trust.videoOn()) return this.showMyCard(phone, user);
+        await this.save(phone, 'PROFILE_VIDEO');
+        return this.send(phone, msg.askSellerVideo(await this.o.trust.videoState(user.id)));
+      }
+      case 'rmvideo':
+        await this.save(phone, 'IDLE');
+        await this.o.trust.removeVideo(user.id);
+        return this.pageUpdated(phone, user, 'Video removed.');
+      case 'delivered': {
+        const t = await this.o.trust.seller(user.id);
+        await this.save(phone, 'IDLE');
+        await this.o.trust.setShowDelivered(user.id, !t?.showDelivered);
+        if (t?.showDelivered) return this.send(phone, msg.deliveredOff());
+        const after = await this.o.trust.seller(user.id);
+        return this.send(phone, msg.deliveredOn(after?.delivered?.length ?? 0));
       }
       case 'photo': {
         const t = await this.o.trust.seller(user.id);

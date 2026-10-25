@@ -255,8 +255,16 @@ export class DealService {
     const fresh = await this.o.trust.rate(deal.id, buyer.id, deal.seller_id, happy);
     if (!fresh) { await this.o.messenger.send(buyer.phone, msg.alreadyRated()); return 'already'; }
     const seller = await this.userById(this.o.db, deal.seller_id);
-    await this.o.messenger.send(buyer.phone, happy ? msg.ratedUp(firstName(seller.display_name) ?? 'the seller') : msg.askRatingComment(deal.code));
+    await this.o.messenger.send(buyer.phone, happy ? msg.askReview(firstName(seller.display_name) ?? 'the seller', deal.code) : msg.askRatingComment(deal.code));
     return 'ok';
+  }
+
+  /** A buyer's few words about the seller, after a happy order. Shown on the seller's page only when `show` (their yes). */
+  async saveReview(code: string, buyer: User, text: string, show: boolean): Promise<void> {
+    const deal = await this.findByCode(code);
+    if (!deal || deal.buyer_id !== buyer.id || !deal.seller_id || !this.o.trust) return;
+    if (!['RELEASING', 'PAYOUT_PENDING', 'COMPLETED'].includes(deal.status)) return;
+    await this.o.trust.saveReview(deal.id, buyer.id, deal.seller_id, text, show);
   }
 
   async rateComment(code: string, buyer: User, comment: string): Promise<void> {

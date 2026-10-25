@@ -4,7 +4,7 @@ export interface Inbound {
   id: string;            // WhatsApp message id, used to ignore duplicates
   phone: string;         // E.164 with +
   name: string | null;
-  type: 'text' | 'button' | 'audio' | 'image' | 'welcome' | 'form' | 'location' | 'other'; // welcome = they opened the chat for the first time; form = a WhatsApp form was submitted
+  type: 'text' | 'button' | 'audio' | 'image' | 'video' | 'welcome' | 'form' | 'location' | 'other'; // welcome = they opened the chat for the first time; form = a WhatsApp form was submitted
   text: string;          // typed text, or the button title
   buttonId: string | null;
   mediaId: string | null;
@@ -53,6 +53,7 @@ export function parseInbound(body: unknown): Inbound[] {
           out.push({ ...base, type: 'location', text: [name, address].filter(Boolean).join(', '), location: { latitude: Number(l.latitude), longitude: Number(l.longitude), name, address } });
         }
         else if (m.type === 'image') out.push({ ...base, type: 'image', text: String(m.image?.caption ?? ''), mediaId: String(m.image?.id ?? ''), mimeType: m.image?.mime_type ?? null });
+        else if (m.type === 'video') out.push({ ...base, type: 'video', text: String(m.video?.caption ?? ''), mediaId: String(m.video?.id ?? ''), mimeType: m.video?.mime_type ?? null });
         else out.push({ ...base, type: 'other', text: '' });
       }
     }

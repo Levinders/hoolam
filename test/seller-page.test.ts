@@ -92,11 +92,11 @@ describe('the public page', () => {
 
     const share = await get(`/s/${t.slug}/share.jpg?v=${v}`);
     expect(share.headers['content-type']).toBe('image/jpeg');
-    expect(await sharp(share.rawPayload).metadata()).toMatchObject({ width: 1200, height: 630 });
+    expect(await sharp(share.rawPayload).metadata()).toMatchObject({ width: 1600, height: 900 }); // their trust card, with today's numbers
 
     const page = (await get(`/s/${t.slug}`)).body;
     expect(page).toContain(`/s/${t.slug}/photo.webp?v=${v}`);
-    expect(page).toContain(`content="https://go.hoolam.test/s/${t.slug}/share.jpg?v=${v}"`);
+    expect(page).toContain(`content="https://go.hoolam.test/s/${t.slug}/share.jpg?v=${v}-`);
     // their links pass through us (counted for the seller), then on to Instagram
     expect(page).toContain(`href="https://go.hoolam.test/s/${t.slug}/go/instagram" data-social="instagram" target="_blank" rel="noopener nofollow ugc"`);
     const ig = await get(`/s/${t.slug}/go/instagram`);
@@ -138,5 +138,42 @@ describe('the team can take things down', () => {
     expect(t.socials.map((x) => x.kind)).toEqual(['instagram']);
     const log = await h.db.query(`SELECT action, reason FROM audit_log WHERE target_id=$1 ORDER BY id`, [sellerId]);
     expect(log.rows.map((r) => r.action)).toEqual(['user.photo.remove', 'user.social']);
+  });
+});
+
+describe('the page builds trust before the buyer taps Buy', () => {
+  it('shows what Hoolam checked, what happens next in pictures, the pay-only-through-Hoolam note and what Buy does', async () => {
+    const t = (await h.app.trust.seller(sellerId))!;
+    const page = (await get(`/s/${t.slug}`)).body;
+    expect(page).toContain('<h2>What Hoolam checked</h2>');
+    expect(page).toContain('<b>Their own WhatsApp number</b>');
+    expect(page).toContain('What happens when you buy');
+    for (const id of ['status-3', 'status-4', 'status-5', 'status-6']) expect(page).toContain(`https://go.hoolam.test/site/art/${id}`);
+    expect(page).toContain('<b>Only pay through Hoolam.</b>');
+    expect(page).toMatch(/Opens WhatsApp · No app or account · You pay only after Bayo &lt;Kicks&gt; accepts · Fee from ₦300/);
+    expect(page).not.toContain('<video'); // Seller videos is off
+  });
+
+  it('an approved video plays in pieces (Range), so phones start it straight away', async () => {
+    await h.db.query(`INSERT INTO settings (key, value) VALUES ('feature_seller_video', 'true') ON CONFLICT (key) DO UPDATE SET value='true'`);
+    await h.app.settings.load();
+    const bytes = Buffer.from('0123456789abcdef');
+    await h.app.trust.setVideo(sellerId, bytes, 'video/mp4');
+    const t0 = (await h.app.trust.seller(sellerId))!;
+    expect((await get(`/s/${t0.slug}/video.mp4`)).statusCode).toBe(404); // not checked yet
+    const [v] = await h.app.trust.videos();
+    await h.app.trust.reviewVideo(v!.id, true, null, null);
+    const t = (await h.app.trust.seller(sellerId))!;
+    const page = (await get(`/s/${t.slug}`)).body;
+    expect(page).toContain(`<video controls playsinline preload="none"`);
+    expect(page).toContain('A message from Bayo &lt;Kicks&gt;, checked by Hoolam');
+    const part = await h.app.app.inject({ method: 'GET', url: `/s/${t.slug}/video.mp4?v=${t.video!.version}`, headers: { range: 'bytes=0-3' } });
+    expect(part.statusCode).toBe(206);
+    expect(part.headers['content-range']).toBe(`bytes 0-3/${bytes.length}`);
+    expect(part.body).toBe('0123');
+    const whole = await get(`/s/${t.slug}/video.mp4`);
+    expect([whole.statusCode, whole.headers['accept-ranges'], whole.headers['content-type']]).toEqual([200, 'bytes', 'video/mp4']);
+    await h.db.query(`UPDATE settings SET value='false' WHERE key='feature_seller_video'`); await h.app.settings.load();
+    expect((await get(`/s/${t.slug}/video.mp4`)).statusCode).toBe(404);
   });
 });
