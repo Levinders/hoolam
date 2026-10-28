@@ -44,9 +44,9 @@ export const ART = {
   /** The order before Send, inside the form: the photo, what to check, the real total (or what the seller receives). */
   formCheck: (d: { side: 'buyer' | 'seller'; item: string; lines: { icon: string; text: string }[]; big: { label: string; value: string }; note: string; photo?: Buffer | null }): Art =>
     ({ card: 'formCheck', data: { side: d.side, code: null, title: 'Check your order', item: d.item, lines: d.lines, big: d.big, note: d.note, photoBytes: d.photo ?? null } }),
-  /** The picture on a new order alert (to a seller or a buyer who may not know Hoolam yet). `first`: how it works, in four steps. */
-  orderRequest: (d: { to: 'seller' | 'buyer'; who: string; item: string; amount: string; code: string; check: string; first: boolean; dealId: string }): Art =>
-    ({ card: 'orderRequest', data: { to: d.to, who: d.who, item: d.item, amount: d.amount, code: d.code, check: d.check, first: d.first, photoDeal: d.dealId } }),
+  /** The picture on a new order alert (to a seller or a buyer who may not know Hoolam yet). Always shows how it works, in four steps. */
+  orderRequest: (d: { to: 'seller' | 'buyer'; who: string; item: string; amount: string; code: string; check: string; dealId: string }): Art =>
+    ({ card: 'orderRequest', data: { to: d.to, who: d.who, item: d.item, amount: d.amount, code: d.code, check: d.check, photoDeal: d.dealId } }),
   /** One order in My orders: where the money is, with the real amount. */
   formStatus: (d: { step: number; title: string; item: string; code: string; amountLabel: string; amount: string; money: string; tone?: 'teal' | 'gold' | 'green' | 'red'; photo?: Buffer | null; dealId?: string | null }): Art =>
     ({ card: 'formStatus', data: { step: d.step, title: d.title, item: d.item, code: d.code, amountLabel: d.amountLabel, amount: d.amount, money: d.money, tone: d.tone ?? 'teal', photoBytes: d.photo ?? null, photoDeal: d.dealId ?? null } }),

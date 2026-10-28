@@ -103,7 +103,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     db, provider, messenger, media, trust, settings, kyc, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, ambassadors, log,
     // new order alerts: the item photo in the Hoolam frame, with "Check it's real: hoolam.com/check"
-    alertCard: (a) => chatArt.image(ART.orderRequest({ to: a.to, who: a.who, item: a.deal.item, amount: a.amount, code: a.deal.code, check: checkText, first: a.first, dealId: a.deal.id })),
+    alertCard: (a) => chatArt.image(ART.orderRequest({ to: a.to, who: a.who, item: a.deal.item, amount: a.amount, code: a.deal.code, check: checkText, dealId: a.deal.id })),
   });
   // Every WhatsApp form, once it exists on Meta (see setupMeta), sent in the state Meta reports. A form WhatsApp
   // refuses rests for 30 minutes on its own; meanwhile the chat asks the same questions. Console → Settings → WhatsApp shows them.

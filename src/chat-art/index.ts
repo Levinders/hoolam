@@ -44,7 +44,7 @@ const SAMPLE: Record<CardName, Record<string, unknown>> = {
   ambWelcome: { name: 'Tobi', link: 'hoolam.com/a/tobi' },
   ambShare: { firstName: 'Tobi', link: 'hoolam.com/a/tobi', area: 'UNILAG' },
   formCheck: { side: 'buyer', title: 'Check your order', item: 'Brazilian wig, 18 inch', lines: [{ icon: 'store', text: 'Seller: 0803 123 4567' }, { icon: 'mapPin', text: '12 Woji Road, Port Harcourt' }], big: { label: 'You pay after they accept', value: '₦15,400' }, note: 'Nothing is paid yet. You pay after the seller accepts.' },
-  orderRequest: { to: 'seller', who: 'Ada', item: 'Brazilian wig, 18 inch', amount: '₦14,500', code: 'HL-7K2QF', check: 'hoolam.com/check', first: true },
+  orderRequest: { to: 'seller', who: 'Ada', item: 'Brazilian wig, 18 inch', amount: '₦14,500', code: 'HL-7K2QF', check: 'hoolam.com/check' },
   formStatus: { step: 3, title: 'Money held', item: 'Brazilian wig, 18 inch', code: 'HL-7K2QF', amountLabel: 'You paid', amount: '₦15,400', money: 'Held safely by Hoolam' },
 };
 

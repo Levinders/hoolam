@@ -205,12 +205,12 @@ export async function summary(d: Summary, bg?: Bg): Promise<Buffer> {
 }
 
 export interface OrderRequest {
-  to: 'seller' | 'buyer'; who: string; item: string; amount: string; code: string; check: string; first?: boolean; photo?: Buffer | null;
+  to: 'seller' | 'buyer'; who: string; item: string; amount: string; code: string; check: string; photo?: Buffer | null;
 }
 /**
  * The picture on top of a new order alert, for someone who may never have heard of Hoolam: the item photo in the
- * Hoolam frame, who it's from, the one number that matters, the first time how it works in four steps, and how to
- * check it's a real Hoolam order.
+ * Hoolam frame, who it's from, the one number that matters, how it works in four steps, and how to check it's a
+ * real Hoolam order.
  */
 export async function orderRequest(d: OrderRequest, bg?: Bg): Promise<Buffer> {
   const { w, h } = WIDE;
@@ -233,21 +233,17 @@ export async function orderRequest(d: OrderRequest, bg?: Bg): Promise<Buffer> {
   s += `<rect x="${x}" y="${by}" width="${maxW}" height="150" rx="32" fill="${seller ? C.greenSoft : C.mint}"/>`;
   s += text(seller ? 'You receive' : 'You pay', x + 36, by + 54, 30, seller ? C.greenDark : C.teal, { font: 'semi' });
   s += text(d.amount, x + 36, by + 122, fit(d.amount, 64, maxW - 72, 'brand'), seller ? C.greenDark : C.teal, { font: 'brand' });
-  // the first time: how it works, in four steps; after that, the one line that matters
+  // how it works, in four steps (every time)
   const band = 680;
-  if (d.first) {
-    const steps: [string, string][] = seller
-      ? [['check', 'You accept'], ['wallet', 'Buyer pays Hoolam'], ['truck', 'You send it'], ['banknote', 'You\'re paid']]
-      : [['check', 'You accept'], ['wallet', 'You pay Hoolam'], ['package', 'You get it'], ['banknote', 'Seller is paid']];
-    const gap = (w - 400) / 3;
-    steps.forEach(([ic, label], i) => {
-      const cx = 200 + gap * i;
-      if (i < 3) s += `<line x1="${cx + 60}" y1="${band}" x2="${cx + gap - 60}" y2="${band}" stroke="${C.line}" stroke-width="5" stroke-dasharray="2 14" stroke-linecap="round"/>`;
-      s += iconDisc(ic, cx, band, 44, i === 1 ? C.gold : C.mint, i === 1 ? '#fff' : C.teal, 0.52, 2.2) + text(label, cx, band + 86, 30, C.ink, { font: 'semi', align: 'center' });
-    });
-  } else {
-    s += pill(seller ? 'The buyer pays Hoolam first. You\'re paid once they\'re happy.' : 'You pay Hoolam, not the seller. It\'s held until you\'re happy.', w / 2, band - 36, 32, C.goldBg, C.goldInk, { font: 'semi', iconName: 'shieldCheck' }).svg;
-  }
+  const steps: [string, string][] = seller
+    ? [['check', 'You accept'], ['wallet', 'Buyer pays Hoolam'], ['truck', 'You send it'], ['banknote', 'You\'re paid']]
+    : [['check', 'You accept'], ['wallet', 'You pay Hoolam'], ['package', 'You get it'], ['banknote', 'Seller is paid']];
+  const gap = (w - 400) / 3;
+  steps.forEach(([ic, label], i) => {
+    const cx = 200 + gap * i;
+    if (i < 3) s += `<line x1="${cx + 60}" y1="${band}" x2="${cx + gap - 60}" y2="${band}" stroke="${C.line}" stroke-width="5" stroke-dasharray="2 14" stroke-linecap="round"/>`;
+    s += iconDisc(ic, cx, band, 44, i === 1 ? C.gold : C.mint, i === 1 ? '#fff' : C.teal, 0.52, 2.2) + text(label, cx, band + 86, 30, C.ink, { font: 'semi', align: 'center' });
+  });
   s += `<line x1="70" y1="${h - 96}" x2="${w - 70}" y2="${h - 96}" stroke="${C.line}" stroke-width="2"/>`;
   s += icon('shieldCheck', w / 2 + 22 - width(`Check it's real: ${d.check}`, 28, 'semi') / 2 - 46, h - 74, 32, C.teal, 2.2) + text(`Check it's real: ${d.check}`, w / 2 + 22, h - 48, 28, C.teal, { font: 'semi', align: 'center' });
   const layers: OverlayOptions[] = d.photo ? [{ input: await photoLayer(d.photo, ps, ps, 40), left: px, top: py }] : [];
