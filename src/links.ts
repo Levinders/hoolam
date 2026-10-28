@@ -23,7 +23,7 @@ export type LinkSource = keyof typeof LINK_SOURCES;
 export const LINK_PAGES = { '/': 'Home page', '/about/': 'About', '/contact/': 'Contact us' } as const;
 
 /** Addresses the website already uses (or might): a link can't take these. */
-const RESERVED = new Set(['about', 'contact', 'legal', 'v', 'assets', 'media', 's', 'l', 'go', 'api', 'console', 'admin', 'blog', 'guides', 'help',
+const RESERVED = new Set(['about', 'check', 'contact', 'legal', 'v', 'assets', 'media', 's', 'l', 'go', 'api', 'console', 'admin', 'blog', 'guides', 'help',
   'faq', 'pricing', 'terms', 'privacy', 'cookies', 'sitemap', 'robots', 'llms', 'index', '404', 'pay', 'order', 'orders', 'app', 'login', 'signup']);
 
 export class LinkError extends Error {}

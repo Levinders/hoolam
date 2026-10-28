@@ -13,7 +13,7 @@ import { ACCEPT, MAX_BYTES, slot as slotOf, SLOTS, type Slot } from './slots.js'
  * Messages ask for art by name (`{ card: 'moneyHeld', data }`, `{ picture: 'how-it-works' }`); the Messenger turns
  * that into a picture on top of the message just before it goes. In dry run (tests, no WhatsApp) nothing is drawn.
  */
-export type CardName = 'moneyHeld' | 'payment' | 'handover' | 'paid' | 'refund' | 'frozen' | 'summary' | 'trust' | 'trustStatus' | 'complete' | 'fees' | 'ambMonth' | 'ambWelcome' | 'ambShare' | 'formCheck' | 'formStatus';
+export type CardName = 'moneyHeld' | 'payment' | 'handover' | 'paid' | 'refund' | 'frozen' | 'summary' | 'trust' | 'trustStatus' | 'complete' | 'fees' | 'ambMonth' | 'ambWelcome' | 'ambShare' | 'formCheck' | 'formStatus' | 'orderRequest';
 export type PhotoRef = { photoDeal?: string | null; photoUser?: string | null; photoAmb?: string | null; photoBytes?: Buffer | null };
 export type Art = { card: CardName; data: Record<string, unknown> & PhotoRef } | { picture: string };
 export interface Clip { slot: string; once?: boolean }
@@ -21,7 +21,7 @@ export interface Clip { slot: string; once?: boolean }
 const CARD_SLOT: Partial<Record<CardName, string>> = { // the ambassador share card has its own design (their link page's picture)
   moneyHeld: 'card-money-held', payment: 'card-payment', handover: 'card-handover', paid: 'card-paid', refund: 'card-refund',
   frozen: 'card-frozen', summary: 'card-summary', trust: 'card-trust', trustStatus: 'card-trust-status', complete: 'card-complete',
-  fees: 'card-fees', ambMonth: 'card-amb-month', ambWelcome: 'card-amb-welcome', formCheck: 'card-form-check', formStatus: 'card-form-status',
+  fees: 'card-fees', ambMonth: 'card-amb-month', ambWelcome: 'card-amb-welcome', formCheck: 'card-form-check', formStatus: 'card-form-status', orderRequest: 'card-new-order',
 };
 const STICKER_SLOT = { held: 'sticker-held', paid: 'sticker-paid', welldone: 'sticker-welldone', thanks: 'sticker-thanks', verified: 'sticker-verified' } as const;
 export type StickerName = keyof typeof STICKER_SLOT;
@@ -44,6 +44,7 @@ const SAMPLE: Record<CardName, Record<string, unknown>> = {
   ambWelcome: { name: 'Tobi', link: 'hoolam.com/a/tobi' },
   ambShare: { firstName: 'Tobi', link: 'hoolam.com/a/tobi', area: 'UNILAG' },
   formCheck: { side: 'buyer', title: 'Check your order', item: 'Brazilian wig, 18 inch', lines: [{ icon: 'store', text: 'Seller: 0803 123 4567' }, { icon: 'mapPin', text: '12 Woji Road, Port Harcourt' }], big: { label: 'You pay after they accept', value: '₦15,400' }, note: 'Nothing is paid yet. You pay after the seller accepts.' },
+  orderRequest: { to: 'seller', who: 'Ada', item: 'Brazilian wig, 18 inch', amount: '₦14,500', code: 'HL-7K2QF', check: 'hoolam.com/check', first: true },
   formStatus: { step: 3, title: 'Money held', item: 'Brazilian wig, 18 inch', code: 'HL-7K2QF', amountLabel: 'You paid', amount: '₦15,400', money: 'Held safely by Hoolam' },
 };
 
@@ -123,6 +124,7 @@ export class ChatArt {
       case 'frozen': return K.frozen(d, bg);
       case 'summary': case 'formCheck': return K.summary(d, bg);
       case 'formStatus': return K.orderStatus(d, bg);
+      case 'orderRequest': return K.orderRequest(d, bg);
       case 'trust': return K.trustCard(d, bg);
       case 'trustStatus': return K.trustStatus(d, bg);
       case 'complete': return K.complete(d, bg);

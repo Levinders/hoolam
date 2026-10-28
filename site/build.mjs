@@ -659,6 +659,85 @@ const nextSteps = () => `${NEXT_SPRITE}<style>${NEXT_CSS}</style><ul class="nx-l
 writeFileSync(join(out, '404.html'), withShow(page({ slug: '404', title: 'Page not found', blurb: 'This page doesn’t exist.', lede: 'The link may be wrong or old. Here’s what you can do instead.', body: `${nextSteps()}{{OFFICIAL}}`, toc: '', path: '/404' }).replace('<meta name="robots" content="index,follow">', '<meta name="robots" content="noindex">')
   .replace(/<ul class="lg-meta"[\s\S]*?<\/ul>/, '').replace(/<aside class="lg-end">[\s\S]*?<\/aside>/, '').replace('<style>.nx-list{', '<style>.lg-doc .nx-list{padding:0}.nx-list{')));
 
+// ---------- hoolam.com/check: is this a real Hoolam order? ----------
+// For someone who got an order on WhatsApp from a number they don't know: type the code (or open the link with ?c=HL-…),
+// the server answers yes (item, price, when it started, where it stands) or no. Never in search results.
+mkdirSync(join(out, 'check'), { recursive: true });
+writeFileSync(join(out, 'check', 'index.html'), withShow(`<!doctype html>
+<html lang="en-NG"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Check a Hoolam order</title><meta name="description" content="Got an order on WhatsApp? Type its code to check it's a real Hoolam order."><meta name="robots" content="noindex"><meta name="theme-color" content="#0E5C63">
+${iconTags('/')}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap">
+<style>
+:root{--teal:#0E5C63;--teal-2:#0A464B;--gold:#C9992E;--green:#2E8B57;--red:#B4442E;--bg:#F7F3EC;--card:#FFFDF9;--ink:#1B2321;--soft:#58615E;--rule:#E8E1D5;--mint:#E2EFEA}
+*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--ink);font:400 16px/1.55 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.w{max-width:460px;margin:0 auto;padding:16px 16px calc(32px + env(safe-area-inset-bottom))}
+.top{display:flex;align-items:center;gap:10px;height:52px;color:var(--ink);text-decoration:none}.top b{font:600 1.25rem Poppins,Inter,sans-serif;letter-spacing:-.02em}
+.mk{width:34px;height:34px;border-radius:11px;background:var(--teal);display:grid;place-items:center;overflow:hidden}.mk img{width:100%;height:100%;object-fit:contain}.mk.img{background:none}
+h1{font:700 1.6rem/1.2 Poppins,Inter,sans-serif;letter-spacing:-.03em;margin-top:18px}
+.lead{color:var(--soft);margin-top:6px}
+form{display:flex;gap:8px;margin-top:18px}
+input{flex:1;min-width:0;height:56px;border:1.5px solid var(--rule);border-radius:16px;padding:0 16px;font:600 1.15rem Inter,sans-serif;letter-spacing:.06em;text-transform:uppercase;background:#fff;color:var(--ink)}
+input::placeholder{letter-spacing:.04em;color:#A8AFAC;font-weight:500}
+input:focus{outline:3px solid rgba(201,153,46,.35);border-color:var(--gold)}
+button{height:56px;padding:0 22px;border:0;border-radius:16px;background:var(--teal);color:#fff;font:600 1rem Inter,sans-serif;cursor:pointer}button:hover{background:var(--teal-2)}button[disabled]{opacity:.6}
+.res{margin-top:16px;border-radius:22px;background:var(--card);box-shadow:inset 0 0 0 1px var(--rule);overflow:hidden}
+.res[hidden]{display:none}
+.rh{display:flex;align-items:center;gap:12px;padding:16px 18px}
+.rh i{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none}.rh i svg{width:22px;height:22px}
+.rh b{font:700 1.08rem/1.3 Poppins,Inter,sans-serif}
+.ok .rh{background:#E7F4EC}.ok .rh i{background:var(--green);color:#fff}.ok .rh b{color:#1F6B42}
+.no .rh{background:#FBECE8}.no .rh i{background:var(--red);color:#fff}.no .rh b{color:var(--red)}
+.rows{padding:6px 18px 4px}
+.rows div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--rule)}
+.rows div:first-child{border-top:0}
+.rows span{color:var(--soft)}.rows strong{font-weight:600;text-align:right}
+.steps{display:flex;gap:6px;padding:4px 18px 0}.steps i{flex:1;height:6px;border-radius:9px;background:var(--rule)}.steps i.on{background:var(--teal)}
+.st{padding:10px 18px 0;font-weight:600}
+.note{margin:14px 18px 18px;padding:12px 14px;border-radius:14px;background:#FBF4E2;color:#5B430C;font-size:.9rem}
+.no p{padding:14px 18px 0;color:var(--soft)}.no p.note{margin:12px 18px 16px;padding:12px 14px;color:#5B430C}
+.go{display:flex;align-items:center;justify-content:center;gap:8px;min-height:50px;margin:0 18px 18px;border-radius:14px;background:var(--teal);color:#fff;font-weight:600;text-decoration:none}
+.sec{margin-top:26px}
+a:focus-visible,button:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+</style></head>
+<body>${NEXT_SPRITE}<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="ck-yes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="ck-no" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol></defs></svg>
+<div class="w">
+<a class="top" href="/"><span class="mk${baked.images?.mark?.src ? ' img' : ''}">${baked.images?.mark?.src ? `<img src="${esc(baked.images.mark.src)}" alt="">` : '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="8.5" r="3.7" fill="#C9992E"/><path d="M3.5 12.5c0 4.4 3.8 7.5 8.5 7.5s8.5-3.1 8.5-7.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>'}</span><b>Hoolam</b></a>
+<h1>Check a Hoolam order</h1>
+<p class="lead">Got an order on WhatsApp? Type its code to see if it’s real.</p>
+<form id="f" novalidate><label class="sr" for="c" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Order code</label>
+<input id="c" name="c" placeholder="HL-7K2QF" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="10" required><button id="b">Check</button></form>
+<div class="res" id="r" hidden aria-live="polite"></div>
+${wa ? `<section class="sec">{{OFFICIAL}}</section>` : ''}
+</div>
+<script>(function(){
+var API=${JSON.stringify(app)},WA=${JSON.stringify(wa ? `https://wa.me/${wa}?text=` : `${app}/chat?text=`)};
+var f=document.getElementById('f'),c=document.getElementById('c'),b=document.getElementById('b'),r=document.getElementById('r');
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(x){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]})}
+function norm(v){v=String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/^HL/,'');return v?'HL-'+v:''}
+function day(s){return new Date(s).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'Africa/Lagos'})}
+function show(h,cls){r.className='res '+cls;r.innerHTML=h;r.hidden=false}
+function check(code){
+  if(!/^HL-[A-Z2-9]{5}$/.test(code)){show('<div class="rh"><i><svg><use href="#ck-no"/></svg></i><b>That doesn’t look like an order code</b></div><p>It looks like HL- and 5 letters or numbers, for example HL-7K2QF.</p><div style="height:18px"></div>','no');return}
+  b.disabled=true;b.textContent='Checking…';
+  fetch(API+'/check/'+encodeURIComponent(code)+'.json').then(function(x){return x.json().then(function(j){if(!x.ok)throw new Error(j.error||'Try again');return j})}).then(function(j){
+    if(j.found){var bars='';for(var i=1;i<=6;i++)bars+='<i class="'+(i<=j.step?'on':'')+'"></i>';
+      show('<div class="rh"><i><svg><use href="#ck-yes"/></svg></i><b>This is a real Hoolam order</b></div>'+
+        '<div class="rows"><div><span>Order</span><strong>'+esc(j.code)+'</strong></div><div><span>Item</span><strong>'+esc(j.item)+'</strong></div><div><span>Price</span><strong>'+esc(j.price)+'</strong></div><div><span>Started</span><strong>'+day(j.started)+'</strong></div></div>'+
+        (j.step?'<div class="steps" aria-hidden="true">'+bars+'</div>':'')+'<p class="st">'+esc(j.status)+'</p>'+
+        '<p class="note">Only pay into the account Hoolam sends you in our WhatsApp chat. Never pay anyone directly.</p>','ok');
+    }else{
+      show('<div class="rh"><i><svg><use href="#ck-no"/></svg></i><b>We can’t find this order</b></div><p>Don’t send anything or pay anyone for it. Ask us first.</p>'+
+        '<p class="note">Check the code is typed right: HL- and 5 letters or numbers.</p><a class="go" data-wa href="'+esc(WA+encodeURIComponent('Hi Hoolam, is order '+code+' real?'))+'" target="_blank" rel="noopener">Ask Hoolam on WhatsApp</a>','no');
+    }
+    if(window.gtag)gtag('event','order_check',{found:!!j.found});
+  }).catch(function(e){show('<div class="rh"><i><svg><use href="#ck-no"/></svg></i><b>'+esc(e.message||'Couldn’t check right now')+'</b></div><div style="height:18px"></div>','no')}).then(function(){b.disabled=false;b.textContent='Check'})}
+f.onsubmit=function(e){e.preventDefault();var code=norm(c.value);if(code)c.value=code;check(code);try{history.replaceState(null,'','?c='+encodeURIComponent(code))}catch(x){}};
+var q=new URLSearchParams(location.search).get('c');if(q){c.value=norm(q);check(norm(q))}else c.focus();
+})();</script>
+</body></html>
+`));
+
 // ---------- campaign links (Console → Settings → Links) ----------
 // hoolam.com/<slug>: a tiny page that counts the tap on the server, then moves the visitor on to the page with the tags
 // Google Analytics reads (utm_source / utm_medium / utm_campaign). Never in search results, and never over a real page.

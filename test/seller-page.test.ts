@@ -191,3 +191,18 @@ describe('a missing or hidden page says what to do next', () => {
     expect(o.body).toMatch(/text=My%20orders/);
   });
 });
+
+describe('hoolam.com/check: is this a real Hoolam order?', () => {
+  it('answers yes with only safe details, no for unknown codes, and slows down guessing', async () => {
+    const seller = '+2348070009301', buyer = '+2348070009302';
+    await h.say(seller, 'hi', 'Bayo Shoes'); await h.say(buyer, 'hi', 'Ada Obi');
+    const code = await h.sellOrder(seller, buyer, { item: 'Leather bag', price: '20000' });
+    const yes = await h.app.app.inject({ url: `/check/${code.toLowerCase().replace('-', '')}.json`, remoteAddress: '10.0.0.1' });
+    expect(yes.headers['access-control-allow-origin']).toBe('*');
+    expect(yes.json()).toMatchObject({ found: true, code, item: 'Leather bag', price: '₦20,000', step: 1 });
+    expect(yes.body).not.toMatch(/0807|Bayo|Ada|address/i); // no names, numbers or addresses
+    expect((await h.app.app.inject({ url: '/check/HL-ZZZZZ.json', remoteAddress: '10.0.0.1' })).json()).toEqual({ found: false });
+    for (let i = 0; i < 20; i++) await h.app.app.inject({ url: '/check/HL-ZZZZZ.json', remoteAddress: '10.0.0.2' });
+    expect((await h.app.app.inject({ url: '/check/HL-ZZZZZ.json', remoteAddress: '10.0.0.2' })).statusCode).toBe(429);
+  });
+});

@@ -131,6 +131,8 @@ export interface DealServiceOptions {
   orderPageBase?: string;     // where the private order pages live, e.g. https://hoolam.onrender.com
   /** The ambassador programme: earnings when an order's money is released (see ambassadors.ts). */
   ambassadors?: Pick<Ambassadors, 'onRelease'>;
+  /** The picture on a new order alert: the item photo in the Hoolam frame (a WhatsApp media id), or null to use the plain photo. */
+  alertCard?: (a: { deal: Deal; to: 'seller' | 'buyer'; who: string; amount: string; first: boolean }) => Promise<string | null>;
   log?: (line: string) => void;
 }
 
@@ -487,7 +489,7 @@ export class DealService {
     const price = msg.moneyText(this.money(deal.price_minor));
     const total = msg.moneyText(this.money(deal.buyer_pays_minor));
     const status = await this.o.messenger.sendTemplate(phone, {
-      name: BUYER_ALERT.name, language: 'en', headerImage: await this.alertPicture(deal.id),
+      name: BUYER_ALERT.name, language: 'en', headerImage: await this.alertPicture(deal, 'buyer', name, phone),
       params: [name, deal.item, price, total, deal.code],
       buttonPayloads: [`bview:${deal.code}`, `bnotme:${deal.code}`],
       buttonTitles: BUYER_ALERT.buttons,
@@ -581,7 +583,7 @@ export class DealService {
     const name = firstName(buyer.display_name) ?? 'A buyer';
     const price = msg.moneyText(this.money(deal.price_minor));
     const status = await this.o.messenger.sendTemplate(phone, {
-      name: SELLER_ALERT_TEMPLATE, language: 'en', headerImage: await this.alertPicture(deal.id),
+      name: SELLER_ALERT_TEMPLATE, language: 'en', headerImage: await this.alertPicture(deal, 'seller', name, phone),
       params: [name, deal.item, price, deal.code],
       buttonPayloads: [`sview:${deal.code}`, `snotme:${deal.code}`],
       buttonTitles: SELLER_ALERT.buttons,
@@ -1461,9 +1463,22 @@ export class DealService {
     await this.applyPayoutResult(p.reference, result);
   }
 
-  /** The picture at the top of an order alert: the item's first photo, else the Hoolam card. Never throws. */
+  /**
+   * The picture at the top of an order alert: the Hoolam card for this order (the item photo in the frame, what they
+   * receive or pay, how it works if it's their first order on that side, how to check it's real); else the item's
+   * first photo, else the plain Hoolam card. Never throws.
+   */
   private brandCardId: { id: string; at: number } | null = null;
-  private async alertPicture(dealId: string): Promise<string | undefined> {
+  private async alertPicture(deal: Deal, to: 'seller' | 'buyer', who: string, phone: string): Promise<string | undefined> {
+    const dealId = deal.id;
+    try {
+      if (this.o.alertCard) {
+        const side = to === 'seller' ? 'seller_id' : 'buyer_id';
+        const before = await this.o.db.query(`SELECT 1 FROM deals d JOIN users u ON u.id=d.${side} WHERE u.phone=$1 AND d.id<>$2 LIMIT 1`, [phone, dealId]);
+        const id = await this.o.alertCard({ deal, to, who, amount: msg.moneyText(this.money(to === 'seller' ? deal.seller_gets_minor : deal.buyer_pays_minor)), first: !before.rowCount });
+        if (id) return id;
+      }
+    } catch (e) { this.log(`alert card: ${(e as Error).message}`); }
     try {
       const first = (await this.photoIdsForSending(dealId))[0];
       if (first) return first;

@@ -47,7 +47,7 @@ export const NG_STATES = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', '
   'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'] as const;
 
 /** Link names: what the website and campaign links already use, plus words that would confuse people. */
-const RESERVED = new Set(['about', 'contact', 'legal', 'v', 'assets', 'media', 's', 'l', 'a', 'go', 'api', 'console', 'admin', 'blog', 'guides', 'help',
+const RESERVED = new Set(['about', 'check', 'contact', 'legal', 'v', 'assets', 'media', 's', 'l', 'a', 'go', 'api', 'console', 'admin', 'blog', 'guides', 'help',
   'faq', 'pricing', 'terms', 'privacy', 'cookies', 'sitemap', 'robots', 'llms', 'index', '404', 'pay', 'order', 'orders', 'app', 'login', 'signup',
   'hoolam', 'usehoolam', 'support', 'team', 'staff', 'official', 'ambassador', 'ambassadors', 'rep', 'reps', 'admin', 'owner', 'ceo', 'founder', 'bank', 'refund', 'refunds']);
 export const NAME_RE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;

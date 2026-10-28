@@ -42,6 +42,7 @@ export const SLOTS: Slot[] = [
   { id: 'card-paid', kind: 'card', title: 'You\'ve been paid', when: 'A seller\'s payout, a payout waiting for an ID check, an ambassador\'s payout', size: '1080 × 1080' },
   { id: 'card-refund', kind: 'card', title: 'Refund sent', when: 'Money back to the buyer', size: '1080 × 1080' },
   { id: 'card-frozen', kind: 'card', title: 'Money frozen', when: 'A problem is reported (to both sides)', size: '1080 × 1080' },
+  { id: 'card-new-order', kind: 'card', title: 'New order alert', when: 'A new order sent to a seller or buyer: the item photo in the Hoolam frame, what they receive or pay, how it works the first time, and how to check it\'s real', size: '1600 × 900' },
   { id: 'card-summary', kind: 'card', title: 'Order summary', when: 'Checking an order, a new order request, a new order for a buyer', size: '1600 × 900' },
   { id: 'card-trust', kind: 'card', title: 'Trust card', when: 'Before paying, Check a seller, My trust card', size: '1600 × 900' },
   { id: 'card-trust-status', kind: 'card', title: 'Trust card for status', when: 'A seller shares their page (9:16 for WhatsApp status)', size: '1080 × 1920' },

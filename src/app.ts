@@ -42,7 +42,7 @@ import { configureMessages, msg } from './whatsapp/messages.js';
 import { ChatArt } from './chat-art/index.js';
 import { setMarkSource } from './brand-mark.js';
 import { SiteShow } from './site-show.js';
-import { ART } from './chat-art/build.js';
+import { ART, stepOf } from './chat-art/build.js';
 import { localPhone } from './phone.js';
 import { formatMoney } from './money.js';
 import { Conversation } from './whatsapp/flow.js';
@@ -74,6 +74,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // every picture Hoolam draws uses the uploaded logo icon (Settings → Brand), or the drawn mark when there is none
   setMarkSource(() => siteMedia.get('mark').catch(() => null));
   // the chat's pictures, voice notes, videos and stickers (Console → Settings → WhatsApp → Chat pictures and voice)
+  /** Where people check an order is real (shown on new order alerts): hoolam.com/check */
+  const checkText = `${(() => { try { return new URL(c.SITE_URL ?? '').host.replace(/^www\./, ''); } catch { return 'hoolam.com'; } })() || 'hoolam.com'}/check`;
   const chatArt = new ChatArt(db, {
     media, dryRun: c.WHATSAPP_DRY_RUN, log,
     live: {
@@ -100,6 +102,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const deals = new DealService({
     db, provider, messenger, media, trust, settings, kyc, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, ambassadors, log,
+    // new order alerts: the item photo in the Hoolam frame, with "Check it's real: hoolam.com/check"
+    alertCard: (a) => chatArt.image(ART.orderRequest({ to: a.to, who: a.who, item: a.deal.item, amount: a.amount, code: a.deal.code, check: checkText, first: a.first, dealId: a.deal.id })),
   });
   // Every WhatsApp form, once it exists on Meta (see setupMeta), sent in the state Meta reports. A form WhatsApp
   // refuses rests for 30 minutes on its own; meanwhile the chat asks the same questions. Console → Settings → WhatsApp shows them.
@@ -253,6 +257,29 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // the live numbers on the website, fresher than the copy made when it was built
   app.get('/site/proof.json', async (_req, reply) => {
     return reply.header('access-control-allow-origin', '*').header('cache-control', 'public, max-age=300').send(await siteShow.proof());
+  });
+  // hoolam.com/check: is this a real Hoolam order? Only what's safe to show anyone holding the code (no names, numbers
+  // or addresses), and at most 20 checks per 10 minutes from one address, so codes can't be guessed in a loop.
+  const checks = new Map<string, { n: number; at: number }>();
+  app.get('/check/:code', async (req, reply) => {
+    reply.header('access-control-allow-origin', '*').header('cache-control', 'no-store').header('x-robots-tag', 'noindex');
+    const now = Date.now(), ip = String(req.ip ?? '');
+    const seen = checks.get(ip);
+    if (seen && now - seen.at < 600_000 && seen.n >= 20) return reply.code(429).send({ error: 'Too many checks. Try again in a few minutes.' });
+    if (!seen || now - seen.at >= 600_000) checks.set(ip, { n: 1, at: now }); else seen.n++;
+    if (checks.size > 5000) for (const [k, v] of checks) if (now - v.at >= 600_000) checks.delete(k);
+    const code = String((req.params as { code: string }).code).replace(/\.json$/i, '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^HL/, '');
+    const d = /^[A-Z2-9]{5}$/.test(code) ? await deals.findByCode(`HL-${code}`) : null;
+    if (!d) return reply.send({ found: false });
+    const step = d.status === 'SHIPPED' && d.handed_over_at ? 5 : stepOf(d.status);
+    const words: Record<string, string> = {
+      AWAITING_SELLER: 'Waiting for the seller to accept. Nothing is paid yet.', AWAITING_BUYER: 'Waiting for the buyer to accept. Nothing is paid yet.',
+      AWAITING_PAYMENT: 'Accepted. Waiting for the buyer to pay Hoolam.', FUNDED: 'Paid. The money is held by Hoolam.', SHIPPED: d.handed_over_at ? 'Delivered. The buyer is checking it.' : 'On the way. The money is held by Hoolam.',
+      RELEASING: 'Done. The seller is being paid.', PAYOUT_PENDING: 'Done. The seller is being paid.', COMPLETED: 'Done. The seller was paid.',
+      DISPUTED: 'A problem was reported. The money is frozen while Hoolam sorts it out.', REFUNDING: 'Refunding the buyer.', REFUNDED: 'The buyer was refunded.',
+      CANCELLED: 'Cancelled. No money moved.', EXPIRED: 'Closed. No money moved.',
+    };
+    return reply.send({ found: true, code: d.code, item: d.item, price: formatMoney(d.price_minor, d.currency), started: d.created_at, step, status: words[d.status] ?? d.status });
   });
   // a campaign link's page on the website counts the tap here (navigator.sendBeacon), then moves the visitor on
   app.post('/l/:slug/tap', async (req, reply) => {
