@@ -197,13 +197,19 @@ Everyone starts on the buying menu; becoming a seller (a one-time setup that cre
 | Buying menu | Selling menu |
 | --- | --- |
 | 🛒 Buy something: your money's held until you're happy | 🏷️ Sell something: your buyer pays Hoolam first, safely |
-| 🔑 I have an order code | 📋 My orders: track your sales and payouts |
-| 📋 My orders: all transactions, track your orders | 🛡️ My trust card: your public brand image |
-| 🔍 Check a seller | 🏦 Payout account |
+| 🔑 I have an order code (only with its Features switch on) | 📋 My orders: track your sales and payouts |
+| 📋 My orders: all transactions, track your orders | 👤 My account: your trust card and payout account |
+| 🔍 Check a seller (only with its Features switch on) | |
 
-**Help (both menus):** 🚩 Report a problem · 💡 How it works · 🙋 Talk to a rep ("Live rep within" the console's reply time) · 🔁 Switch to selling / buying.
+**Optional buyer rows** (Console → Settings → Features, owner only, both off by default): **"I have an order code" in the menu** and **"Check a seller" in the menu**. Off only hides the menu row: order links (hoolam.com/HL-X), typed codes, the View button on order alerts, typing "check a seller", /pay and /check, and the trust card before paying all still work.
 
-**Ambassadors:** while the programme is on (Console → Settings → Features), the last row of both menus is **🤝 Become an ambassador** for anyone with at least one completed order, or **🤝 Ambassador** for ambassadors (their screen: this month, Share my link, Details, the web dashboard).
+**My account (sellers):** "👤 My account" with their name as buyers see it, Verified seller, orders completed and "Paid into GTBank ••••1234" (or "No payout account yet"), then **🛡️ My trust card** · **🏦 Payout account** · Main menu. Typing "my account" opens it too.
+
+**Help (both menus):** 🚩 Report a problem · 💡 How it works · 🙋 Talk to a rep ("Live rep within" the console's reply time).
+
+**More (both menus, its own section under Help):** 🔁 Switch to selling / buying.
+
+**Ambassadors:** while the programme is on (Console → Settings → Features), the last row of both menus, in **More**, is **🤝 Become an ambassador** for anyone with at least one completed order, or **🤝 Ambassador** for ambassadors (their screen: this month, Share my link, Details, the web dashboard).
 
 **Other ways in:**
 
@@ -672,6 +678,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 28 Oct 2026 | Menus: "I have an order code" and "Check a seller" behind Features switches (off by default); sellers' My trust card and Payout account move into **My account**; switching sides and the ambassador row in their own **More** section | 6ff4409 |
 | 28 Oct 2026 | New order alert card: the four steps show on every alert, not only the first | bd8620e |
 | 28 Oct 2026 | New order alerts carry a Hoolam card (the item photo in the frame, who it's from, what they receive or pay, how it works the first time, "Check it's real: hoolam.com/check"); Console → Chat pictures → New order alert; hoolam.com/check to see an order is real | df65d3d |
 | 25 Oct 2026 | Private order page (where the money is now, what happens next with a countdown, one button to the order in WhatsApp, the seller's trust line, only pay through Hoolam); ambassador link page (photo first, the chat's cards, live numbers, the official number); 404, hidden seller, wrong order link and campaign pages say what to do next; ambassador dashboard in five sections (Home, Earnings, People, Share, Account); WhatsApp forms: one live picture per screen (new in Chat pictures: Form: Hoolam holds your money, why we check your ID, check your order, order status), details and dates optional, a trust line on each screen, the fee before Send, status dots in My orders, the ID check in two screens | 271de81, 325843f, d26ac7a, 9a9ffb7, 5731b90 |
