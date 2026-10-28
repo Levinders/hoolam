@@ -28,6 +28,9 @@ const live = {
   repReplyMinutes: () => 30,
   problemReplyHours: () => 24,
   hoolamNumber: () => '' as string,
+  /** Console → Settings → Features: optional rows in the buyer's menu (off by default). */
+  menuOrderCode: () => false,
+  menuCheckSeller: () => false,
 };
 export function configureMessages(c: Partial<typeof live>) { Object.assign(live, c); }
 const repText = (short = false) => { const n = live.repReplyMinutes(); return n < 60 ? `${n} ${short ? 'mins' : 'minutes'}` : n % 60 ? `${Math.floor(n / 60)} h ${n % 60} min` : `${n / 60} hour${n === 60 ? '' : 's'}`; };
@@ -39,22 +42,27 @@ const HELP_ROWS = (switchTo: 'buyer' | 'seller') => [
   { id: 'menu:problem', title: '🚩 Report a problem', description: switchTo === 'seller' ? 'We hold the money until it’s sorted' : 'Get help with an order' },
   { id: 'menu:how', title: '💡 How it works', description: 'The steps and fees' },
   { id: 'menu:human', title: '🙋 Talk to a rep', description: `Live rep within ${repText(true)}` },
-  switchTo === 'seller'
-    ? { id: 'menu:tosell', title: '🔁 Switch to selling', description: 'Sell safely, get paid for sure' }
-    : { id: 'menu:tobuy', title: '🔁 Switch to buying', description: 'Buy safely from any seller' },
 ];
+/** Its own section under Help: switching sides (and the ambassador row, when it applies). */
+const MORE = (switchTo: 'buyer' | 'seller') => ({
+  title: 'More',
+  rows: [switchTo === 'seller'
+    ? { id: 'menu:tosell', title: '🔁 Switch to selling', description: 'Sell safely, get paid for sure' }
+    : { id: 'menu:tobuy', title: '🔁 Switch to buying', description: 'Buy safely from any seller' }],
+});
 
 export const buyerMenu = (): ListSection[] => [
   {
     title: 'Buying',
     rows: [
       { id: 'menu:buy', title: '🛒 Buy something', description: 'Your money’s held until you’re happy' },
-      { id: 'menu:pay', title: '🔑 I have an order code', description: 'A seller sent you a code? Start here' },
+      ...(live.menuOrderCode() ? [{ id: 'menu:pay', title: '🔑 I have an order code', description: 'A seller sent you a code? Start here' }] : []),
       { id: 'menu:orders', title: '📋 My orders', description: 'All transactions · track your orders' },
-      { id: 'menu:check', title: '🔍 Check a seller', description: 'See their record before you buy' },
+      ...(live.menuCheckSeller() ? [{ id: 'menu:check', title: '🔍 Check a seller', description: 'See their record before you buy' }] : []),
     ],
   },
   { title: 'Help', rows: HELP_ROWS('seller') },
+  MORE('seller'),
 ];
 
 export const sellerMenu = (): ListSection[] => [
@@ -63,15 +71,15 @@ export const sellerMenu = (): ListSection[] => [
     rows: [
       { id: 'menu:sell', title: '🏷️ Sell something', description: 'Your buyer pays Hoolam first, safely' },
       { id: 'menu:orders', title: '📋 My orders', description: 'Track your sales and payouts' },
-      { id: 'menu:card', title: '🛡️ My trust card', description: 'Your public brand image' },
-      { id: 'menu:account', title: '🏦 Payout account', description: 'Where we send your money' },
+      { id: 'menu:me', title: '👤 My account', description: 'Your trust card and payout account' },
     ],
   },
   { title: 'Help', rows: HELP_ROWS('buyer') },
+  MORE('buyer'),
 ];
 
 export type MenuMode = 'buyer' | 'seller';
-/** The menu for a side. `extra`: one more row at the very end (the ambassador row, when it applies to this person). */
+/** The menu for a side. `extra`: one more row at the very end, in More (the ambassador row, when it applies to this person). */
 export const menuFor = (mode: MenuMode, extra?: ListRowLite | null): ListSection[] => {
   const sections = mode === 'seller' ? sellerMenu() : buyerMenu();
   if (extra) sections[sections.length - 1]!.rows.push(extra);
@@ -232,6 +240,12 @@ export const msg = {
   }),
 
   // ----- payout account -----
+  /** A seller's account: who buyers see and where the money goes, then the trust card or the payout account. */
+  myAccount: (a: { name: string; verified: boolean; completed: number; bank: string | null }): Outbound => ({
+    kind: 'buttons',
+    text: `👤 *My account*\n\n*${a.name}*${a.verified ? ' · ☑️ Verified seller' : ''}${a.completed ? ` · ${a.completed} order${a.completed === 1 ? '' : 's'} completed` : ''}\n🏦 ${a.bank ? `Paid into ${a.bank}` : 'No payout account yet'}`,
+    buttons: [{ id: 'menu:card', title: '🛡️ My trust card' }, { id: 'menu:account', title: '🏦 Payout account' }, { id: 'menu:open', title: 'Main menu' }],
+  }),
   accountInfo: (accountName: string, bankName: string, last4: string): Outbound => ({
     kind: 'buttons',
     text: `🏦 We send your money here:\n\n*${accountName}*\n${bankName} ••••${last4}`,

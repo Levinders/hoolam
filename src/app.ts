@@ -69,7 +69,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   trust.videoOn = () => settings.get<boolean>('feature_seller_video') === true; // Console → Settings → Features → Seller videos
   const links = new CampaignLinks(db); // hoolam.com/<name> campaign links (Console → Settings → Links)
   // messages mention reply times and use Hoolam's number as the example: always the console's current values
-  configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber() });
+  configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber(),
+    menuOrderCode: () => settings.get<boolean>('feature_menu_order_code') === true, menuCheckSeller: () => settings.get<boolean>('feature_menu_check_seller') === true });
   const siteMedia = new SiteMedia(db);
   // every picture Hoolam draws uses the uploaded logo icon (Settings → Brand), or the drawn mark when there is none
   setMarkSource(() => siteMedia.get('mark').catch(() => null));

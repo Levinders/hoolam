@@ -3,7 +3,7 @@ import { startHarness, type Harness } from '../scripts/harness.js';
 import { automationPayload, COMMANDS, ICE_BREAKERS, syncAutomation } from '../src/whatsapp/automation.js';
 import { checkLimits, toPayload } from '../src/whatsapp/client.js';
 import { parseInbound } from '../src/whatsapp/inbound.js';
-import { BUYER_MENU, msg, SELLER_MENU } from '../src/whatsapp/messages.js';
+import { buyerMenu, configureMessages, menuFor, msg, sellerMenu } from '../src/whatsapp/messages.js';
 
 let h: Harness;
 let seq = 0;
@@ -37,9 +37,17 @@ describe('message shapes', () => {
     expect(() => checkLimits(msg.setupIntro('Ada'))).not.toThrow();
     expect(() => checkLimits(msg.setupDone('card', false))).not.toThrow();
     expect(m.kind).toBe('list');
-    for (const menu of [BUYER_MENU, SELLER_MENU]) expect(menu.flatMap((s) => s.rows).length).toBe(8);
-    expect(BUYER_MENU.flatMap((s) => s.rows.map((r) => r.id))).toEqual(['menu:buy', 'menu:pay', 'menu:orders', 'menu:check', 'menu:problem', 'menu:how', 'menu:human', 'menu:tosell']);
-    expect(SELLER_MENU.flatMap((s) => s.rows.map((r) => r.id))).toEqual(['menu:sell', 'menu:orders', 'menu:card', 'menu:account', 'menu:problem', 'menu:how', 'menu:human', 'menu:tobuy']);
+    const ids = (m: ReturnType<typeof buyerMenu>) => m.map((x) => [x.title, x.rows.map((r) => r.id)]);
+    // the switch sits in its own section, after Help (the ambassador row joins it when it applies)
+    expect(ids(buyerMenu())).toEqual([['Buying', ['menu:buy', 'menu:orders']], ['Help', ['menu:problem', 'menu:how', 'menu:human']], ['More', ['menu:tosell']]]);
+    expect(ids(sellerMenu())).toEqual([['Selling', ['menu:sell', 'menu:orders', 'menu:me']], ['Help', ['menu:problem', 'menu:how', 'menu:human']], ['More', ['menu:tobuy']]]);
+    expect(ids(menuFor('buyer', { id: 'menu:amb', title: 'Ambassador' })).at(-1)).toEqual(['More', ['menu:tosell', 'menu:amb']]);
+    // Console → Settings → Features: the two optional buyer rows, off by default
+    configureMessages({ menuOrderCode: () => true, menuCheckSeller: () => true });
+    try {
+      expect(buyerMenu()[0]!.rows.map((r) => r.id)).toEqual(['menu:buy', 'menu:pay', 'menu:orders', 'menu:check']);
+      expect(() => checkLimits(msg.menu('Ada Obi'))).not.toThrow();
+    } finally { configureMessages({ menuOrderCode: () => false, menuCheckSeller: () => false }); }
   });
 
   it('builds the WhatsApp list payload', () => {

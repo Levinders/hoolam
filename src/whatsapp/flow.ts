@@ -133,7 +133,7 @@ const PHRASES: Record<string, MenuItem> = {
   'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'talk to a rep': 'human', 'rep': 'human', 'agent': 'human', 'support': 'human',
   'my orders': 'orders', 'orders': 'orders', 'my deals': 'orders', 'deals': 'orders', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
   'check a seller': 'check', 'check seller': 'check', 'my trust card': 'card', 'trust card': 'card',
-  'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'payout account': 'account', 'account': 'account',
+  'my account': 'me', 'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'payout account': 'account', 'account': 'account',
   'switch to selling': 'tosell', 'switch to buying': 'tobuy', 'switch': 'switch', 'im selling': 'tosell', 'im buying': 'tobuy',
 };
 
@@ -745,6 +745,16 @@ export class Conversation {
         if (!user.seller_since) return this.startSetup(phone, user, 'card');
         await this.save(phone, 'IDLE');
         return this.showMyCard(phone, user);
+      case 'me': {
+        if (!user.seller_since) return this.startSetup(phone, user, 'card');
+        await this.save(phone, 'IDLE');
+        const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
+        const acct = await this.o.deals.defaultBankAccount(user.id);
+        return this.send(phone, msg.myAccount({
+          name: t?.name ?? user.display_name ?? 'You', verified: !!t?.verified, completed: t?.completed ?? 0,
+          bank: acct ? `${acct.bank_name} ••••${String(acct.account_number).slice(-4)}` : null,
+        }));
+      }
       case 'switch':
         return this.openMenuItem(phone, user, modeOf(user) === 'seller' ? 'tobuy' : 'tosell');
       case 'tosell':

@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, UserRound, Clapperboard, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, UserRound, Clapperboard, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, Search, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -480,7 +480,7 @@ const AMB_GROUPS: { title: string; help: string; keys: string[] }[] = [
  */
 export function FeaturesPage() {
   const { can } = useAuth();
-  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key), 'feature_about_founder', 'feature_seller_video'];
+  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key), 'feature_about_founder', 'feature_seller_video', 'feature_menu_order_code', 'feature_menu_check_seller'];
   const s = useDraft(keys);
   if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
   if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={120} /><Skeleton h={120} /></div>;
@@ -513,6 +513,10 @@ export function FeaturesPage() {
             ))}
           </div>
         </FeatureCard>
+        <FeatureCard s={s} k="feature_menu_order_code" icon={KeyRound} title={'"I have an order code" in the menu'} editable={editable}
+          line="Buyers see it in their WhatsApp menu. Off: order links, typed codes and the View button on order alerts still work." more="" open={false}><></></FeatureCard>
+        <FeatureCard s={s} k="feature_menu_check_seller" icon={Search} title={'"Check a seller" in the menu'} editable={editable}
+          line={'Buyers see it in their WhatsApp menu. Off: typing "check a seller" and the trust card before paying still work.'} more="" open={false}><></></FeatureCard>
         <FeatureCard s={s} k="feature_seller_video" icon={Clapperboard} title="Seller videos" editable={editable}
           line="Sellers send a short video in WhatsApp; once you approve it, buyers see and hear them on their page."
           more="Videos" open={on('feature_seller_video')}>

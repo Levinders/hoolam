@@ -206,3 +206,17 @@ describe('hoolam.com/check: is this a real Hoolam order?', () => {
     expect((await h.app.app.inject({ url: '/check/HL-ZZZZZ.json', remoteAddress: '10.0.0.2' })).statusCode).toBe(429);
   });
 });
+
+describe('My account (sellers)', () => {
+  it('shows who buyers see and where the money goes, with the trust card and payout account one tap away', async () => {
+    const seller = '+2348070009401', buyer = '+2348070009402';
+    await h.say(seller, 'hi', 'Bayo Shoes'); await h.say(buyer, 'hi', 'Ada Obi');
+    await h.sellOrder(seller, buyer, { item: 'Sneakers', price: '15000' }); // sets them up as a seller, with a payout account
+    await h.tap(seller, 'menu:me');
+    expect(h.last(seller)).toMatch(/My account/);
+    expect(h.last(seller)).toMatch(/Paid into .+ ••••\d{4}/);
+    expect(h.last(seller)).toMatch(/My trust card.*Payout account|Payout account.*My trust card/s);
+    await h.say(seller, 'my account');
+    expect(h.last(seller)).toMatch(/My account/);
+  });
+});
