@@ -288,9 +288,9 @@ export const msg = {
   /** After a rating: a few words (👍) or what went wrong (👎), in one form. */
   rateForm: (flowId: string, mode: 'draft' | 'published', code: string, happy: boolean, sellerName: string, data: Record<string, unknown>): Outbound => ({
     kind: 'form', flowId, mode, flowToken: `rate:${code}`, screen: 'RATE', data,
-    text: happy ? `🙏 Thanks! It's on *${sellerName}*'s record now.\n\nWant to say a few words for the next buyer? (Optional)` : '😕 Sorry it wasn\'t great. What went wrong? (Optional. Only our team sees this.)',
-    footer: happy ? 'Optional. Nothing else to do.' : 'Or just type it here.',
-    cta: happy ? 'Say a few words' : 'Tell us',
+    text: happy ? `🙏 Thanks! It's on *${sellerName}*'s record now.` : '😕 Sorry it wasn\'t great.',
+    footer: 'Optional',
+    cta: happy ? 'Rate the item' : 'Tell us',
     ...(happy ? { sticker: 'thanks' } : {}),
   } as Outbound),
   pageSaved: (problems: string[]): Outbound => withMenu(problems.length ? `✅ Saved, except:\n${problems.map((p) => `• ${p}`).join('\n')}` : '✅ Saved. Your page is up to date.'),

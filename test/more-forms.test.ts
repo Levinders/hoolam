@@ -34,6 +34,20 @@ async function paid(seller: string, buyer: string, item = 'Blue handbag') {
 }
 
 describe('the four forms', () => {
+  it('follow WhatsApp\'s rules: no filled-in field inside a Form, photos at most 100 MB in all', async () => {
+    const { buyEditFlowJson, sellEditFlowJson } = await import('../src/whatsapp/buy-flow.js');
+    const { listFormJson, editItemFormJson, marketOrderFormJson } = await import('../src/market/market-forms.js');
+    const all = [buyEditFlowJson('aGVsbG8='), sellEditFlowJson('aGVsbG8='), listFormJson('aGVsbG8='), editItemFormJson(), marketOrderFormJson(), payoutFormJson(), problemFormJson(), pageFormJson(), rateFormJson()] as any[];
+    const walk = (cs: any[], inForm: boolean, out: string[]) => { for (const c of cs) { if (!c) continue; if (inForm && c['init-value'] !== undefined) out.push(c.name); if (c.children) walk(c.children, inForm || c.type === 'Form', out); if (c.then) walk([...c.then, ...(c.else ?? [])], inForm, out); } return out; };
+    for (const j of all) {
+      for (const sc of j.screens) {
+        expect(walk(sc.layout.children, false, []), sc.id).toEqual([]);
+        const pickers = JSON.stringify(sc.layout).match(/"max-file-size-kb":\d+,"min-uploaded-photos":\d+,"max-uploaded-photos":\d+/g) ?? [];
+        for (const p of pickers) { const [kb, , max] = p.match(/\d+/g)!.map(Number); expect(kb! * max!).toBeLessThanOrEqual(102400); }
+      }
+    }
+  });
+
   it('are sound: every ${data.x} declared, every ${form.x} a field, one photo picker at most', () => {
     const flat = (cs: any[]): any[] => cs.flatMap((c) => (c.type === 'Form' ? flat(c.children) : [c]));
     for (const json of [payoutFormJson(), problemFormJson(), pageFormJson(), rateFormJson()] as any[]) {
@@ -128,7 +142,7 @@ describe('the four forms', () => {
     expect(t!.socials.map((x) => x.kind)).toEqual(['tiktok']);
   });
 
-  it('rating: a few words with a tick to show them (👍), what went wrong (👎)', async () => {
+  it('rating: optional thoughts on the item, shown on the seller\'s page (👍); what went wrong, team only (👎)', async () => {
     const s = phone(), b = phone();
     const code = await paid(s, b);
     await h.handOver(s, code);
@@ -136,8 +150,8 @@ describe('the four forms', () => {
     await h.tap(b, `rateup:${code}`);
     let out = (await h.db.query(`SELECT kind, body FROM outbound_messages WHERE phone=$1 AND kind='form' ORDER BY id DESC LIMIT 1`, [b])).rows[0];
     expect(out.kind).toBe('form');
-    expect(out.body.data).toMatchObject({ happy: true, unhappy: false });
-    await submit(b, `rate:${code}`, { words: 'Fast delivery, exactly like the pictures', show: true, note: '' });
+    expect(out.body.data.heading).toBe("How's your Blue handbag?");
+    await submit(b, `rate:${code}`, { words: 'Fast delivery, exactly like the pictures' });
     const r = (await h.db.query('SELECT text, public FROM seller_reviews WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code])).rows[0];
     expect(r).toEqual({ text: 'Fast delivery, exactly like the pictures', public: true });
     expect(h.last(b)).toMatch(/on \*.*\*'s page now/);
@@ -147,9 +161,9 @@ describe('the four forms', () => {
     await h.handOver(s2, code2);
     await h.tap(b2, `happy:${code2}`);
     await h.tap(b2, `ratedown:${code2}`);
-    out = await lastOut(b2);
-    expect(out.body.data).toMatchObject({ happy: false, unhappy: true });
-    await submit(b2, `rate:${code2}`, { words: '', show: false, note: 'Took 2 weeks to arrive' });
+    out = (await h.db.query(`SELECT kind, body FROM outbound_messages WHERE phone=$1 AND kind='form' ORDER BY id DESC LIMIT 1`, [b2])).rows[0];
+    expect(out.body.data.heading).toBe('What went wrong?');
+    await submit(b2, `rate:${code2}`, { words: 'Took 2 weeks to arrive' });
     expect((await h.db.query('SELECT comment FROM deal_ratings WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code2])).rows[0].comment).toBe('Took 2 weeks to arrive');
   });
 

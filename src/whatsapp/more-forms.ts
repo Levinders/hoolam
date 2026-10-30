@@ -1,3 +1,4 @@
+import { withoutFormWrapper } from './forms.js';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
@@ -7,7 +8,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
  *     belongs to ADA OBI", ✓ matches your ID, a tick, Save account. The server checks everything again when it arrives.
  *   REPORT A PROBLEM (static): what went wrong (a list), the details, photos as proof. The money is already frozen.
  *   MY PAGE (static, filled in): shop name, city, photo, Instagram, TikTok, Facebook, website. Also the one-time seller setup.
- *   RATING (static): after 👍, a few words and a tick to show them on the seller's page; after 👎, what went wrong (team only).
+ *   RATING (static, optional): after 👍, their thoughts on the item (shown on the seller's page); after 👎, what went wrong (team only).
  * A changed form gets a new name on Meta (a hash of its contents).
  */
 const ex = (v: string) => ({ type: 'string', __example__: v });
@@ -17,7 +18,7 @@ const OPTIONS = { type: 'array', items: { type: 'object', properties: { id: { ty
 // ---------------------------------------------------------------------------------------------
 // payout account (live)
 
-export function payoutFormJson() {
+function payoutFormJsonRaw() {
   const err = { type: 'TextBody', text: '${data.error}', visible: '${data.has_error}', 'font-weight': 'bold' };
   return {
     version: '7.3',
@@ -100,7 +101,7 @@ export const PROBLEM_REASONS = [
 ];
 export const problemReasonTitle = (id: string) => PROBLEM_REASONS.find((r) => r.id === id)?.title ?? 'Something else';
 
-export function problemFormJson() {
+function problemFormJsonRaw() {
   return {
     version: '7.3',
     screens: [{
@@ -112,7 +113,7 @@ export function problemFormJson() {
         { type: 'Form', name: 'form', children: [
           { type: 'RadioButtonsGroup', name: 'reason', label: 'What went wrong?', required: true, 'data-source': PROBLEM_REASONS },
           { type: 'TextArea', name: 'details', label: 'Tell us what happened', required: true, 'max-length': 1000, 'helper-text': 'What you expected, and what you got' },
-          { type: 'PhotoPicker', name: 'photos', label: 'Photos as proof (optional)', description: 'The item, the package, or a chat with the seller. Up to 5.', 'photo-source': 'camera_gallery', 'max-file-size-kb': 25600, 'min-uploaded-photos': 0, 'max-uploaded-photos': 5 },
+          { type: 'PhotoPicker', name: 'photos', label: 'Photos as proof (optional)', description: 'The item, the package, or a chat with the seller. Up to 5.', 'photo-source': 'camera_gallery', 'max-file-size-kb': 20480, 'min-uploaded-photos': 0, 'max-uploaded-photos': 5 }, // WhatsApp's limit: 100 MB in all
           { type: 'TextCaption', text: '💬 ${data.reply} The seller isn\'t paid while we look into it.' },
           { type: 'Footer', label: 'Send to Hoolam', 'on-click-action': { name: 'complete', payload: { reason: '${form.reason}', details: '${form.details}', photos: '${form.photos}' } } },
         ] },
@@ -124,7 +125,7 @@ export function problemFormJson() {
 // ---------------------------------------------------------------------------------------------
 // my page (and the one-time seller setup)
 
-export function pageFormJson() {
+function pageFormJsonRaw() {
   return {
     version: '7.3',
     screens: [{
@@ -157,25 +158,17 @@ export function pageFormJson() {
 // ---------------------------------------------------------------------------------------------
 // rating: a few words after 👍, what went wrong after 👎
 
-export function rateFormJson() {
+function rateFormJsonRaw() {
   return {
     version: '7.3',
     screens: [{
       id: 'RATE', title: 'Your rating', terminal: true,
-      data: {
-        heading: ex('Thanks for rating Bayo'), happy: bool(true), unhappy: bool(false),
-        seller: ex('Bayo'), shown_as: ex('Only your first name and area show (Ada, Port Harcourt). Never your number.'),
-      },
+      data: { heading: ex('How\'s your Leather bag?'), label: ex('Your thoughts (optional)'), hint: ex('What you liked about it'), note: ex('Shows on Bayo\'s page with your first name.') },
       layout: { type: 'SingleColumnLayout', children: [
         { type: 'TextSubheading', text: '${data.heading}' },
-        { type: 'Form', name: 'form', children: [
-          { type: 'TextArea', name: 'words', label: 'A few words for the next buyer', required: '${data.happy}', visible: '${data.happy}', 'max-length': 160, 'helper-text': 'e.g. Fast delivery, exactly like the pictures' },
-          { type: 'OptIn', name: 'show', label: 'Show my words on ${data.seller}\'s page', required: false, visible: '${data.happy}' },
-          { type: 'TextCaption', text: '${data.shown_as}', visible: '${data.happy}' },
-          { type: 'TextArea', name: 'note', label: 'What went wrong?', required: '${data.unhappy}', visible: '${data.unhappy}', 'max-length': 500, 'helper-text': 'Only the Hoolam team sees this' },
-          { type: 'TextCaption', text: '🙏 A real person on our team reads every one.', visible: '${data.unhappy}' },
-          { type: 'Footer', label: 'Send', 'on-click-action': { name: 'complete', payload: { words: '${form.words}', show: '${form.show}', note: '${form.note}' } } },
-        ] },
+        { type: 'TextArea', name: 'words', label: '${data.label}', required: false, 'max-length': 160, 'helper-text': '${data.hint}' },
+        { type: 'TextCaption', text: '${data.note}' },
+        { type: 'Footer', label: 'Send', 'on-click-action': { name: 'complete', payload: { words: '${form.words}' } } },
       ] },
     }],
   };
@@ -194,4 +187,12 @@ export const readPageForm = (f: Record<string, unknown>) => ({
   name: str(f.name), city: str(f.city), photo: media(f.photo)[0] ?? null,
   socials: { instagram: str(f.instagram), tiktok: str(f.tiktok), facebook: str(f.facebook), website: str(f.website) },
 });
-export const readRateForm = (f: Record<string, unknown>) => ({ words: str(f.words), show: f.show === true || f.show === 'true', note: str(f.note) });
+export const readRateForm = (f: Record<string, unknown>) => ({ words: str(f.words) });
+
+export function payoutFormJson() { return withoutFormWrapper(payoutFormJsonRaw()); }
+
+export function problemFormJson() { return withoutFormWrapper(problemFormJsonRaw()); }
+
+export function pageFormJson() { return withoutFormWrapper(pageFormJsonRaw()); }
+
+export function rateFormJson() { return withoutFormWrapper(rateFormJsonRaw()); }

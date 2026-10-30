@@ -1100,12 +1100,11 @@ export class Conversation {
   // ----- rating: a few words (👍) or what went wrong (👎) -----
   private async rateForm(phone: string, user: User, code: string, happy: boolean, form: { flowId: string; mode: 'draft' | 'published' }): Promise<boolean> {
     const seller = (await this.sellerNameFor(code)) ?? 'the seller';
-    const me = firstName(user.display_name) ?? 'A buyer';
-    const city = (await this.o.db.query('SELECT city FROM users WHERE id=$1', [user.id])).rows[0]?.city ?? null;
-    const status = await this.send(phone, msg.rateForm(form.flowId, form.mode, code, happy, seller, {
-      heading: happy ? `Thanks for rating ${seller}` : 'What went wrong?', happy, unhappy: !happy, seller,
-      shown_as: `Only your first name${city ? ' and area' : ''} show (${me}${city ? `, ${city}` : ''}). Never your number.`,
-    }));
+    const deal = await this.o.deals.findByCode(code);
+    const item = (deal?.item ?? 'order').slice(0, 50);
+    const status = await this.send(phone, msg.rateForm(form.flowId, form.mode, code, happy, seller, happy
+      ? { heading: `How's your ${item}?`, label: 'Your thoughts (optional)', hint: 'What you liked about it', note: `Shows on ${seller}'s page with your first name.` }
+      : { heading: 'What went wrong?', label: 'Tell us (optional)', hint: 'What could have been better', note: 'Only the Hoolam team sees this.' }));
     if (status !== 'FAILED') return true;
     await this.o.onFormRefused?.('rate', phone);
     return false;
@@ -1114,15 +1113,17 @@ export class Conversation {
   private async rateFormSubmitted(phone: string, user: User, code: string, form: Record<string, unknown>) {
     const f = readRateForm(form);
     await this.save(phone, 'IDLE');
-    if (f.note) return this.o.deals.rateComment(code, user, f.note);
-    if (!f.words) return this.send(phone, msg.reviewSkipped());
+    const r = await this.o.db.query('SELECT r.happy FROM deal_ratings r JOIN deals d ON d.id=r.deal_id WHERE d.code=$1 AND r.buyer_id=$2', [code, user.id]);
+    const happy = r.rows[0]?.happy !== false;
+    if (!f.words) return this.send(phone, happy ? msg.reviewSkipped() : msg.ratingCommentThanks());
+    if (!happy) return this.o.deals.rateComment(code, user, f.words);
     const problem = reviewProblem(f.words);
     if (problem) {
       await this.save(phone, 'REVIEW_TEXT', { code, seller: (await this.sellerNameFor(code)) ?? 'the seller' });
       return this.send(phone, msg.reviewNotOk(problem as 'short' | 'long' | 'contact'));
     }
-    await this.o.deals.saveReview(code, user, f.words.replace(/\s+/g, ' '), f.show);
-    return this.send(phone, f.show ? msg.reviewShown((await this.sellerNameFor(code)) ?? 'the seller') : msg.reviewPrivate());
+    await this.o.deals.saveReview(code, user, f.words.replace(/\s+/g, ' '), true);
+    return this.send(phone, msg.reviewShown((await this.sellerNameFor(code)) ?? 'the seller'));
   }
 
   // ----- payout account (live form; the chat steps are the backup) -----

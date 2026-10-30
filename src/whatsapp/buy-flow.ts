@@ -1,3 +1,4 @@
+import { withoutFormWrapper } from './forms.js';
 import { createHash } from 'node:crypto';
 import { CATEGORIES } from '../deals/categories.js';
 import { readFileSync } from 'node:fs';
@@ -131,9 +132,9 @@ function orderFormJson(bannerBase64: string, edit = false, side: Side = 'buy', s
 
 const banner = () => readFileSync(BANNER).toString('base64');
 export function buyFlowJson(bannerBase64 = banner(), startBase64: string | null = null) { return orderFormJson(bannerBase64, false, 'buy', startBase64); }
-export function buyEditFlowJson(bannerBase64 = banner()) { return orderFormJson(bannerBase64, true); }
+export function buyEditFlowJson(bannerBase64 = banner()) { return withoutFormWrapper(orderFormJson(bannerBase64, true)); }
 export function sellFlowJson(bannerBase64 = banner(), startBase64: string | null = null) { return orderFormJson(bannerBase64, false, 'sell', startBase64); }
-export function sellEditFlowJson(bannerBase64 = banner()) { return orderFormJson(bannerBase64, true, 'sell'); }
+export function sellEditFlowJson(bannerBase64 = banner()) { return withoutFormWrapper(orderFormJson(bannerBase64, true, 'sell')); }
 
 /** The form's name on Meta. Changes whenever the form changes, because published forms can't be edited. */
 export function buyFlowName(json: object = buyFlowJson()): string {

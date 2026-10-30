@@ -113,3 +113,13 @@ export class FormRegistry {
   get(key: FormKey): FormState { const { flowId: _f, until: _u, ...rest } = this.s.get(key)!; return rest; }
   list(): FormState[] { return FORM_KEYS.map((k) => this.get(k)); }
 }
+
+/**
+ * WhatsApp refuses "init-value" (filled-in answers) on fields inside a Form component; without one, fields still work
+ * the same (${form.x} included). Forms that fill in answers are sent without the Form wrapper.
+ */
+export function withoutFormWrapper<T>(json: T): T {
+  const unwrap = (children: any[]): any[] => children.flatMap((c) => (c && c.type === 'Form' ? unwrap(c.children ?? []) : [c && c.type === 'If' ? { ...c, then: unwrap(c.then ?? []), ...(c.else ? { else: unwrap(c.else) } : {}) } : c]));
+  const j = json as any;
+  return { ...j, screens: j.screens.map((sc: any) => ({ ...sc, layout: { ...sc.layout, children: unwrap(sc.layout.children) } })) };
+}

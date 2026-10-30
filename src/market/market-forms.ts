@@ -1,3 +1,4 @@
+import { withoutFormWrapper } from '../whatsapp/forms.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -30,7 +31,7 @@ export const PROMO_CHOICES = [
   { id: 'keep', title: 'Until I stop it' },
 ];
 
-export function listFormJson(bannerBase64 = banner()) {
+function listFormJsonRaw(bannerBase64 = banner()) {
   const itemKeys = ['title', 'category', 'price', 'stock', 'details'];
   return {
     version: '7.3',
@@ -85,7 +86,7 @@ export function listFormJson(bannerBase64 = banner()) {
   };
 }
 
-export function editItemFormJson() {
+function editItemFormJsonRaw() {
   return {
     version: '7.3',
     screens: [
@@ -119,7 +120,7 @@ export function editItemFormJson() {
   };
 }
 
-export function marketOrderFormJson() {
+function marketOrderFormJsonRaw() {
   return {
     version: '7.3',
     screens: [
@@ -172,3 +173,9 @@ export function readEditForm(f: Record<string, unknown>) {
 export function readOrderForm(f: Record<string, unknown>) {
   return { address: str(f.address) || null, arriveBy: date(f.arrive_by) };
 }
+
+export function listFormJson(bannerBase64 = banner()) { return withoutFormWrapper(listFormJsonRaw(bannerBase64)); }
+
+export function editItemFormJson() { return withoutFormWrapper(editItemFormJsonRaw()); }
+
+export function marketOrderFormJson() { return withoutFormWrapper(marketOrderFormJsonRaw()); }
