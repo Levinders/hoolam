@@ -191,7 +191,7 @@ describe('the seller\'s own card and public page', () => {
     const ld = JSON.parse(page.body.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]!);
     expect(ld).toMatchObject({ '@type': 'ProfilePage', url: 'https://hoolam.test/s/bayo-kicks-lagos', mainEntity: { '@type': 'Organization', name: 'Bayo Kicks Lagos', address: { addressLocality: 'Lagos', addressCountry: 'NG' } }, publisher: { name: 'Hoolam', alternateName: 'useHoolam', logo: 'https://hoolam.test/favicon.svg' } });
     const robots = await h.app.app.inject({ method: 'GET', url: '/robots.txt' });
-    expect(robots.body).toBe('User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: https://hoolam.test/sitemap.xml\n');
+    expect(robots.body).toBe('User-agent: *\nAllow: /s/\nAllow: /i/\nDisallow: /i/*/buy\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: https://hoolam.test/sitemap.xml\n');
     expect((await h.app.app.inject({ method: 'GET', url: '/sitemap.xml' })).body).toMatch(/<loc>https:\/\/hoolam\.test\/s\/bayo-kicks-lagos<\/loc><lastmod>\d{4}-\d\d-\d\d<\/lastmod>/);
     // the console's address stays out of search; a seller page opened there moves to the public address
     const onConsole = (url: string) => h.app.app.inject({ method: 'GET', url, headers: { host: 'console.hoolam.com' } });

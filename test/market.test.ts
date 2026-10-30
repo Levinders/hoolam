@@ -181,4 +181,30 @@ describe('the market', () => {
     await h.tap(s.phone, `mk:act:${l.id}:pause`);
     expect((await h.db.query('SELECT status FROM market_listings WHERE id=$1', [l.id])).rows[0].status).toBe('PAUSED');
   });
+
+  it('each item has a public page for search, a share card, and a Buy button that opens the chat on it', async () => {
+    const s = await seller('Page Shop');
+    const l = await list(s.phone, { title: 'Green silk scarf', price: '9000', where: 'Ikeja, Lagos' });
+    const page = await h.app.app.inject({ url: `/i/${l.code}` });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain('"@type":"Product"');
+    expect(page.body).toContain('Green silk scarf');
+    expect(page.body).toContain('index,follow');
+    expect(page.body).toContain('Only pay through Hoolam');
+    expect((await h.app.app.inject({ url: `/i/${l.code}/1.jpg` })).headers['content-type']).toBe('image/jpeg');
+    expect((await h.app.app.inject({ url: `/i/${l.code}/card.jpg` })).statusCode).toBe(200);
+    const buy = await h.app.app.inject({ url: `/i/${l.code}/buy?ad=ig-nov` });
+    expect(buy.statusCode).toBe(302);
+    expect(decodeURIComponent(buy.headers.location as string)).toContain(`I want to buy this: ${l.code} (ad ig-nov)`);
+    expect((await h.app.app.inject({ url: '/sitemap.xml' })).body).toContain(`/i/${l.code}</loc>`);
+    expect((await h.app.app.inject({ url: '/i/nothing-here' })).statusCode).toBe(404);
+
+    await h.app.market.adLink(l.id, 'ig-nov');
+    const b = phone();
+    await h.say(b, `Hi Hoolam, I want to buy this: ${l.code} (ad ig-nov)`, 'Bisi');
+    expect(h.last(b)).toMatch(/Green silk scarf/);
+    await h.tap(b, `mk:go:${l.id}:1`);
+    const ad = (await h.db.query(`SELECT taps, orders FROM market_ad_links WHERE listing_id=$1`, [l.id])).rows[0];
+    expect(ad).toEqual({ taps: 1, orders: 1 });
+  });
 });

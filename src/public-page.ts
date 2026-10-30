@@ -21,6 +21,10 @@ export interface SellerPageOptions {
   feeFrom?: string | null;
   /** The chat's pictures, as the website shows them (/site/art/<id>), for "What happens when you buy". */
   artBase?: string | null;
+  /** Their live items in the Hoolam market (when it's on), newest first. */
+  items?: { url: string; img: string; title: string; price: string; was: string | null }[];
+  /** All their items in WhatsApp. */
+  itemsMore?: string | null;
 }
 
 /** "today", "yesterday", "3 days ago", "2 weeks ago", "4 months ago" */
@@ -165,6 +169,18 @@ h1{font:700 26px/1.15 Poppins,Inter,sans-serif;letter-spacing:-.02em;margin-top:
 .row.good .ic{color:var(--green)}
 .note{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--muted);padding:12px 20px 18px;background:#FCFCFA;border-top:1px solid var(--line)}
 .note .ic{margin-top:2px;color:var(--faint)}
+.items{margin:16px 0 0}
+.items-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
+.items-h h2{font:600 16px Poppins,Inter,sans-serif}
+.items-h a{font-size:13px;font-weight:600;color:var(--teal);text-decoration:none}
+.irow{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;scroll-snap-type:x mandatory}
+.irow::-webkit-scrollbar{display:none}
+.it{flex:0 0 140px;scroll-snap-align:start;text-decoration:none;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:transform .2s}
+.it:hover{transform:translateY(-2px)}
+.it img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--teal-50)}
+.it span{display:block;padding:7px 9px 9px;font-size:12.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis}
+.it b{display:block;font-weight:600;color:var(--teal);margin-top:2px}
+.it s{color:var(--faint);font-size:11.5px;font-weight:400;margin-left:4px}
 .how{margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px 0 16px}
 .how h2{font:600 16px Poppins,Inter,sans-serif;color:var(--ink);padding:0 20px}
 .how-sub{color:var(--muted);font-size:13px;padding:2px 20px 0}
@@ -266,6 +282,7 @@ a:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:1
   ${t.delivered?.length ? `<div class="sec delivered"><h2>Recently delivered</h2><div class="dgrid">${t.delivered.map((id) => `<span class="dph"><img src="${esc(`${page}/delivered/${id}.webp`)}" alt="An item ${name} delivered" width="160" height="160" loading="lazy" decoding="async"><i>${ICON.check}Delivered</i></span>`).join('')}</div></div>` : ''}
   <p class="note">${ICON.info}<span>Counted from real orders paid through Hoolam. Nobody can edit these numbers, not even the seller.</span></p>
 </main>
+${o.items?.length ? `<section class="items" aria-labelledby="items-h"><div class="items-h"><h2 id="items-h">Items for sale</h2>${o.itemsMore ? `<a href="${esc(o.itemsMore)}">See all on WhatsApp</a>` : ''}</div><div class="irow">${o.items.map((x) => `<a class="it" href="${esc(x.url)}"><img src="${esc(x.img)}" alt="" width="140" height="140" loading="lazy" decoding="async"><span>${esc(x.title)}<b>${esc(x.price)}${x.was ? `<s>${esc(x.was)}</s>` : ''}</b></span></a>`).join('')}</div></section>` : ''}
 <section class="how" aria-labelledby="how-h">
   <h2 id="how-h">What happens when you buy</h2>
   <p class="how-sub">What you'll see in WhatsApp, step by step.</p>

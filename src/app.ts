@@ -19,6 +19,8 @@ import { isBot, Trust } from './trust.js';
 import { CampaignLinks } from './links.js';
 import { Ambassadors } from './ambassadors.js';
 import { Market, type Listing } from './market/market.js';
+import { itemPage } from './item-page.js';
+import { categoryTitle } from './deals/categories.js';
 import { AmbassadorDetailsFlow } from './whatsapp/amb-flow.js';
 import { registerAmbassadorRoutes } from './amb-routes.js';
 import { Settings } from './settings.js';
@@ -423,11 +425,11 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const publicHost = (() => { try { return new URL(c.PUBLIC_BASE_URL).hostname; } catch { return ''; } })();
   const onConsole = (req: { hostname?: string }) => { const h = String(req.hostname ?? '').split(':')[0]!; return isConsoleHost(h) && h !== publicHost; };
   app.addHook('onRequest', async (req, reply) => {
-    if (req.url.startsWith('/s/') && onConsole(req)) return reply.redirect(`${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}${req.url}`, 301);
+    if ((req.url.startsWith('/s/') || req.url.startsWith('/i/')) && onConsole(req)) return reply.redirect(`${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}${req.url}`, 301);
   });
   app.get('/robots.txt', async (req, reply) => reply.type('text/plain').header('cache-control', 'public, max-age=3600')
     .send(onConsole(req) ? 'User-agent: *\nDisallow: /\n'
-      : `User-agent: *\nAllow: /s/\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
+      : `User-agent: *\nAllow: /s/\nAllow: /i/\nDisallow: /i/*/buy\nAllow: /media/\nAllow: /favicon.svg\nAllow: /sitemap.xml\nDisallow: /\n\nSitemap: ${c.PUBLIC_BASE_URL.replace(/\/+$/, '')}/sitemap.xml\n`));
   app.get('/sitemap.xml', async (req, reply) => {
     if (onConsole(req)) return reply.code(404).type('text/plain').send('Not found');
     const b = c.PUBLIC_BASE_URL.replace(/\/+$/, '');
@@ -440,7 +442,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const page = `${b}/s/${encodeURIComponent(r.slug)}`;
       const img = r.photo ? `<image:image><image:loc>${page}/photo.webp?v=${String(r.photo).slice(0, 12)}</image:loc></image:image>` : '';
       return `  <url><loc>${page}</loc><lastmod>${new Date(r.at).toISOString().slice(0, 10)}</lastmod>${img}</url>`;
-    }).join('\n')}\n</urlset>\n`;
+    }).concat(market.on() ? (await db.query(`SELECT code, updated_at FROM market_listings WHERE status='LIVE' AND stock > 0 AND NOT is_test ORDER BY created_at DESC LIMIT 40000`)).rows.map((r) =>
+      `  <url><loc>${b}/i/${encodeURIComponent(r.code)}</loc><lastmod>${new Date(r.updated_at).toISOString().slice(0, 10)}</lastmod><image:image><image:loc>${b}/i/${encodeURIComponent(r.code)}/1.jpg</image:loc></image:image></url>`) : []).join('\n')}\n</urlset>\n`;
     return reply.type('application/xml').header('cache-control', 'public, max-age=3600').send(xml);
   });
 
@@ -536,14 +539,79 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     if (id && !isBot(req.headers['user-agent'])) await trust.recordView(id, visitorCode(req)).catch((e) => log(`seller page stats: ${(e as Error).message}`));
     const t = id ? await trust.seller(id) : null;
     if (!t) return reply.code(404).type('text/html').send(missing('seller'));
+    const money = (minor: number) => formatMoney(minor, c.CURRENCY).replace(/\.00$/, '');
+    const items = market.on() ? (await market.search({ place: null, ring: 3, sellerId: id!, page: 0, pageSize: 12 }).catch(() => null))?.cards ?? [] : [];
     return reply.type('text/html').header('cache-control', 'public, max-age=300')
       .send(sellerPage(t, {
         slug: slug.toLowerCase(), waNumber: settings.waNumber(), baseUrl: base, siteUrl: c.SITE_URL ?? null,
         markUrl: siteMedia.url(base, 'mark'),
         feeFrom: formatMoney(settings.pricing().min * (c.CURRENCY === "NGN" ? 100 : 1), c.CURRENCY),
         artBase: base,
+        items: items.map((x) => ({ url: `${base}/i/${x.code}`, img: `${base}/i/${x.code}/1.jpg`, title: x.title, price: money(x.now_minor), was: x.on_promo ? money(Number(x.price_minor)) : null })),
+        itemsMore: items.length >= 12 ? `https://wa.me/${settings.waNumber().replace(/\D/g, '')}?text=${encodeURIComponent('Browse the market')}` : null,
         gaId: c.GA_MEASUREMENT_ID === 'off' ? null : (c.GA_MEASUREMENT_ID || 'G-J2YB5ZF1NE'),
       }));
+  });
+
+  // ---------- market item pages: go.hoolam.com/i/<code> ----------
+  const itemCards = new Map<string, Buffer>();
+  const liveItem = async (code: string) => {
+    if (!market.on()) return null;
+    const card = await market.card(code);
+    return card && !['DELETED', 'REMOVED'].includes(card.status) ? card : null;
+  };
+  app.get('/i/:code', async (req, reply) => {
+    const c0 = await liveItem((req.params as { code: string }).code);
+    if (!c0) return reply.code(404).type('text/html').send(missing('other'));
+    if (!isBot(req.headers['user-agent'])) await market.bump(c0.id, 'views').catch(() => {});
+    const t = await trust.seller(c0.seller_id);
+    const publicSlug = c0.seller_slug && (await trust.findSeller({ slug: c0.seller_slug })) === c0.seller_id ? c0.seller_slug : null;
+    const more = (await market.search({ place: null, ring: 3, sellerId: c0.seller_id, page: 0, pageSize: 7 })).cards.filter((x) => x.id !== c0.id).slice(0, 6);
+    const money = (minor: number) => formatMoney(minor, c.CURRENCY).replace(/\.00$/, '');
+    return reply.type('text/html').header('cache-control', 'public, max-age=120').send(itemPage({
+      code: c0.code, title: c0.title, details: c0.details, category: categoryTitle(c0.category),
+      priceMinor: Number(c0.price_minor), nowMinor: c0.now_minor, onPromo: c0.on_promo, offPct: c0.off_pct ?? 0, promoEnds: c0.promo_ends ? new Date(c0.promo_ends) : null,
+      stock: c0.stock, live: c0.status === 'LIVE', soldOut: c0.status === 'SOLD_OUT' || c0.stock === 0, delivery: c0.delivery,
+      area: c0.area, city: c0.city, state: c0.state, photos: c0.photos, updatedAt: new Date(c0.updated_at),
+      seller: { name: c0.seller_name, verified: c0.seller_verified, orders: t?.completed ?? c0.seller_orders, happyPct: t && t.rated >= 5 ? Math.round((100 * t.happy) / t.rated) : null, slug: publicSlug, photo: c0.seller_photo, since: t?.since ?? new Date() },
+      more: more.map((x) => ({ code: x.code, title: x.title, price: money(x.now_minor), was: x.on_promo ? money(x.price_minor) : null })),
+    }, { baseUrl: base, siteUrl: c.SITE_URL ?? null, markUrl: siteMedia.url(base, 'mark'), artBase: base, money, sellerPhotoUrl: c0.seller_photo ? `${base}/i/${c0.code}/seller.jpg` : null }));
+  });
+  app.get('/i/:code/:n.jpg', async (req, reply) => {
+    const { code, n } = req.params as { code: string; n: string };
+    const c0 = await liveItem(code);
+    if (!c0) return reply.code(404).type('text/plain').send('Not found');
+    if (n === 'seller') {
+      const p = await trust.photo(c0.seller_id);
+      return p ? reply.type(p.mime).header('cache-control', 'public, max-age=3600').header('x-content-type-options', 'nosniff').send(p.bytes) : reply.code(404).type('text/plain').send('No photo');
+    }
+    if (n === 'card') {
+      const key = `${c0.id}:${c0.updated_at}:${c0.stock}:${c0.status}`;
+      let img = itemCards.get(key);
+      if (!img) {
+        const sold = c0.status !== 'LIVE' || c0.stock === 0;
+        const money = (minor: number) => formatMoney(minor, c.CURRENCY).replace(/\.00$/, '');
+        img = (await chatArt.render(ART.marketItem({
+          listingId: c0.id, sellerId: c0.seller_id, title: c0.title, price: money(c0.now_minor), was: c0.on_promo ? money(c0.price_minor) : null, offPct: c0.on_promo ? c0.off_pct : null,
+          verified: c0.seller_verified, where: [c0.area, c0.city].filter(Boolean).join(', ') || 'Nigeria', seller: c0.seller_name,
+          record: c0.seller_orders ? `${c0.seller_orders} orders completed` : 'New on Hoolam', ribbon: sold ? 'Sold out' : null, tone: sold ? 'grey' : 'gold', greyed: sold,
+        }))).bytes;
+        if (itemCards.size > 300) itemCards.clear();
+        itemCards.set(key, img);
+      }
+      return reply.type('image/jpeg').header('cache-control', 'public, max-age=600').send(img);
+    }
+    const b = await market.photo(c0.id, Math.max(0, Number(n) - 1) || 0);
+    if (!b) return reply.code(404).type('text/plain').send('No photo');
+    return reply.type('image/jpeg').header('cache-control', 'public, max-age=86400').header('x-content-type-options', 'nosniff').send(b);
+  });
+  /** "Buy safely on WhatsApp": Hoolam's chat opens on this item ("?ad=" carries an ad's name; "?more=1" opens the market). */
+  app.get('/i/:code/buy', async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const q = req.query as { ad?: string; more?: string };
+    const ad = q.ad && /^[a-z0-9-]{1,30}$/i.test(q.ad) ? ` (ad ${q.ad.toLowerCase()})` : '';
+    const text = q.more ? 'Browse the market' : `Hi Hoolam, I want to buy this: ${code.toLowerCase()}${ad}`;
+    return reply.header('cache-control', 'no-store').header('x-robots-tag', 'noindex').redirect(`https://wa.me/${settings.waNumber().replace(/\D/g, '')}?text=${encodeURIComponent(text)}`, 302);
   });
 
   // ---------- WhatsApp ----------

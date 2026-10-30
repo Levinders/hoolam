@@ -399,7 +399,11 @@ export class MarketChat {
     const q = Math.max(1, Math.min(qty, l.stock));
     return this.startFrom(phone, user, l.seller_id, [{ listing: l, qty: q }]);
   }
+  /** The ad that brought someone to an item, until they order it (an order counts for that ad). */
+  private readonly lastAd = new Map<string, { id: number; ad: string }>();
   private async startFrom(phone: string, user: User, sellerId: string, lines: { listing: Listing; qty: number }[]): Promise<unknown> {
+    const fromAd = this.lastAd.get(user.id);
+    if (fromAd && lines.some((x) => x.listing.id === fromAd.id)) { await this.m.adTap(fromAd.id, fromAd.ad, 'orders'); this.lastAd.delete(user.id); }
     const sellerPhone = await this.c.sellerPhone(sellerId);
     if (!sellerPhone) return this.send(phone, { kind: 'buttons', text: 'We couldn\'t reach this seller. Try another item.', buttons: [btn('mk:back', '⬅️ Back')] });
     const one = lines.length === 1 ? lines[0]! : null;
@@ -458,7 +462,7 @@ export class MarketChat {
   async buyCode(phone: string, user: User, code: string, ad?: string | null): Promise<unknown> {
     const l = await this.m.get(code);
     if (!l || ['DELETED', 'REMOVED'].includes(l.status)) return this.send(phone, { kind: 'buttons', text: 'That item isn\'t in the market any more.', buttons: [btn('mk:home', '🛍️ Browse the market')] });
-    if (ad) await this.m.adTap(l.id, ad, 'taps');
+    if (ad) { await this.m.adTap(l.id, ad, 'taps'); this.lastAd.set(user.id, { id: l.id, ad }); if (this.lastAd.size > 5000) this.lastAd.delete(this.lastAd.keys().next().value!); }
     return this.seeMore(phone, user, l.id);
   }
 
