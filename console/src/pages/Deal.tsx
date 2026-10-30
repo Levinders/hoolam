@@ -262,8 +262,8 @@ export function Deal() {
               {data.photos.length === 0 ? <p className="muted small">No photos on this order.</p> : (
                 <div className="photos">
                   {data.photos.map((p: any) => (
-                    <a key={p.id} className="photo" href={p.url} target="_blank" rel="noreferrer" title={p.kind === 'SHIPPING' ? 'Proof of shipping' : 'Item photo'}>
-                      <PhotoThumb url={p.url} label={p.kind === 'SHIPPING' ? 'Proof of shipping' : 'Item photo'} />
+                    <a key={p.id} className="photo" href={p.url} target="_blank" rel="noreferrer" title={p.kind === 'SHIPPING' ? 'Proof of shipping' : p.kind === 'PROBLEM' ? 'Buyer\'s proof of the problem' : 'Item photo'}>
+                      <PhotoThumb url={p.url} label={p.kind === 'SHIPPING' ? 'Proof of shipping' : p.kind === 'PROBLEM' ? 'Buyer\'s proof' : 'Item photo'} />
                     </a>
                   ))}
                 </div>

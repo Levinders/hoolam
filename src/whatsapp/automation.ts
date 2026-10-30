@@ -462,6 +462,10 @@ export async function ensureSellEditFlow(o: MetaSetupOptions, json = sellEditFlo
   return ensureFlow(o, json, sellEditFlowName(json), 'seller edit form');
 }
 
+/** A live form (talks to our endpoint) by its own name: the payout account form. */
+export async function ensureLiveFlow(o: MetaSetupOptions, json: object, name: string, label: string, endpointUri: string): Promise<string | null> {
+  return ensureFlow(o, json, name, label, endpointUri);
+}
 /** A static form (no endpoint) by its own name: used for the market's forms. */
 export async function ensureStaticFlow(o: MetaSetupOptions, json: object, name: string, label: string): Promise<string | null> {
   return ensureFlow(o, json, name, label);

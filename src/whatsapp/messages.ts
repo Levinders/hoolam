@@ -255,6 +255,45 @@ export const msg = {
     text: `🏦 We send your money here:\n\n*${accountName}*\n${bankName} ••••${last4}`,
     buttons: [{ id: 'account:change', title: '✏️ Change account' }, { id: 'menu:open', title: 'Main menu' }],
   }),
+  /** The payout account form (live: the account name is looked up before they save it). */
+  payoutForm: (flowId: string, mode: 'draft' | 'published', flowToken: string, why: 'sell' | 'change' | 'accept' | 'refund'): Outbound => ({
+    kind: 'form', live: true, flowId, mode, flowToken, screen: 'ACCOUNT',
+    header: why === 'refund' ? '🏦 Refund account' : why === 'change' ? '🏦 New payout account' : '🏦 Payout account',
+    text: why === 'refund' ? 'Just in case we refund you: which account should it go to? We check the name with the bank before you save it.'
+      : why === 'accept' ? 'Last step: where should we pay you when the buyer is happy? We check the name with the bank before you save it.'
+      : why === 'change' ? 'Your new account number. We check the name with the bank before you save it. Orders already running keep their account.'
+      : 'Where should we pay you? You do this once. We check the name with the bank before you save it.',
+    footer: 'Prefer typing? Send the 10-digit account number.',
+    cta: why === 'refund' ? 'Add refund account' : 'Add my account',
+  }),
+  /** Report a problem, in one form (the money is already frozen). */
+  problemForm: (flowId: string, mode: 'draft' | 'published', code: string, data: Record<string, string>, art?: Art): Outbound => ({
+    kind: 'form', flowId, mode, flowToken: `problem:${code}`, screen: 'PROBLEM', data,
+    header: '🚩 Report a problem',
+    text: `Order *${code}*: sorry about this. *Your money is frozen and safe.*\n\nTell us what happened, with photos if you have them.`,
+    footer: 'Prefer typing? Just send it here.',
+    cta: 'Report the problem',
+    ...(art ? { art } : {}),
+  }),
+  /** The seller's page in one form: also the one-time setup. */
+  pageForm: (flowId: string, mode: 'draft' | 'published', token: string, setup: boolean, data: Record<string, string>, art?: Art): Outbound => ({
+    kind: 'form', flowId, mode, flowToken: token, screen: 'PAGE', data,
+    header: setup ? '🏷️ Set up as a seller' : '✏️ Edit my page',
+    text: setup ? 'One time. This creates your *trust card*: the record buyers see before they pay you. A photo and your links help them trust you.'
+      : 'Your name, photo and links, all in one place. Change what you need.',
+    footer: setup ? 'Prefer typing? Send the name buyers should see.' : 'Your numbers come from real orders.',
+    cta: setup ? 'Create my trust card' : 'Edit my page',
+    ...(art ? { art } : {}),
+  }),
+  /** After a rating: a few words (👍) or what went wrong (👎), in one form. */
+  rateForm: (flowId: string, mode: 'draft' | 'published', code: string, happy: boolean, sellerName: string, data: Record<string, unknown>): Outbound => ({
+    kind: 'form', flowId, mode, flowToken: `rate:${code}`, screen: 'RATE', data,
+    text: happy ? `🙏 Thanks! It's on *${sellerName}*'s record now.\n\nWant to say a few words for the next buyer? (Optional)` : '😕 Sorry it wasn\'t great. What went wrong? (Optional. Only our team sees this.)',
+    footer: happy ? 'Optional. Nothing else to do.' : 'Or just type it here.',
+    cta: happy ? 'Say a few words' : 'Tell us',
+    ...(happy ? { sticker: 'thanks' } : {}),
+  } as Outbound),
+  pageSaved: (problems: string[]): Outbound => withMenu(problems.length ? `✅ Saved, except:\n${problems.map((p) => `• ${p}`).join('\n')}` : '✅ Saved. Your page is up to date.'),
   askNewAccount: (): Outbound => ({ kind: 'text', text: '🏦 Send the new account number. We\'ll show you the banks to pick from.\n\nFor example: _0123456789_' }),
   accountSaved: (bankName: string, last4: string): Outbound => withMenu(`✅ Saved. New orders pay into ${bankName} ••••${last4}.\n\nOrders already running keep their account.`),
 
@@ -348,7 +387,7 @@ export const msg = {
     buttons: [{ id: 'card:wname', title: 'Keep this name' }],
   }),
   /** What a seller can change on their page. */
-  editMyPage: (t: SellerStats, hasPhoto: boolean, proof: { video: { live: boolean; pending: boolean } | null } = { video: null }): Outbound => {
+  editMyPage: (t: SellerStats, hasPhoto: boolean, proof: { video: { live: boolean; pending: boolean } | null } = { video: null }, form = false): Outbound => {
     const now = (k: SocialKind) => t.socials.find((s) => s.kind === k)?.label;
     const row = (k: SocialKind, icon: string) => ({ id: `card:s-${k}`, title: `${icon} ${SOCIAL_NAMES[k]}`.slice(0, 24), description: now(k) ? `Now: ${now(k)}`.slice(0, 72) : `Add your ${k === 'website' ? 'website or online store' : SOCIAL_NAMES[k]}` });
     return {
@@ -356,11 +395,16 @@ export const msg = {
       text: '✏️ *Edit my page*\n\nA photo and your links help buyers trust you before they pay. Pick what to change.',
       button: 'Choose',
       sections: [
-        { title: 'About you', rows: [
-          { id: 'card:photo', title: '📸 Photo', description: hasPhoto ? 'Change or remove your photo' : 'Add your face or your shop' },
-          { id: 'card:name', title: '🏷️ Name & city', description: `Now: ${t.name}${t.city ? ', ' + t.city : ''}`.slice(0, 72) },
-        ] },
-        { title: 'Where you sell', rows: [row('instagram', '📷'), row('tiktok', '🎵'), row('facebook', '👥'), row('website', '🌐')] },
+        ...(form ? [{ title: 'About you', rows: [
+          { id: 'card:form', title: '📝 Name, photo and links', description: `Now: ${t.name}${t.city ? ', ' + t.city : ''}${t.socials.length ? ` · ${t.socials.length} link${t.socials.length === 1 ? '' : 's'}` : ''}`.slice(0, 72) },
+          ...(hasPhoto ? [{ id: 'card:rmphoto', title: '🗑️ Remove my photo' }] : []),
+        ] }] : [
+          { title: 'About you', rows: [
+            { id: 'card:photo', title: '📸 Photo', description: hasPhoto ? 'Change or remove your photo' : 'Add your face or your shop' },
+            { id: 'card:name', title: '🏷️ Name & city', description: `Now: ${t.name}${t.city ? ', ' + t.city : ''}`.slice(0, 72) },
+          ] },
+          { title: 'Where you sell', rows: [row('instagram', '📷'), row('tiktok', '🎵'), row('facebook', '👥'), row('website', '🌐')] },
+        ]),
         { title: 'Proof for buyers', rows: [
           ...(proof.video ? [{ id: 'card:video', title: '🎥 Video', description: proof.video.pending ? 'Waiting for Hoolam\'s check' : proof.video.live ? 'On your page. Change or remove it' : 'Let buyers see and hear you' }] : []),
           { id: 'card:delivered', title: '📦 Delivered photos', description: t.showDelivered ? 'On: your delivered items show. Tap to hide' : 'Off: show items you\'ve delivered' },

@@ -23,6 +23,7 @@ import type { Ambassadors } from '../ambassadors.js';
 import { AmbassadorChat, SENT_ME_RE } from './amb-flow.js';
 import { MarketChat } from '../market/market-chat.js';
 import { readOrderForm } from '../market/market-forms.js';
+import { payoutToken, problemReasonTitle, readPageForm, readPayoutToken, readProblemForm, readRateForm } from './more-forms.js';
 import type { Market } from '../market/market.js';
 import { ART } from '../chat-art/build.js';
 
@@ -74,7 +75,11 @@ export interface FlowOptions {
   /** The live "My orders" form (needs the forms endpoint). Returns false when it can't be sent. */
   ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code' | 'preview'; code?: string; item?: string; totalMinor?: number; mode?: 'buyer' | 'seller'; fresh?: boolean }): Promise<boolean> };
   /** Called when WhatsApp refuses to send a form, so we stop trying until the next restart. */
-  onFormRefused?: (key: 'buy' | 'sell' | 'buyEdit' | 'sellEdit' | 'kyc' | 'mkList' | 'mkEdit' | 'mkOrder', phone: string) => Promise<void> | void;
+  onFormRefused?: (key: 'buy' | 'sell' | 'buyEdit' | 'sellEdit' | 'kyc' | 'mkList' | 'mkEdit' | 'mkOrder' | 'payout' | 'problem' | 'page' | 'rate', phone: string) => Promise<void> | void;
+  /** Payout account (live), Report a problem, My page, Rating: when they can be sent (else the chat asks). */
+  extraForm?: (key: 'payout' | 'problem' | 'page' | 'rate') => { flowId: string; mode: 'draft' | 'published' } | null;
+  /** How long a rep takes to answer a problem (hours), for the problem form. */
+  problemHours?: () => number;
   /** The market's forms (list an item, edit an item, delivery for a market order), when they can be sent. */
   marketForm?: (key: 'mkList' | 'mkEdit' | 'mkOrder') => { flowId: string; mode: 'draft' | 'published' } | null;
   /** Seller and buyer records. */
@@ -161,7 +166,7 @@ export class Conversation {
         const fresh = (await this.userByPhone(phone)) ?? user;
         return this.startKyc(phone, fresh, 'ambassador', next);
       },
-      askBank: async (phone, then) => { await this.save(phone, 'ACCOUNT_BANK', { then }); return this.send(phone, msg.askBank()); },
+      askBank: async (phone, then) => { await this.save(phone, 'ACCOUNT_BANK', { then }); return this.bankPrompt(phone, 'ACCOUNT_BANK', msg.askBank()); },
       menu: async (phone, user) => { await this.save(phone, 'IDLE'); return this.send(phone, await this.menuMsg(user, modeOf(user))); },
       continueTo: async (phone, user, item) => this.openMenuItem(phone, user, item, true),
       download: async (id) => (this.o.media ? (await this.o.media.download(id))?.bytes ?? null : null),
@@ -198,7 +203,7 @@ export class Conversation {
       formRefused: (key, phone) => this.o.onFormRefused?.(key, phone),
       setupSeller: (phone, user) => this.startSetup(phone, user, 'items'),
       kyc: (phone, user) => this.startKyc(phone, user, 'seller', { kind: 'button', id: 'mk:items' }),
-      askBank: async (phone) => { await this.save(phone, 'ACCOUNT_BANK', {}); return this.send(phone, msg.askBank()); },
+      askBank: async (phone) => { await this.save(phone, 'ACCOUNT_BANK', {}); return this.bankPrompt(phone, 'ACCOUNT_BANK', msg.askBank()); },
       download: async (id) => (this.o.media ? (await this.o.media.download(id))?.bytes ?? null : null),
       sellerPhone: async (id) => (await this.o.db.query('SELECT phone FROM users WHERE id=$1', [id])).rows[0]?.phone ?? null,
       buyerQuote: (p) => this.o.deals.buyerQuote(p, true),
@@ -304,7 +309,7 @@ export class Conversation {
         case 'account':
           if (this.sellerNeedsKyc(user)) return this.startKyc(m.phone, user, 'seller', { kind: 'ask', state: 'ACCOUNT_BANK', data: {}, message: msg.askNewAccount() });
           await this.save(m.phone, 'ACCOUNT_BANK');
-          return this.send(m.phone, msg.askNewAccount());
+          return this.bankPrompt(m.phone, 'ACCOUNT_BANK', msg.askNewAccount());
         // ----- ID check -----
         case 'kyc': return this.kycButton(m.phone, s, user, code ?? '');
         case 'pay': await this.o.deals.setMenuMode(user, 'buyer'); return this.o.deals.requestPayment(code!, user);
@@ -384,10 +389,17 @@ export class Conversation {
         case 'cyes': await this.save(m.phone, 'IDLE'); return this.o.deals.acceptCounter(code!, user);
         // ----- trust card -----
         case 'record': return this.o.deals.showSellerRecord(code!, user);
-        case 'rateup': await this.save(m.phone, 'IDLE'); return this.o.deals.rateDeal(code!, user, true);
-        case 'ratedown':
-          if ((await this.o.deals.rateDeal(code!, user, false)) === 'ok') return this.save(m.phone, 'RATE_COMMENT', { code });
-          return this.save(m.phone, 'IDLE');
+        case 'rateup': case 'ratedown': {
+          const happy = action === 'rateup';
+          await this.save(m.phone, 'IDLE');
+          const form = this.o.extraForm?.('rate') ?? null;
+          const r = await this.o.deals.rateDeal(code!, user, happy, !form);
+          if (r !== 'ok') return;
+          if (!happy) await this.save(m.phone, 'RATE_COMMENT', { code });
+          if (form && (await this.rateForm(m.phone, user, code!, happy, form))) return;
+          if (form) { const seller = (await this.sellerNameFor(code!)) ?? 'the seller'; return this.send(m.phone, happy ? msg.askReview(seller, code!) : msg.askRatingComment(code!)); }
+          return;
+        }
         case 'ratenote': await this.save(m.phone, 'IDLE'); return this.send(m.phone, msg.ratingCommentThanks());
         // ----- a few words for the seller's page (after a happy rating), shown only with their yes -----
         case 'revw': {
@@ -449,6 +461,11 @@ export class Conversation {
         return this.continueBuying(m.phone, { ...d, ...(f.address ? { address: f.address.slice(0, 300), addressPin: null } : {}), arriveBy: f.arriveBy });
       }
       if (/^mk(list|edit)/.test(token) && this.mkt) return this.mkt.formSubmitted(m.phone, user, token, m.form ?? {}, s);
+      // payout account, report a problem, my page, rating
+      if (token.startsWith('pb1.')) return this.payoutFormSubmitted(m.phone, user, s, token, m.form ?? {});
+      if (token.startsWith('problem:')) return this.problemFormSubmitted(m.phone, user, s, token.slice(8), m.form ?? {});
+      if (token.startsWith('page:')) return this.pageFormSubmitted(m.phone, user, token, m.form ?? {});
+      if (token.startsWith('rate:')) return this.rateFormSubmitted(m.phone, user, token.slice(5), m.form ?? {});
       const side: Side = token.startsWith('sell') ? 'sell' : 'buy';
       // an edited order keeps its photos unless new ones were added
       const kept = /^(buyedit|selledit)/.test(token) && Array.isArray(s.data.photos) ? s.data.photos : [];
@@ -600,7 +617,7 @@ export class Conversation {
         const data = { code: s.data.code, counterMinor: s.data.counterMinor, counterReason: reason };
         if (this.sellerNeedsKyc(user)) return this.startKyc(m.phone, user, 'seller', { kind: 'ask', state: 'SELLER_BANK', data, message: msg.askSellerBank() });
         await this.save(m.phone, 'SELLER_BANK', data);
-        return this.send(m.phone, msg.askSellerBank());
+        return this.bankPrompt(m.phone, 'SELLER_BANK', msg.askSellerBank());
       }
       case 'SHIP_PROOF': {
         await this.save(m.phone, 'IDLE');
@@ -771,13 +788,8 @@ export class Conversation {
       case 'DISPUTE_DETAIL': {
         const detail = m.type === 'image' || m.type === 'audio' || m.type === 'video' ? `[${m.type} ${m.mediaId}] ${text}`.trim() : text;
         const ref = await this.o.deals.addDisputeDetail(s.data.code, user, detail);
-        const hasAccount = await this.o.deals.defaultBankAccount(user.id);
-        if (hasAccount) {
-          await this.save(m.phone, 'IDLE');
-          return this.send(m.phone, msg.problemLogged(s.data.code, caseRef(ref), await this.sellerNameFor(s.data.code)));
-        }
-        await this.save(m.phone, 'REFUND_BANK', { code: s.data.code, caseId: ref });
-        return this.send(m.phone, msg.askRefundBank());
+        if (m.type === 'image' && m.mediaId) await this.o.deals.addProblemPhotos(s.data.code, user, [{ mediaId: m.mediaId, mimeType: m.mimeType ?? null }]).catch((e) => this.o.log?.(`problem photo: ${(e as Error).message}`));
+        return this.afterProblem(m.phone, user, s.data.code, ref);
       }
       default:
         return this.send(m.phone, s.state === 'IDLE' ? await this.menuMsg(user, modeOf(user)) : msg.didntUnderstand());
@@ -810,7 +822,7 @@ export class Conversation {
         if (!acct) {
           if (this.sellerNeedsKyc(user)) return this.startKyc(phone, user, 'seller', { kind: 'ask', state: 'ACCOUNT_BANK', data: {}, message: msg.askBank() });
           await this.save(phone, 'ACCOUNT_BANK');
-          return this.send(phone, msg.askBank());
+          return this.bankPrompt(phone, 'ACCOUNT_BANK', msg.askBank());
         }
         await this.save(phone, 'IDLE');
         return this.send(phone, msg.accountInfo(acct.account_name, acct.bank_name, acct.account_number.slice(-4)));
@@ -996,7 +1008,7 @@ export class Conversation {
       return this.send(phone, await this.menuMsg(user, modeOf(user)));
     }
     if (next.kind === 'draft') return this.continueBuying(phone, next.draft as BuyDraft);
-    if (next.kind === 'ask') { await this.save(phone, next.state as State, next.data); return this.send(phone, next.message); }
+    if (next.kind === 'ask') { await this.save(phone, next.state as State, next.data); return /_BANK$/.test(next.state) ? this.bankPrompt(phone, next.state as State, next.message) : this.send(phone, next.message); }
     await this.save(phone, 'IDLE');
     return this.handle({ id: `kyc-${Date.now()}`, phone, name: null, type: 'button', text: '', buttonId: next.id, mediaId: null });
   }
@@ -1030,8 +1042,164 @@ export class Conversation {
   // ===== BECOMING A SELLER (once) =====
   /** Two quick questions that create the trust card. `next`: where to go after. */
   private async startSetup(phone: string, user: User, next: 'sell' | 'card' | 'menu' | 'items') {
-    await this.save(phone, 'SETUP_NAME', { next });
+    await this.save(phone, 'SETUP_NAME', { next }); // typing the name still works
+    if (await this.pageForm(phone, user, next)) return;
     return this.send(phone, msg.setupIntro(await this.shownName(user)));
+  }
+
+  /** My page in one form: the one-time setup (`setup` = what comes after), or editing. False when it can't be sent. */
+  private async pageForm(phone: string, user: User, setup: 'sell' | 'card' | 'menu' | 'items' | null): Promise<boolean> {
+    const form = this.o.extraForm?.('page') ?? null;
+    if (!form) return false;
+    const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
+    const link = (k: SocialKind) => t?.socials.find((x) => x.kind === k)?.url ?? '';
+    const status = await this.send(phone, msg.pageForm(form.flowId, form.mode, setup ? `page:setup:${setup}` : 'page:edit', !!setup, {
+      heading: setup ? 'Your trust card' : 'My page',
+      intro: setup ? 'What buyers see before they pay you. It grows with every order you complete.' : 'Change what you need. Leave a link empty to remove it.',
+      name: (setup ? await this.shownName(user) : t?.name) ?? '', city: t?.city ?? '',
+      photo_note: t?.photoVersion ? 'You have a photo. Add a new one to replace it.' : 'Your face or your shop, in the middle. Pages with a photo get more trust.',
+      instagram: link('instagram'), tiktok: link('tiktok'), facebook: link('facebook'), website: link('website'),
+      button: setup ? 'Create my trust card' : 'Save my page',
+    }, setup ? ART.picture('sample-trust') : undefined));
+    if (status !== 'FAILED') return true;
+    await this.o.onFormRefused?.('page', phone);
+    return false;
+  }
+
+  private async pageFormSubmitted(phone: string, user: User, token: string, form: Record<string, unknown>) {
+    if (!this.o.trust) return;
+    const f = readPageForm(form);
+    const setup = token.startsWith('page:setup:') ? token.slice(11) as 'sell' | 'card' | 'menu' | 'items' : null;
+    const problems: string[] = [];
+    if (f.name.length >= 2) await this.o.trust.setProfile(user.id, { businessName: f.name.slice(0, 60) });
+    else if (setup) await this.o.trust.setProfile(user.id, { businessName: (await this.shownName(user)) ?? 'Seller' });
+    await this.o.trust.setProfile(user.id, { city: f.city.slice(0, 60) || null } as never);
+    if (f.photo) {
+      try {
+        const file = this.o.media ? await this.o.media.download(f.photo.mediaId) : null;
+        if (file) await this.o.trust.setPhoto(user.id, file.bytes); else problems.push('We couldn\'t get your photo. Send it here instead.');
+      } catch (e) { this.o.log?.(`page photo for ${phone}: ${(e as Error).message}`); problems.push('We couldn\'t use that photo. Try another one.'); }
+    }
+    const now = await this.o.trust.seller(user.id);
+    for (const k of ['instagram', 'tiktok', 'facebook', 'website'] as SocialKind[]) {
+      const typed = f.socials[k];
+      const had = now?.socials.find((x) => x.kind === k)?.url ?? '';
+      if (typed === had) continue;
+      const error = await this.o.trust.setSocial(user.id, k, typed || null);
+      if (error) problems.push(`${SOCIAL_NAMES[k]}: ${error}`);
+    }
+    if (setup) {
+      if (problems.length) await this.send(phone, msg.pageSaved(problems));
+      return this.finishSetup(phone, user, setup);
+    }
+    await this.save(phone, 'IDLE');
+    if (problems.length) return this.send(phone, msg.pageSaved(problems));
+    return this.pageUpdated(phone, user, 'Saved. Your page is up to date.');
+  }
+
+  // ----- rating: a few words (👍) or what went wrong (👎) -----
+  private async rateForm(phone: string, user: User, code: string, happy: boolean, form: { flowId: string; mode: 'draft' | 'published' }): Promise<boolean> {
+    const seller = (await this.sellerNameFor(code)) ?? 'the seller';
+    const me = firstName(user.display_name) ?? 'A buyer';
+    const city = (await this.o.db.query('SELECT city FROM users WHERE id=$1', [user.id])).rows[0]?.city ?? null;
+    const status = await this.send(phone, msg.rateForm(form.flowId, form.mode, code, happy, seller, {
+      heading: happy ? `Thanks for rating ${seller}` : 'What went wrong?', happy, unhappy: !happy, seller,
+      shown_as: `Only your first name${city ? ' and area' : ''} show (${me}${city ? `, ${city}` : ''}). Never your number.`,
+    }));
+    if (status !== 'FAILED') return true;
+    await this.o.onFormRefused?.('rate', phone);
+    return false;
+  }
+
+  private async rateFormSubmitted(phone: string, user: User, code: string, form: Record<string, unknown>) {
+    const f = readRateForm(form);
+    await this.save(phone, 'IDLE');
+    if (f.note) return this.o.deals.rateComment(code, user, f.note);
+    if (!f.words) return this.send(phone, msg.reviewSkipped());
+    const problem = reviewProblem(f.words);
+    if (problem) {
+      await this.save(phone, 'REVIEW_TEXT', { code, seller: (await this.sellerNameFor(code)) ?? 'the seller' });
+      return this.send(phone, msg.reviewNotOk(problem as 'short' | 'long' | 'contact'));
+    }
+    await this.o.deals.saveReview(code, user, f.words.replace(/\s+/g, ' '), f.show);
+    return this.send(phone, f.show ? msg.reviewShown((await this.sellerNameFor(code)) ?? 'the seller') : msg.reviewPrivate());
+  }
+
+  // ----- payout account (live form; the chat steps are the backup) -----
+  /** Asks for a bank account: the payout form when it can be sent (and no ID check comes first), else the chat question. The state is already saved. */
+  private async bankPrompt(phone: string, state: State, chatMsg: Outbound): Promise<unknown> {
+    const form = this.o.extraForm?.('payout') ?? null;
+    const user = await this.userByPhone(phone);
+    const kycFirst = !!user && state !== 'REFUND_BANK' && this.sellerNeedsKyc(user);
+    if (form && user && !kycFirst && this.o.formSecret) {
+      const why = state === 'REFUND_BANK' ? 'refund' : state === 'ACCOUNT_BANK' ? 'change' : state === 'SELLER_BANK' ? 'accept' : 'sell';
+      const status = await this.send(phone, msg.payoutForm(form.flowId, form.mode, payoutToken(this.o.formSecret, phone), why));
+      if (status !== 'FAILED') return;
+      await this.o.onFormRefused?.('payout', phone);
+    }
+    return this.send(phone, chatMsg);
+  }
+
+  /** Is this account allowed for this person? The name from the bank, or why not (plain words, for the form and the chat). */
+  private async checkAccount(user: User, state: string, bank: Bank, number: string): Promise<{ ok: true; name: string } | { ok: false; why: string }> {
+    const name = await this.o.provider.resolveAccount(bank.code, number);
+    if (!name) return { ok: false, why: `We couldn't find ${number} at ${bank.name}. Check the number and the bank.` };
+    if (state !== 'REFUND_BANK' && this.sellerNeedsKyc(user)) return { ok: false, why: 'Check your ID first: send "hi" in the chat to carry on.' };
+    if (isVerified(user) && !this.o.deals.accountMatches(user.kyc_name, name)) {
+      return { ok: false, why: `This account is in the name ${name}. ${state === 'REFUND_BANK' ? 'Refunds' : 'Payouts'} only go to an account in your own name (${user.kyc_name ?? 'the name on your ID'}).` };
+    }
+    return { ok: true, name };
+  }
+
+  /** The payout form talking to our endpoint: the number → the likely banks → the name on the account. */
+  async payoutFormRequest(req: { action?: string; screen?: string; data?: Record<string, any>; flow_token?: string }): Promise<Record<string, unknown>> {
+    const wrap = (screen: string, data: Record<string, unknown>) => ({ version: '3.0', screen, data });
+    if (req.action === 'ping') return { data: { status: 'active' } };
+    if (req.data?.error || req.data?.error_message) { this.o.log?.(`payout form: WhatsApp REJECTED our answer: ${JSON.stringify(req.data).slice(0, 300)}`); return { data: { acknowledged: true } }; }
+    const phone = this.o.formSecret ? readPayoutToken(this.o.formSecret, req.flow_token ?? '') : null;
+    const user = phone ? await this.userByPhone(phone) : null;
+    const s = phone ? (await this.o.db.query('SELECT state FROM chat_sessions WHERE phone=$1', [phone])).rows[0] : null;
+    const state = String(s?.state ?? '');
+    const account = (error: string | null, number = '') => wrap('ACCOUNT', {
+      heading: state === 'REFUND_BANK' ? 'Where should a refund go?' : state === 'ACCOUNT_BANK' ? 'Your new payout account' : 'Where should we pay you?',
+      intro: user && isVerified(user) && user.kyc_name ? `It must be in your own name: ${user.kyc_name}.` : 'Use an account in your own name.',
+      error: error ?? '', has_error: !!error, account_number: number,
+    });
+    if (!user || !/_BANK$/.test(state)) return account('⌛ This has expired. Go back to the chat and tap the last button again.');
+    try {
+      if (req.action === 'INIT') return account(null);
+      const op = String(req.data?.op ?? '');
+      const number = String(req.data?.account_number ?? '').replace(/\D/g, '');
+      if (number.length !== 10) return account('⚠️ An account number has 10 digits.', number);
+      const banks = await this.o.provider.listBanks();
+      const options = (list: Bank[]) => [...list.map((b) => ({ id: b.code, title: b.name.slice(0, 30) })), { id: 'other', title: 'My bank isn\'t listed' }].slice(0, 200);
+      const bankScreen = (error: string | null) => wrap('BANK', { account_number: number, banks: options(bankChoices(number, banks)), error: error ?? '', has_error: !!error });
+      if (op === 'number') return bankScreen(null);
+      const picked = req.data?.bank === 'other' ? matchBank(String(req.data?.bank_other ?? ''), banks) : banks.find((b) => b.code === req.data?.bank) ?? null;
+      if (!picked) return bankScreen(req.data?.bank === 'other' ? '⚠️ We couldn\'t find that bank. Check the spelling, or pick it from the list.' : '⚠️ Pick your bank.');
+      const r = await this.checkAccount(user, state, picked, number);
+      if (!r.ok) return bankScreen(`⚠️ ${r.why}`);
+      return wrap('CONFIRM', {
+        account_number: number, bank: picked.code, confirm_text: `${r.name}\n${picked.name} · ${number}`,
+        name_note: isVerified(user) ? '✓ Matches the name on your ID' : '', has_note: isVerified(user),
+      });
+    } catch (e) {
+      this.o.log?.(`payout form error: ${(e as Error).stack ?? e}`);
+      return account('😕 Something went wrong on our side. Please try again.');
+    }
+  }
+
+  /** The payout form was saved: checked again here, then it carries on exactly like "Yes, that's my account" in the chat. */
+  private async payoutFormSubmitted(phone: string, user: User, s: Session, token: string, form: Record<string, unknown>) {
+    if (!this.o.formSecret || readPayoutToken(this.o.formSecret, token) !== phone || !/_BANK$/.test(s.state)) return this.send(phone, msg.didntUnderstand());
+    const number = String(form.account_number ?? '').replace(/\D/g, '');
+    const bank = (await this.o.provider.listBanks()).find((b) => b.code === String(form.bank ?? ''));
+    const r = bank && number.length === 10 ? await this.checkAccount(user, s.state, bank, number) : { ok: false as const, why: 'That account didn\'t come through.' };
+    if (!r.ok || !bank) return this.send(phone, { kind: 'text', text: `⚠️ ${r.ok ? 'That account didn\'t come through.' : r.why}\n\nSend the 10-digit account number here, or try the form again.` });
+    const next = (s.state.replace(/_BANK$/, '_BANK_CONFIRM')) as State;
+    const data = { ...s.data, pendingAccount: { bank_code: bank.code, bank_name: bank.name, account_number: number, account_name: r.name } };
+    await this.save(phone, next, data);
+    return this.bankAnswer(phone, { state: next, data, isNew: false }, user, true);
   }
 
   /** The name buyers would see if they don't type a shop name (from their WhatsApp profile). */
@@ -1113,8 +1281,42 @@ export class Conversation {
   }
 
   private async startProblem(phone: string, user: User, code: string) {
-    await this.o.deals.openDispute(code, user);
-    return this.save(phone, 'DISPUTE_DETAIL', { code });
+    // the money is frozen at once; then one form (what went wrong, details, photos), or the chat question
+    const form = this.o.extraForm?.('problem') ?? null;
+    const info = await this.o.deals.openDispute(code, user, !form);
+    await this.save(phone, 'DISPUTE_DETAIL', { code });
+    if (!form || !info) return;
+    const amount = formatMoney(info.amountMinor, this.o.currency);
+    const hours = this.o.problemHours?.() ?? 24;
+    const status = await this.send(phone, msg.problemForm(form.flowId, form.mode, code, {
+      heading: `${code} · ${info.item}${info.sellerName ? ` from ${info.sellerName}` : ''}`.slice(0, 80),
+      frozen: `${amount} is frozen with Hoolam until this is sorted.`,
+      reply: `A rep replies within ${hours} hour${hours === 1 ? '' : 's'}.`,
+    }, ART.frozen('buyer', amount, code, hours)));
+    if (status !== 'FAILED') return;
+    await this.o.onFormRefused?.('problem', phone);
+    return this.send(phone, msg.askProblem(code, info.sellerName, { minor: info.amountMinor, currency: this.o.currency }));
+  }
+
+  /** After the buyer told us what's wrong: the case is open; a refund account if we don't have one. */
+  private async afterProblem(phone: string, user: User, code: string, ref: string) {
+    if (await this.o.deals.defaultBankAccount(user.id)) {
+      await this.save(phone, 'IDLE');
+      return this.send(phone, msg.problemLogged(code, caseRef(ref), await this.sellerNameFor(code)));
+    }
+    await this.save(phone, 'REFUND_BANK', { code, caseId: ref });
+    return this.bankPrompt(phone, 'REFUND_BANK', msg.askRefundBank());
+  }
+
+  private async problemFormSubmitted(phone: string, user: User, s: Session, code: string, form: Record<string, unknown>) {
+    const deal = await this.o.deals.findByCode(code);
+    if (!deal || deal.buyer_id !== user.id || deal.status !== 'DISPUTED') return this.send(phone, msg.dealStatusNow(code, deal?.status ?? 'CLOSED'));
+    const f = readProblemForm(form);
+    const ref = await this.o.deals.addDisputeDetail(code, user, `${problemReasonTitle(f.reason)}: ${f.details}`.slice(0, 2000));
+    const n = await this.o.deals.addProblemPhotos(code, user, f.photos).catch((e) => { this.o.log?.(`problem photos: ${(e as Error).message}`); return 0; });
+    if (n) await this.o.deals.addDisputeDetail(code, user, `[${n} photo${n === 1 ? '' : 's'} added as proof]`);
+    if (s.state === 'DISPUTE_DETAIL' || s.state === 'IDLE') return this.afterProblem(phone, user, code, ref);
+    return this.send(phone, msg.problemLogged(code, caseRef(ref), await this.sellerNameFor(code)));
   }
 
   /** Sell something: the seller's form (the mirror of the buyer's), or the same questions in the chat. */
@@ -1251,7 +1453,7 @@ export class Conversation {
     return this.send(phone, msg.myTrustCard(msg.trustCardText(t), t.isPublic && t.slug ? this.pageUrl(t.slug) : null, t.ownStats ?? null, ART.trust(t, user.id)));
   }
 
-  private async cardAction(phone: string, user: User, action: string) {
+  private async cardAction(phone: string, user: User, action: string): Promise<unknown> {
     if (!this.o.trust) return;
     switch (action) {
       case 'share': {
@@ -1269,8 +1471,12 @@ export class Conversation {
         const t = await this.o.trust.seller(user.id);
         if (!t) return;
         await this.save(phone, 'IDLE');
-        return this.send(phone, msg.editMyPage(t, !!t.photoVersion, { video: this.o.trust.videoOn() ? await this.o.trust.videoState(user.id) : null }));
+        return this.send(phone, msg.editMyPage(t, !!t.photoVersion, { video: this.o.trust.videoOn() ? await this.o.trust.videoState(user.id) : null }, !!this.o.extraForm?.('page')));
       }
+      case 'form':
+        await this.save(phone, 'IDLE');
+        if (await this.pageForm(phone, user, null)) return;
+        return this.cardAction(phone, user, 'name');
       case 'name': {
         const t = await this.o.trust.seller(user.id);
         await this.save(phone, 'PROFILE_NAME');
@@ -1400,7 +1606,8 @@ export class Conversation {
       if (!acct) {
         // every seller checks their ID once, before their payout account (then the account must be in that name)
         if (me && this.sellerNeedsKyc(me)) return this.startKyc(phone, me, 'seller', { kind: 'ask', state: 'SELL_BANK', data: d as Record<string, any>, message: msg.askBank() });
-        return ask('SELL_BANK', msg.askBank());
+        await this.save(phone, 'SELL_BANK', d as Record<string, any>);
+        return this.bankPrompt(phone, 'SELL_BANK', msg.askBank());
       }
       d.accountId = acct.id;
     }
@@ -1550,7 +1757,7 @@ export class Conversation {
     this.o.deals.assertLimit(user, deal.price_minor); // above their limit: the ID check first (the order waits)
     if (this.sellerNeedsKyc(user)) return this.startKyc(phone, user, 'seller', { kind: 'button', id: `saccept:${code}` });
     await this.save(phone, 'SELLER_BANK', { code });
-    return this.send(phone, msg.askSellerBank());
+    return this.bankPrompt(phone, 'SELLER_BANK', msg.askSellerBank());
   }
 
   // ----- bank accounts -----

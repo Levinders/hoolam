@@ -19,6 +19,10 @@ export const FORM_LABELS = {
   mkList: 'Market: list an item',
   mkEdit: 'Market: edit an item',
   mkOrder: 'Market: delivery for an order',
+  payout: 'Payout account (live)',
+  problem: 'Report a problem',
+  page: 'My page (and seller setup)',
+  rate: 'Rating and review',
 } as const;
 export type FormKey = keyof typeof FORM_LABELS;
 export const FORM_KEYS = Object.keys(FORM_LABELS) as FormKey[];

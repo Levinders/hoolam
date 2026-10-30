@@ -9,7 +9,7 @@ import { pendingEvents, processEvent, storeEvent, type Handler } from './webhook
 import { FakeKycChecker, KycService, NoKycChecker, PremblyChecker, type KycChecker } from './kyc.js';
 import { buyFlowJson, sellFlowJson } from './whatsapp/buy-flow.js';
 import { kycFlowJson } from './whatsapp/kyc-flow.js';
-import { ALL_TEMPLATES, ensureAmbApplyFlow, ensureAmbDetailsFlow, ensureSignInTemplate, SIGN_IN_CODE, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureStaticFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureAmbApplyFlow, ensureAmbDetailsFlow, ensureSignInTemplate, SIGN_IN_CODE, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureLiveFlow, ensureSellFlow, ensureStaticFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { FormRegistry, type FormKey, type FormUse } from './whatsapp/forms.js';
@@ -20,6 +20,7 @@ import { CampaignLinks } from './links.js';
 import { Ambassadors } from './ambassadors.js';
 import { Market, type Listing } from './market/market.js';
 import { itemPage } from './item-page.js';
+import { pageFormJson, pageFormName, payoutFormJson, payoutFormName, problemFormJson, problemFormName, rateFormJson, rateFormName } from './whatsapp/more-forms.js';
 import { editItemFormJson, editItemFormName, listFormJson, listFormName, marketOrderFormJson, marketOrderFormName } from './market/market-forms.js';
 import { categoryTitle } from './deals/categories.js';
 import { AmbassadorDetailsFlow } from './whatsapp/amb-flow.js';
@@ -125,7 +126,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // Every WhatsApp form, once it exists on Meta (see setupMeta), sent in the state Meta reports. A form WhatsApp
   // refuses rests for 30 minutes on its own; meanwhile the chat asks the same questions. Console → Settings → WhatsApp shows them.
   const forms = new FormRegistry(30, Date.now, log);
-  if (c.WHATSAPP_DRY_RUN) for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails', 'mkList', 'mkEdit', 'mkOrder'] as FormKey[]) forms.off(k, 'WhatsApp is in dry run (WHATSAPP_DRY_RUN)');
+  if (c.WHATSAPP_DRY_RUN) for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails', 'mkList', 'mkEdit', 'mkOrder', 'payout', 'problem', 'page', 'rate'] as FormKey[]) forms.off(k, 'WhatsApp is in dry run (WHATSAPP_DRY_RUN)');
   /** A form to send, if the console switch is on and the form is ready. */
   const formFor = (key: FormKey): FormUse | null => (settings.formsEnabled() ? forms.use(key) : null);
   /** WhatsApp refused a form we sent: rest that one form, with Meta's reason (saved with the failed message). */
@@ -195,7 +196,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return { name: 'Hoolam', phone, org: COMPANY.legalName, email: settings.contact().email || undefined, url: (c.SITE_URL || 'https://hoolam.com').replace(/\/$/, '') };
     },
     hoolamNumber: () => settings.waNumber(),
-    market, marketForm: (k) => formFor(k), itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
+    market, marketForm: (k) => formFor(k), extraForm: (k) => formFor(k), problemHours: () => settings.problemReplyHours(), itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
     ambassadors, ambApplyForm: () => formFor('ambApply'), ambDetailsForm: () => formFor('ambDetails'),
     onAmbFormRefused: (key, phone) => formRefused(key, phone), formSecret, siteUrl: c.SITE_URL || 'https://hoolam.com',
   });
@@ -656,7 +657,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       log(`forms endpoint: can't decrypt (${(e as Error).message}). Meta will refresh the key.`);
       return reply.code(e instanceof FlowDecryptError ? 421 : 400).send('cannot decrypt');
     }
-    const answer = String((dec.body as { flow_token?: string }).flow_token ?? '').startsWith('a1.') ? await ambDetails.handle(dec.body) : await orders.handle(dec.body);
+    const tok = String((dec.body as { flow_token?: string }).flow_token ?? '');
+    const answer = tok.startsWith('a1.') ? await ambDetails.handle(dec.body) : tok.startsWith('pb1.') ? await chat.payoutFormRequest(dec.body as never) : await orders.handle(dec.body);
     return reply.type('text/plain').send(encryptResponse(answer, dec.aesKey, dec.iv));
   });
 
@@ -846,7 +848,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (c.WHATSAPP_SYNC_MENU) await syncMenu();
       if (!c.WHATSAPP_WABA_ID) {
         log('buyer form + seller alerts need WHATSAPP_WABA_ID in Render. Buyers answer in the chat until then.');
-        for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails', 'mkList', 'mkEdit', 'mkOrder'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
+        for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails', 'mkList', 'mkEdit', 'mkOrder', 'payout', 'problem', 'page', 'rate'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
         return;
       }
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, log };
@@ -874,7 +876,11 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         { const j = listFormJson(); await ensureStaticFlow(into('mkList'), j, listFormName(j), 'market list form'); }
         { const j = editItemFormJson(); await ensureStaticFlow(into('mkEdit'), j, editItemFormName(j), 'market edit form'); }
         { const j = marketOrderFormJson(); await ensureStaticFlow(into('mkOrder'), j, marketOrderFormName(j), 'market order form'); }
-      } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'ambApply', 'mkList', 'mkEdit', 'mkOrder'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
+        // report a problem, my page (and the seller setup), rating
+        { const j = problemFormJson(); await ensureStaticFlow(into('problem'), j, problemFormName(j), 'problem form'); }
+        { const j = pageFormJson(); await ensureStaticFlow(into('page'), j, pageFormName(j), 'my page form'); }
+        { const j = rateFormJson(); await ensureStaticFlow(into('rate'), j, rateFormName(j), 'rating form'); }
+      } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'ambApply', 'mkList', 'mkEdit', 'mkOrder', 'problem', 'page', 'rate'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
       if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {
         keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
         log(`forms key: ${keys.source === 'env' ? 'from FLOWS_PRIVATE_KEY' : keys.source === 'new' ? 'made a new one (kept in the database)' : 'loaded from the database'}`);
@@ -887,8 +893,9 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
           let one = await ensureOrderFlow(into('order'), endpoint, ordersFlowJson('ORDER', false, ex));
           if (!one) { one = await ensureOrderFlow(into('order', true), endpoint, ordersFlowJson('ORDER', true, ex)); backupForms.one = !!one; if (one) log('order form: using the backup version'); }
           await ensureAmbDetailsFlow(into('ambDetails'), endpoint);
-        } else for (const k of ['orders', 'order', 'ambDetails'] as FormKey[]) forms.failed(k, 'Meta didn\'t accept the forms key, so the live forms can\'t start (see the Render log)');
-      } else for (const k of ['orders', 'order', 'ambDetails'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_ORDERS_FORM=false) or no PUBLIC_BASE_URL');
+          { const j = payoutFormJson(); await ensureLiveFlow(into('payout'), j, payoutFormName(endpoint, j), 'payout account form', endpoint); }
+        } else for (const k of ['orders', 'order', 'ambDetails', 'payout'] as FormKey[]) forms.failed(k, 'Meta didn\'t accept the forms key, so the live forms can\'t start (see the Render log)');
+      } else for (const k of ['orders', 'order', 'ambDetails', 'payout'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_ORDERS_FORM=false) or no PUBLIC_BASE_URL');
     } catch (e) {
       log(`WhatsApp setup failed: ${(e as Error).message}`);
     }

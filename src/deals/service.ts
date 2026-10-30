@@ -272,14 +272,14 @@ export class DealService {
   }
 
   /** 👍/👎 after "I'm happy". Only the buyer, only on a released deal, only once. */
-  async rateDeal(code: string, buyer: User, happy: boolean): Promise<'ok' | 'already' | 'no'> {
+  async rateDeal(code: string, buyer: User, happy: boolean, ask = true): Promise<'ok' | 'already' | 'no'> {
     const deal = await this.findByCode(code);
     if (!deal || deal.buyer_id !== buyer.id || !deal.seller_id || !this.o.trust) return 'no';
     if (!['RELEASING', 'PAYOUT_PENDING', 'COMPLETED'].includes(deal.status)) return 'no';
     const fresh = await this.o.trust.rate(deal.id, buyer.id, deal.seller_id, happy);
     if (!fresh) { await this.o.messenger.send(buyer.phone, msg.alreadyRated()); return 'already'; }
     const seller = await this.userById(this.o.db, deal.seller_id);
-    await this.o.messenger.send(buyer.phone, happy ? msg.askReview(firstName(seller.display_name) ?? 'the seller', deal.code) : msg.askRatingComment(deal.code));
+    if (ask) await this.o.messenger.send(buyer.phone, happy ? msg.askReview(firstName(seller.display_name) ?? 'the seller', deal.code) : msg.askRatingComment(deal.code));
     return 'ok';
   }
 
@@ -510,9 +510,9 @@ export class DealService {
   }
 
   /** Downloads photos from WhatsApp before a transaction (their links only work for a few minutes). */
-  private async fetchPhotos(list: { mediaId: string; mimeType?: string | null }[]) {
+  private async fetchPhotos(list: { mediaId: string; mimeType?: string | null }[], max = 3) {
     const photos: { mediaId: string; mimeType: string; bytes: Buffer | null; sha256: string | null }[] = [];
-    for (const p of list.slice(0, 3)) {
+    for (const p of list.slice(0, max)) {
       try {
         const d = this.o.media ? await this.o.media.download(p.mediaId) : null;
         photos.push({ mediaId: p.mediaId, mimeType: d?.mimeType ?? p.mimeType ?? 'image/jpeg', bytes: d?.bytes ?? null, sha256: d?.sha256 ?? null });
@@ -521,7 +521,7 @@ export class DealService {
     return photos;
   }
 
-  private async savePhotos(tx: Tx, dealId: string, userId: string, photos: Awaited<ReturnType<DealService['fetchPhotos']>>, kind: 'ITEM' | 'SHIPPING') {
+  private async savePhotos(tx: Tx, dealId: string, userId: string, photos: Awaited<ReturnType<DealService['fetchPhotos']>>, kind: 'ITEM' | 'SHIPPING' | 'PROBLEM') {
     for (const p of photos) {
       await tx.query('INSERT INTO deal_photos (deal_id, uploaded_by, mime_type, bytes, sha256, wa_media_id, kind) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [dealId, userId, p.mimeType, p.bytes, p.sha256, p.mediaId, kind]);
@@ -1420,7 +1420,8 @@ export class DealService {
   }
 
   // ---------- 5b. buyer reports a problem ----------
-  async openDispute(code: string, buyer: User): Promise<void> {
+  async openDispute(code: string, buyer: User, ask = true): Promise<{ sellerName: string | null; amountMinor: number; item: string } | void> {
+    let info: { sellerName: string | null; amountMinor: number; item: string } | undefined;
     await this.run(async (tx, out) => {
       const deal = await this.lockByCode(tx, code);
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
@@ -1428,9 +1429,20 @@ export class DealService {
       await this.move(tx, deal, 'DISPUTED', 'buyer');
       await tx.query('INSERT INTO disputes (deal_id, opened_by) VALUES ($1,$2)', [deal.id, buyer.id]);
       const seller = await this.sellerOf(tx, deal);
-      out.push({ phone: buyer.phone, message: msg.askProblem(deal.code, firstName(seller.display_name), this.money(deal.buyer_pays_minor)) });
+      if (ask) out.push({ phone: buyer.phone, message: msg.askProblem(deal.code, firstName(seller.display_name), this.money(deal.buyer_pays_minor)) });
+      info = { sellerName: firstName(seller.display_name), amountMinor: Number(deal.buyer_pays_minor), item: deal.item };
       out.push({ phone: seller.phone, message: msg.sellerProblem(deal.code, firstName(buyer.display_name), this.money(deal.seller_gets_minor)), fallback: dealTemplate('problemReported', [deal.code], ['menu:human']) });
     });
+    return info;
+  }
+
+  /** Photos the buyer sends as proof of a problem (shown to the team on the order). */
+  async addProblemPhotos(code: string, buyer: User, list: { mediaId: string; mimeType?: string | null }[]): Promise<number> {
+    const deal = await this.findByCode(code);
+    if (!deal || deal.buyer_id !== buyer.id || !list.length) return 0;
+    const photos = await this.fetchPhotos(list, 5);
+    await this.run(async (tx) => { await this.savePhotos(tx, deal.id, buyer.id, photos, 'PROBLEM'); });
+    return photos.length;
   }
 
   async addDisputeDetail(code: string, buyer: User, text: string): Promise<string> {
