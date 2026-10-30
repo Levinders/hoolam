@@ -64,7 +64,7 @@ function listFormJsonRaw(bannerBase64 = banner()) {
       },
       {
         id: 'DELIVERY', title: 'Photos and delivery', terminal: true,
-        data: { title: ex('Nike Air Force 1'), category: ex('shoes'), price: ex('45000'), stock: ex('1'), details: ex(''), area: ex('Woji, Port Harcourt'), note: ex('Your own photos, 1 to 4. The first one is the cover.') },
+        data: { title: ex('Nike Air Force 1'), category: ex('shoes'), price: ex('45000'), details: ex(''), area: ex('Woji, Port Harcourt'), note: ex('Your own photos, 1 to 4. The first one is the cover.'), stock: { type: 'number', __example__: 1 } },
         layout: {
           type: 'SingleColumnLayout',
           children: [
@@ -95,6 +95,7 @@ function editItemFormJsonRaw() {
         data: {
           title: ex('Nike Air Force 1, size 43'), price: ex('45000'), promo: ex(''), promo_for: ex('0'), stock: ex('2'), details: ex(''),
           promo_choices: { ...OPTIONS, __example__: [{ id: '0', title: 'No promo' }] },
+          photo_note: ex('You have 3 photos (shown in the chat). Add new ones to replace them all.'),
           delivery: { type: 'array', items: { type: 'string' }, __example__: ['pickup', 'rider'] },
         },
         layout: {
@@ -110,7 +111,8 @@ function editItemFormJsonRaw() {
                 { type: 'TextInput', name: 'stock', label: 'How many you have', 'input-type': 'number', required: true, 'helper-text': '0 = sold out', 'init-value': '${data.stock}' },
                 { type: 'CheckboxGroup', name: 'delivery', label: 'How buyers get it', required: true, 'min-selected-items': 1, 'data-source': DELIVERY_CHOICES, 'init-value': '${data.delivery}' },
                 { type: 'TextArea', name: 'details', label: 'Details (optional)', required: false, 'max-length': 600, 'init-value': '${data.details}' },
-                { type: 'Footer', label: 'Save changes', 'on-click-action': { name: 'complete', payload: { price: '${form.price}', promo: '${form.promo}', promo_for: '${form.promo_for}', stock: '${form.stock}', delivery: '${form.delivery}', details: '${form.details}' } } },
+                { type: 'PhotoPicker', name: 'photos', label: 'New photos (optional)', description: '${data.photo_note}', 'photo-source': 'camera_gallery', 'max-file-size-kb': 25600, 'min-uploaded-photos': 0, 'max-uploaded-photos': 4 },
+                { type: 'Footer', label: 'Save changes', 'on-click-action': { name: 'complete', payload: { price: '${form.price}', promo: '${form.promo}', promo_for: '${form.promo_for}', stock: '${form.stock}', delivery: '${form.delivery}', details: '${form.details}', photos: '${form.photos}' } } },
               ],
             },
           ],
@@ -166,6 +168,7 @@ export function readListForm(f: Record<string, unknown>) {
 }
 export function readEditForm(f: Record<string, unknown>) {
   return {
+    photos: Array.isArray(f.photos) ? (f.photos as { id?: string; media_id?: string }[]).map((p) => String(p.id ?? p.media_id ?? '')).filter(Boolean) : [],
     price: str(f.price), promo: str(f.promo), promoFor: str(f.promo_for) || '0', stock: str(f.stock), details: str(f.details) || null,
     delivery: list(f.delivery).filter((x) => ['pickup', 'rider', 'waybill'].includes(x)) as ('pickup' | 'rider' | 'waybill')[],
   };

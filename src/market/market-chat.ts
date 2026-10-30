@@ -591,6 +591,14 @@ export class MarketChat {
     });
   }
 
+  /** The seller's own photos of an item, as swipe cards, with Replace photos (the chat way). */
+  private async showOwnPhotos(phone: string, l: Listing, n: number) {
+    return this.send(phone, {
+      kind: 'cards', text: `📷 Your photos now · ${n}`,
+      cards: Array.from({ length: Math.min(n, 4) }, (_, i) => ({ art: { card: 'marketPhoto' as const, data: { photoListing: l.id, photoPosition: i } }, text: i ? `Photo ${i + 1}` : 'Photo 1 · the cover', buttons: [btn(`mk:e:${l.id}:photos`, '🔁 Replace photos')] })),
+    });
+  }
+
   /** Edit item form came back: every change at once. */
   private async editSubmitted(phone: string, user: User, id: number, form: Record<string, unknown>): Promise<unknown> {
     const l = await this.m.get(id);
@@ -612,6 +620,12 @@ export class MarketChat {
     if (f.stock && Number.isInteger(stock) && stock !== l.stock) await run({ stock });
     if (f.delivery.length && f.delivery.join() !== l.delivery.join()) await run({ delivery: f.delivery });
     if ((f.details ?? null) !== (l.details ?? null)) await run({ details: f.details });
+    if (f.photos.length) {
+      const bytes: { bytes: Buffer }[] = [];
+      for (const id of f.photos.slice(0, 4)) { const b = await this.c.download(id).catch(() => null); if (b) bytes.push({ bytes: b }); }
+      const r = bytes.length ? await this.m.setPhotos(user.id, id, bytes) : { ok: false as const, why: 'We couldn\'t get your new photos. Send them here instead.' };
+      if (!r.ok) problems.push(r.why);
+    }
     await this.c.save(phone, 'IDLE');
     if (problems.length) await this.send(phone, { kind: 'buttons', text: `⚠️ Not everything was saved:\n${problems.map((p) => `• ${p}`).join('\n')}`, buttons: [btn(`mk:chg:${id}`, '✏️ Try again')] });
     return this.item(phone, user, id);
@@ -624,6 +638,9 @@ export class MarketChat {
     const promoEnds = l.promo_ends ? new Date(l.promo_ends) : null;
     const choices = [...PROMO_CHOICES];
     if (onPromo(l)) choices.splice(1, 0, { id: 'same', title: promoEnds ? `Keep: until ${promoEnds.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })}` : 'Keep: until I stop it' });
+    // the photos they have now, so they can see what they're changing (also a way to replace them in the chat)
+    const n = (await this.m.photoIds(l.id)).length;
+    if (n) await this.showOwnPhotos(phone, l, n);
     const status = await this.send(phone, {
       kind: 'form', header: '✏️ Edit item', cta: 'Edit item',
       text: `*${cut(l.title, 60)}*: change what you need, then tap *Save changes*.`,
@@ -631,6 +648,7 @@ export class MarketChat {
       data: {
         title: cut(l.title, 80), price: String(Number(l.price_minor) / 100), promo: onPromo(l) ? String(Number(l.promo_minor) / 100) : '',
         promo_for: onPromo(l) ? 'same' : '0', promo_choices: choices, stock: String(l.stock), details: l.details ?? '', delivery: l.delivery,
+        photo_note: n ? `You have ${n} photo${n === 1 ? '' : 's'} (shown in the chat). Add new ones to replace ${n === 1 ? 'it' : 'them all'}. The first is the cover.` : 'Add 1 to 4 photos. The first is the cover.',
       },
     });
     if (status === 'FAILED') { await this.c.formRefused?.('mkEdit', phone); return false; }
@@ -723,6 +741,19 @@ export class MarketChat {
         const n = Number(text.replace(/\D/g, ''));
         if (!Number.isInteger(n) || !/\d/.test(text)) return this.send(phone, { kind: 'text', text: 'Type how many you have now, like _3_ (0 = sold out).', noMenu: true });
         return this.applyEdit(phone, user, data.id, { stock: n });
+      }
+      case 'MK_E_PHOTOS': {
+        const photos: string[] = data.photos ?? [];
+        if (m.type === 'image' && m.mediaId) {
+          photos.push(m.mediaId);
+          if (photos.length < 4) { await save('MK_E_PHOTOS', { ...data, photos }); return this.send(phone, { kind: 'buttons', text: `📷 ${photos.length} photo${photos.length === 1 ? '' : 's'} added. Send another, or tap Done.`, buttons: [btn('mk:ephdone', 'Done')] }); }
+        } else if (m.buttonId !== 'mk:ephdone' || !photos.length) return this.send(phone, { kind: 'text', noMenu: true, text: '📷 Send a photo of the item.' });
+        const bytes: { bytes: Buffer }[] = [];
+        for (const pid of photos) { const b = await this.c.download(pid).catch(() => null); if (b) bytes.push({ bytes: b }); }
+        const r = await this.m.setPhotos(user.id, data.id, bytes);
+        await this.c.save(phone, 'IDLE');
+        if (!r.ok) return this.send(phone, { kind: 'buttons', text: r.why, buttons: [btn(`mk:e:${data.id}:photos`, 'Try again')] });
+        return this.item(phone, user, data.id);
       }
       case 'MK_E_DELIV': {
         const d = m.buttonId?.startsWith('mk:edel:') ? this.deliveryOf(m.buttonId.slice(8)) : null;
@@ -826,16 +857,18 @@ export class MarketChat {
       { id: `mk:e:${id}:promo`, title: '🏷️ Promo price', description: onPromo(l) ? `Now ${this.money(l.promo_minor!)}` : 'Sell for less, for a while' },
       { id: `mk:e:${id}:stock`, title: '📦 How many', description: `${l.stock} now` },
       { id: `mk:e:${id}:deliv`, title: '🚚 Delivery', description: l.delivery.map((x) => DELIVERY_WORDS[x]).join(', ') },
+      { id: `mk:e:${id}:photos`, title: '📷 Photos', description: 'Replace them with new ones' },
       { id: `mk:act:${id}:renew`, title: '🔁 Renew', description: `Live for ${this.m.cfg().expireDays} more days` },
       { id: `mk:act:${id}:soldout`, title: '⚪ Mark sold out' },
       { id: `mk:act:${id}:delete`, title: '🗑️ Delete' },
     ] }] });
   }
   async editAsk(phone: string, user: User, id: number, what: string): Promise<unknown> {
-    const st = { price: 'MK_E_PRICE', promo: 'MK_E_PROMO', stock: 'MK_E_STOCK', deliv: 'MK_E_DELIV' }[what];
+    const st = { price: 'MK_E_PRICE', promo: 'MK_E_PROMO', stock: 'MK_E_STOCK', deliv: 'MK_E_DELIV', photos: 'MK_E_PHOTOS' }[what];
     if (!st) return this.change(phone, user, id);
     await this.c.save(phone, st, { id });
     if (what === 'deliv') return this.deliveryPick(phone, 'mk:edel');
+    if (what === 'photos') { await this.c.save(phone, st, { id, photos: [] }); return this.send(phone, { kind: 'text', noMenu: true, text: '📷 Send 1 to 4 new photos. They replace the ones there now; the first is the cover.' }); }
     return this.send(phone, { kind: 'text', noMenu: true, text: what === 'price' ? '💰 The new price, in naira?' : what === 'promo' ? '🏷️ The promo price, in naira? Buyers see the old price crossed out. (Type _stop_ to end a promo.)' : '📦 How many do you have now? (0 = sold out)' });
   }
   async applyEdit(phone: string, user: User, id: number, change: Parameters<Market['edit']>[2]): Promise<unknown> {

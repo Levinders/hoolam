@@ -287,7 +287,7 @@ export class Conversation {
           return this.openMenuItem(m.phone, user, (code === 'help' ? 'how' : code === 'deals' ? 'orders' : code) as MenuItem);
         case 'mk': {
           if (!this.mkt || !this.o.market?.on()) return this.openMenuItem(m.phone, user, 'open');
-          if (/^MK_[LE]_/.test(s.state) && /^mk:(photosdone|lcat|stock1|ldel|lsame|lpl|pend|edel|lgo|lchg)\b/.test(m.buttonId)) {
+          if (/^MK_[LE]_/.test(s.state) && /^mk:(photosdone|lcat|stock1|ldel|lsame|lpl|pend|edel|lgo|lchg|ephdone)\b/.test(m.buttonId)) {
             return this.mkt.listingStep(m.phone, user, s.state, s.data, { type: m.type, text, mediaId: m.mediaId, buttonId: m.buttonId });
           }
           return this.mkt.button(m.phone, user, m.buttonId);

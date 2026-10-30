@@ -228,13 +228,8 @@ export class Market {
 
   async create(sellerId: string, l: NewListing): Promise<{ ok: true; listing: Listing } | { ok: false; why: string }> {
     if (!l.photos.length) return { ok: false, why: 'Add at least one photo of the item.' };
-    const prepared: { bytes: Buffer; sha: string; look: string | null }[] = [];
-    for (const p of l.photos.slice(0, 4)) {
-      let bytes: Buffer;
-      try { bytes = await sharp(p.bytes, { failOn: 'none' }).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82, mozjpeg: true }).toBuffer(); }
-      catch { return { ok: false, why: 'We couldn\'t read one of the photos. Try another.' }; }
-      prepared.push({ bytes, sha: createHash('sha256').update(bytes).digest('hex'), look: await photoLook(bytes) });
-    }
+    const prepared = await this.preparePhotos(l.photos);
+    if (!prepared) return { ok: false, why: 'We couldn\'t read one of the photos. Try another.' };
     const why = await this.check(sellerId, l, prepared.map((p) => p.look));
     if (why) return { ok: false, why };
     const code = await this.newCode(l.title);
@@ -249,6 +244,34 @@ export class Market {
       await this.o.db.query('INSERT INTO market_photos (listing_id, position, mime, bytes, sha256, look) VALUES ($1,$2,$3,$4,$5,$6)', [listing.id, i, 'image/jpeg', p.bytes, p.sha, p.look]);
     }
     return { ok: true, listing };
+  }
+
+  private async preparePhotos(photos: { bytes: Buffer }[]): Promise<{ bytes: Buffer; sha: string; look: string | null }[] | null> {
+    const prepared: { bytes: Buffer; sha: string; look: string | null }[] = [];
+    for (const p of photos.slice(0, 4)) {
+      let bytes: Buffer;
+      try { bytes = await sharp(p.bytes, { failOn: 'none' }).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82, mozjpeg: true }).toBuffer(); }
+      catch { return null; }
+      prepared.push({ bytes, sha: createHash('sha256').update(bytes).digest('hex'), look: await photoLook(bytes) });
+    }
+    return prepared;
+  }
+
+  /** The seller replaces an item's photos (1 to 4; the first is the cover). Same checks as listing. */
+  async setPhotos(sellerId: string, id: number, photos: { bytes: Buffer }[]): Promise<{ ok: true } | { ok: false; why: string }> {
+    const l = await this.get(id);
+    if (!l || l.seller_id !== sellerId || ['DELETED', 'REMOVED'].includes(l.status)) return { ok: false, why: 'That item isn\'t yours, or it was removed.' };
+    if (!photos.length) return { ok: false, why: 'Add at least one photo of the item.' };
+    const prepared = await this.preparePhotos(photos);
+    if (!prepared) return { ok: false, why: 'We couldn\'t read one of the photos. Try another.' };
+    const why = await this.check(sellerId, this.asInput(l), prepared.map((p) => p.look));
+    if (why) return { ok: false, why };
+    await this.o.db.query('DELETE FROM market_photos WHERE listing_id=$1', [id]);
+    for (const [i, p] of prepared.entries()) {
+      await this.o.db.query('INSERT INTO market_photos (listing_id, position, mime, bytes, sha256, look) VALUES ($1,$2,$3,$4,$5,$6)', [id, i, 'image/jpeg', p.bytes, p.sha, p.look]);
+    }
+    await this.o.db.query('UPDATE market_listings SET updated_at=now() WHERE id=$1', [id]);
+    return { ok: true };
   }
 
   async get(ref: number | string): Promise<Listing | null> {

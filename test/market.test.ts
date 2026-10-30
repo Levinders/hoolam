@@ -73,6 +73,11 @@ describe('the market', () => {
           const next = byId[foot.next.name];
           expect(Object.keys(foot.payload).sort()).toEqual(Object.keys(next.data).sort());
           expect(JSON.stringify(foot.payload)).not.toMatch(/photos/); // photos only go with the last button
+          // a number field carried to the next screen must be declared a number there (WhatsApp checks the types)
+          for (const [k, v] of Object.entries(foot.payload)) {
+            const field = parts.find((c) => `\${form.${c.name}}` === v);
+            if (field?.['input-type'] === 'number') expect(next.data[k].type, `${sc.id} → ${k}`).toBe('number');
+          }
         } else expect(sc.terminal).toBe(true);
       }
     }
@@ -299,6 +304,27 @@ describe('the market', () => {
       // the chat list is still there
       await h.tap(s.phone, `mk:chgchat:${l.id}`);
       expect(h.last(s.phone)).toMatch(/what would you like to change/);
+    });
+
+    it('Edit item shows the photos there now, and new ones replace them (form or chat)', async () => {
+      const s = await seller('Photo Shop');
+      h.app.forms.set('mkList', null);
+      const l = await list(s.phone, { title: 'Silver bracelet', price: '9000', where: 'Ikeja, Lagos' });
+      const photos = async () => (await h.db.query('SELECT sha256 FROM market_photos WHERE listing_id=$1 ORDER BY position', [l.id])).rows.map((r) => r.sha256);
+      const before = await photos();
+      await h.tap(s.phone, `mk:chg:${l.id}`);
+      const cards = (await h.db.query(`SELECT body FROM outbound_messages WHERE phone=$1 AND kind='cards' ORDER BY id DESC LIMIT 1`, [s.phone])).rows[0];
+      expect(cards.body.text).toMatch(/Your photos now · 1/);
+      expect((await lastOut(s.phone)).body.data.photo_note).toMatch(/You have 1 photo/);
+      await submit(s.phone, `mkedit:${l.id}`, { price: '9000', promo: '', promo_for: '0', stock: '2', delivery: ['pickup', 'rider', 'waybill'], details: '', photos: [{ id: 'n1' }, { id: 'n2' }] });
+      const after = await photos();
+      expect(after).toHaveLength(2);
+      expect(after[0]).not.toBe(before[0]);
+      // the chat way: Replace photos, send one, Done
+      await h.tap(s.phone, `mk:e:${l.id}:photos`);
+      await photo(s.phone);
+      await h.tap(s.phone, 'mk:ephdone');
+      expect(await photos()).toHaveLength(1);
     });
 
     it('a market order: the delivery form, then the order to check; typing the address still works', async () => {
