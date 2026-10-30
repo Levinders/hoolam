@@ -266,7 +266,7 @@ export class Market {
 
   /** The seller changes one thing. Returns the listing, or a reason it can't. */
   async edit(sellerId: string, id: number, change:
-    | { price: number } | { promo: number | null; ends?: Date | null } | { stock: number } | { delivery: Delivery[] }
+    | { price: number } | { promo: number | null; ends?: Date | null } | { stock: number } | { delivery: Delivery[] } | { details: string | null }
     | { action: 'pause' | 'resume' | 'renew' | 'soldout' | 'delete' }): Promise<{ ok: true; listing: Listing; backInStock?: boolean } | { ok: false; why: string }> {
     const l = await this.get(id);
     if (!l || l.seller_id !== sellerId || l.status === 'DELETED') return { ok: false, why: 'That item isn\'t yours, or it was deleted.' };
@@ -286,6 +286,12 @@ export class Market {
       const back = l.status === 'SOLD_OUT' && change.stock > 0;
       const listing = await set(`stock=$2, status=CASE WHEN $2=0 AND status='LIVE' THEN 'SOLD_OUT' WHEN $2>0 AND status='SOLD_OUT' THEN 'LIVE' ELSE status END`, [change.stock]);
       return { ok: true, listing, backInStock: back };
+    }
+    if ('details' in change) {
+      const details = change.details?.trim().slice(0, 600) || null;
+      const why = await this.check(sellerId, { ...this.asInput(l), details });
+      if (why) return { ok: false, why };
+      return { ok: true, listing: await set('details=$2', [details]) };
     }
     if ('delivery' in change) {
       if (!change.delivery.length) return { ok: false, why: 'Pick at least one way the buyer gets it.' };

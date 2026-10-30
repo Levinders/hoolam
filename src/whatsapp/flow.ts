@@ -22,6 +22,7 @@ import { firstName, reviewProblem, VIDEO_MAX_BYTES, type Trust } from '../trust.
 import type { Ambassadors } from '../ambassadors.js';
 import { AmbassadorChat, SENT_ME_RE } from './amb-flow.js';
 import { MarketChat } from '../market/market-chat.js';
+import { readOrderForm } from '../market/market-forms.js';
 import type { Market } from '../market/market.js';
 import { ART } from '../chat-art/build.js';
 
@@ -73,7 +74,9 @@ export interface FlowOptions {
   /** The live "My orders" form (needs the forms endpoint). Returns false when it can't be sent. */
   ordersForm?: { open(phone: string, user: User, at: { screen: 'orders' | 'order' | 'dispatch' | 'code' | 'preview'; code?: string; item?: string; totalMinor?: number; mode?: 'buyer' | 'seller'; fresh?: boolean }): Promise<boolean> };
   /** Called when WhatsApp refuses to send a form, so we stop trying until the next restart. */
-  onFormRefused?: (key: 'buy' | 'sell' | 'buyEdit' | 'sellEdit' | 'kyc', phone: string) => Promise<void> | void;
+  onFormRefused?: (key: 'buy' | 'sell' | 'buyEdit' | 'sellEdit' | 'kyc' | 'mkList' | 'mkEdit' | 'mkOrder', phone: string) => Promise<void> | void;
+  /** The market's forms (list an item, edit an item, delivery for a market order), when they can be sent. */
+  marketForm?: (key: 'mkList' | 'mkEdit' | 'mkOrder') => { flowId: string; mode: 'draft' | 'published' } | null;
   /** Seller and buyer records. */
   trust?: Trust;
   /** Where public seller pages live, e.g. https://hoolam.onrender.com */
@@ -175,8 +178,24 @@ export class Conversation {
       menu: async (phone, user) => { await this.save(phone, 'IDLE'); return this.send(phone, await this.menuMsg(user, modeOf(user))); },
       startOrder: async (phone, user, d) => {
         if (user.menu_mode !== 'buyer') await this.o.deals.setMenuMode(user, 'buyer');
-        return this.continueBuying(phone, { side: 'buy', item: d.item, description: d.description, category: d.category, priceMinor: d.priceMinor, otherPhone: d.sellerPhone, ...(d.address ? { address: d.address } : {}), photos: [], photosDone: true, market: d.market });
+        const draft: BuyDraft = { side: 'buy', item: d.item, description: d.description, category: d.category, priceMinor: d.priceMinor, otherPhone: d.sellerPhone, ...(d.address ? { address: d.address } : {}), photos: [], photosDone: true, market: d.market };
+        // the delivery address and date in one short form (the chat asks the same if they type, or when the form can't be sent)
+        const f = !d.address ? this.o.marketForm?.('mkOrder') ?? null : null;
+        if (f && this.o.deals.limitFor(user, d.priceMinor) === 'ok') {
+          await this.save(phone, 'BUY_ADDRESS', draft as Record<string, any>);
+          const status = await this.send(phone, {
+            kind: 'form', header: '🚚 Where should it come?', cta: 'Add delivery', flowId: f.flowId, mode: f.mode, flowToken: 'mkorder:v1', screen: 'ORDER',
+            text: `*${d.item}*\nYour delivery address, and when you expect it. Then you check the order before it goes to the seller.\n\n🔒 Nothing is paid yet.`,
+            footer: 'Prefer typing? Just send the address.',
+            data: { item: d.item.slice(0, 80), address: '', pickup: false },
+          });
+          if (status !== 'FAILED') return;
+          await this.o.onFormRefused?.('mkOrder', phone);
+        }
+        return this.continueBuying(phone, draft);
       },
+      form: (key) => this.o.marketForm?.(key) ?? null,
+      formRefused: (key, phone) => this.o.onFormRefused?.(key, phone),
       setupSeller: (phone, user) => this.startSetup(phone, user, 'items'),
       kyc: (phone, user) => this.startKyc(phone, user, 'seller', { kind: 'button', id: 'mk:items' }),
       askBank: async (phone) => { await this.save(phone, 'ACCOUNT_BANK', {}); return this.send(phone, msg.askBank()); },
@@ -262,7 +281,7 @@ export class Conversation {
           return this.openMenuItem(m.phone, user, (code === 'help' ? 'how' : code === 'deals' ? 'orders' : code) as MenuItem);
         case 'mk': {
           if (!this.mkt || !this.o.market?.on()) return this.openMenuItem(m.phone, user, 'open');
-          if (/^MK_[LE]_/.test(s.state) && /^mk:(photosdone|lcat|stock1|ldel|lsame|lpl|pend|edel)\b/.test(m.buttonId)) {
+          if (/^MK_[LE]_/.test(s.state) && /^mk:(photosdone|lcat|stock1|ldel|lsame|lpl|pend|edel|lgo|lchg)\b/.test(m.buttonId)) {
             return this.mkt.listingStep(m.phone, user, s.state, s.data, { type: m.type, text, mediaId: m.mediaId, buttonId: m.buttonId });
           }
           return this.mkt.button(m.phone, user, m.buttonId);
@@ -422,6 +441,14 @@ export class Conversation {
       if (token.startsWith('kyc')) return this.kycFormSubmitted(m, s, user);
       if (token.startsWith('amb') && this.amb) return this.amb.formSubmitted(m.phone, user, m.form ?? {});
       if (token.startsWith('a1.')) return; // Details closed: nothing to do
+      // the market's forms
+      if (token.startsWith('mkorder')) {
+        const d = s.data as BuyDraft;
+        if (!d.market?.length || !['BUY_ADDRESS', 'BUY_DATE'].includes(s.state)) return this.send(m.phone, msg.didntUnderstand());
+        const f = readOrderForm(m.form ?? {});
+        return this.continueBuying(m.phone, { ...d, ...(f.address ? { address: f.address.slice(0, 300), addressPin: null } : {}), arriveBy: f.arriveBy });
+      }
+      if (/^mk(list|edit)/.test(token) && this.mkt) return this.mkt.formSubmitted(m.phone, user, token, m.form ?? {}, s);
       const side: Side = token.startsWith('sell') ? 'sell' : 'buy';
       // an edited order keeps its photos unless new ones were added
       const kept = /^(buyedit|selledit)/.test(token) && Array.isArray(s.data.photos) ? s.data.photos : [];

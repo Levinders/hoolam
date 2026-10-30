@@ -3,6 +3,7 @@ import type { User } from '../deals/service.js';
 import { CATEGORIES, categoryTitle } from '../deals/categories.js';
 import { ART } from '../chat-art/build.js';
 import { findPlace, placeNear, placeShort, placeText, type Place } from './areas.js';
+import { PROMO_CHOICES, readEditForm, readListForm } from './market-forms.js';
 import { DELIVERY, DELIVERY_WORDS, nowPrice, onPromo, readSearch, RING_WORDS, startRing, type Card, type Delivery, type Listing, type Market } from './market.js';
 
 /**
@@ -25,6 +26,10 @@ export interface MarketChatContext {
   /** The buyer's fee at this price (market fees), for "You pay ₦X, after the seller accepts". */
   buyerQuote(priceMinor: number): { feeMinor: number; buyerPaysMinor: number; sellerGetsMinor: number };
   pageUrl(code: string): string;
+  /** The market's WhatsApp forms, when they can be sent (else the chat asks the same questions). */
+  form?: (key: 'mkList' | 'mkEdit') => { flowId: string; mode: 'draft' | 'published' } | null;
+  /** WhatsApp refused a form: it rests for a while, and the chat takes over. */
+  formRefused?: (key: 'mkList' | 'mkEdit', phone: string) => Promise<void> | void;
   log?: (line: string) => void;
 }
 
@@ -523,8 +528,113 @@ export class MarketChat {
   async startListing(phone: string, user: User): Promise<unknown> {
     const can = await this.m.canList(user);
     if (!can.ok) return can.why === 'limit' ? this.upgrade(phone, user) : this.blocked(phone, user, can.why, can.reason ?? null);
-    await this.c.save(phone, 'MK_L_PHOTO', { photos: [] });
+    await this.c.save(phone, 'MK_L_PHOTO', { photos: [] }); // the chat steps, if they'd rather send a photo here
+    if (await this.listForm(phone, user)) return;
     return this.send(phone, { kind: 'text', text: '📷 *List an item*\n\nSend 1 to 4 clear photos of the item. Your own photos only.', noMenu: true });
+  }
+
+  /** The List an item form (filled in with earlier answers on "Change"). False when it can't be sent. */
+  private async listForm(phone: string, user: User, prev: Record<string, any> | null = null): Promise<boolean> {
+    const f = this.c.form?.('mkList') ?? null;
+    if (!f) return false;
+    const last = prev?.place ?? (await this.lastPlace(user.id));
+    const status = await this.send(phone, {
+      kind: 'form', header: '📦 List an item', cta: prev ? 'Change my item' : 'List my item',
+      text: prev ? 'Your answers are filled in. Change what you need. Your photos stay unless you add new ones.' : 'Photos, a name and a price. It takes a minute, and it goes live straight away.',
+      footer: 'Prefer the chat? Send a photo of the item.',
+      flowId: f.flowId, mode: f.mode, flowToken: 'mklist:v1', screen: 'ITEM',
+      data: {
+        categories: this.m.cfg().categories.map((id) => ({ id, title: categoryTitle(id) ?? id })),
+        title: prev?.title ?? '', price: prev?.priceMinor ? String(prev.priceMinor / 100) : '', stock: String(prev?.stock ?? 1), details: prev?.details ?? '',
+        area: last ? placeText(last) : '',
+        note: prev?.photos?.length ? `You added ${prev.photos.length} photo${prev.photos.length === 1 ? '' : 's'}. They stay unless you add new ones.` : 'Your own photos, 1 to 4. The first one is the cover.',
+      },
+    });
+    if (status === 'FAILED') { await this.c.formRefused?.('mkList', phone); return false; }
+    return true;
+  }
+
+  /** A market form came back: List an item, or Edit item. */
+  async formSubmitted(phone: string, user: User, token: string, form: Record<string, unknown>, session: { state: string; data: Record<string, any> }): Promise<unknown> {
+    if (token.startsWith('mkedit:')) return this.editSubmitted(phone, user, Number(token.split(':')[1]), form);
+    const f = readListForm(form);
+    const prev = session.state === 'MK_L_CHECK' ? session.data : null;
+    const photos = f.photos.length ? f.photos : prev?.photos ?? [];
+    const priceMinor = this.parseMoney(f.price);
+    const stock = Number(f.stock.replace(/\D/g, ''));
+    const draft: Record<string, any> = { photos, title: f.title.slice(0, 80), category: f.category, priceMinor, stock, details: f.details, delivery: f.delivery.length ? f.delivery : null, review: true };
+    const again = (why: string) => this.send(phone, { kind: 'buttons', text: `${why}`, buttons: [btn('mk:lchg', '✏️ Fix it'), btn('mk:new', 'Start again')] });
+    await this.c.save(phone, 'MK_L_CHECK', { ...draft, priceMinor: priceMinor ?? null });
+    if (!photos.length) return again('📷 Add at least one photo of the item.');
+    if (f.title.length < 3) return again('📝 Add the item\'s name, the way buyers search.');
+    if (!priceMinor) return again(`💰 "${cut(f.price, 20)}" isn't a price we can read. Type it like 45000 or 45k.`);
+    if (!Number.isInteger(stock) || stock < 1) return again('📦 How many you have should be 1 or more.');
+    if (!this.m.cfg().categories.includes(f.category)) return again('🏷️ Pick a category.');
+    if (!draft.delivery) return again('🚚 Tick at least one way buyers can get it.');
+    const r = findPlace(f.area);
+    if (r.kind === 'sure') return this.review(phone, user, { ...draft, place: r.place });
+    await this.c.save(phone, 'MK_L_WHERE', { ...draft, options: r.kind === 'choose' ? r.options : [] });
+    if (r.kind === 'choose') return this.send(phone, { kind: 'buttons', text: `📍 "${cut(f.area, 40)}": did you mean…`, buttons: r.options.slice(0, 3).map((p, i) => btn(`mk:lpl:${i}`, cut(placeText(p), 20))) });
+    return this.send(phone, { kind: 'text', text: `📍 We couldn't find "${cut(f.area, 40)}". Type the area and city, like _Woji, Port Harcourt_.`, noMenu: true });
+  }
+
+  /** The check before it goes live: the item's card with its real photo, then List it · Change · Start again. */
+  async review(phone: string, user: User, d: Record<string, any>): Promise<unknown> {
+    await this.c.save(phone, 'MK_L_CHECK', d);
+    const photo = d.photos?.[0] ? await this.c.download(d.photos[0]).catch(() => null) : null;
+    const how = (d.delivery as Delivery[]).map((x) => (x === 'rider' ? 'rider' : x === 'pickup' ? 'Pickup' : 'waybill')).join(', ');
+    return this.send(phone, {
+      kind: 'buttons',
+      art: ART.marketItem({ listingId: 0, sellerId: user.id, title: d.title, price: this.money(d.priceMinor), verified: false, where: `${d.place?.area ?? d.place?.city ?? 'Nigeria'} · ${how.replace(/^./, (x) => x.toUpperCase())}`, seller: user.display_name ?? 'You', record: 'Check before it goes live', ribbon: 'Preview', tone: 'gold', photo }),
+      text: [`👀 *Check your item*`, '', `*${d.title}* · ${this.money(d.priceMinor)} · ${d.stock} in stock`, `🏷️ ${categoryTitle(d.category) ?? d.category}`, `📍 ${placeText(d.place)}`, `🚚 ${this.deliveryLine({ delivery: d.delivery, city: d.place?.city ?? null })}`, d.details ? `\n${cut(d.details, 300)}` : '', `\n📷 ${d.photos.length} photo${d.photos.length === 1 ? '' : 's'}`].filter((x) => x !== '').join('\n'),
+      buttons: [btn('mk:lgo', '✅ List it'), btn('mk:lchg', '✏️ Change'), btn('mk:new', '🔄 Start again')],
+    });
+  }
+
+  /** Edit item form came back: every change at once. */
+  private async editSubmitted(phone: string, user: User, id: number, form: Record<string, unknown>): Promise<unknown> {
+    const l = await this.m.get(id);
+    if (!l || l.seller_id !== user.id) return this.manage(phone, user);
+    const f = readEditForm(form);
+    const problems: string[] = [];
+    const run = async (change: Parameters<Market['edit']>[2]) => { const r = await this.m.edit(user.id, id, change); if (!r.ok) problems.push(r.why); else if (r.backInStock) this.onBackInStock?.(r.listing); };
+    const price = this.parseMoney(f.price);
+    if (!price) problems.push(`"${cut(f.price, 20)}" isn't a price we can read.`);
+    else if (price !== Number(l.price_minor)) await run({ price });
+    const promo = f.promo ? this.parseMoney(f.promo) : null;
+    if (f.promo && !promo) problems.push(`"${cut(f.promo, 20)}" isn't a promo price we can read.`);
+    else if (!promo || f.promoFor === '0') { if (l.promo_minor) await run({ promo: null }); }
+    else if (f.promoFor !== 'same' || promo !== Number(l.promo_minor)) {
+      const days = Number(f.promoFor);
+      await run({ promo, ends: f.promoFor === 'same' ? l.promo_ends : days ? new Date(Date.now() + days * 86_400_000) : null });
+    }
+    const stock = Number(f.stock.replace(/\D/g, ''));
+    if (f.stock && Number.isInteger(stock) && stock !== l.stock) await run({ stock });
+    if (f.delivery.length && f.delivery.join() !== l.delivery.join()) await run({ delivery: f.delivery });
+    if ((f.details ?? null) !== (l.details ?? null)) await run({ details: f.details });
+    await this.c.save(phone, 'IDLE');
+    if (problems.length) await this.send(phone, { kind: 'buttons', text: `⚠️ Not everything was saved:\n${problems.map((p) => `• ${p}`).join('\n')}`, buttons: [btn(`mk:chg:${id}`, '✏️ Try again')] });
+    return this.item(phone, user, id);
+  }
+
+  /** "✏️ Change" on an item: the Edit item form, filled in; or the chat list when the form can't be sent. */
+  private async editForm(phone: string, l: Listing): Promise<boolean> {
+    const f = this.c.form?.('mkEdit') ?? null;
+    if (!f) return false;
+    const promoEnds = l.promo_ends ? new Date(l.promo_ends) : null;
+    const choices = [...PROMO_CHOICES];
+    if (onPromo(l)) choices.splice(1, 0, { id: 'same', title: promoEnds ? `Keep: until ${promoEnds.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })}` : 'Keep: until I stop it' });
+    const status = await this.send(phone, {
+      kind: 'form', header: '✏️ Edit item', cta: 'Edit item',
+      text: `*${cut(l.title, 60)}*: change what you need, then tap *Save changes*.`,
+      flowId: f.flowId, mode: f.mode, flowToken: `mkedit:${l.id}`, screen: 'EDIT',
+      data: {
+        title: cut(l.title, 80), price: String(Number(l.price_minor) / 100), promo: onPromo(l) ? String(Number(l.promo_minor) / 100) : '',
+        promo_for: onPromo(l) ? 'same' : '0', promo_choices: choices, stock: String(l.stock), details: l.details ?? '', delivery: l.delivery,
+      },
+    });
+    if (status === 'FAILED') { await this.c.formRefused?.('mkEdit', phone); return false; }
+    return true;
   }
 
   /** Each typed answer (or photo) while listing or editing. */
@@ -587,7 +697,12 @@ export class MarketChat {
           else return this.send(phone, { kind: 'text', text: 'We couldn\'t find that area. Try the city, like _Port Harcourt_ or _Ikeja, Lagos_.', noMenu: true });
         }
         if (!place) return this.send(phone, { kind: 'text', text: 'Type the area and city, like _Woji, Port Harcourt_.', noMenu: true });
-        return this.finishListing(phone, user, { ...data, place });
+        return data.review ? this.review(phone, user, { ...data, options: undefined, place }) : this.finishListing(phone, user, { ...data, place });
+      }
+      case 'MK_L_CHECK': {
+        if (m.buttonId === 'mk:lgo') return this.finishListing(phone, user, data);
+        if (m.buttonId === 'mk:lchg') { if (await this.listForm(phone, user, data)) return; return this.startListing(phone, user); }
+        return this.review(phone, user, data);
       }
       // ----- editing one item -----
       case 'MK_E_PRICE': case 'MK_E_PROMO': {
@@ -684,14 +799,28 @@ export class MarketChat {
       text: `*${c.title}*\n${this.priceLine(c)} · ${c.stock} left\n${word[c.status] ?? c.status}${c.status === 'LIVE' ? ` · until ${exp}` : ''}\n\n👀 ${st.seen + st.views} seen · ❤️ ${st.saves} saved · 🛒 ${st.orders} sold`,
       buttons: c.status === 'REMOVED' ? [btn('mk:manage', '📋 My items')] : [
         btn(`mk:chg:${id}`, '✏️ Change'), btn(`mk:share:${id}`, '📤 Share'),
-        c.status === 'PAUSED' ? btn(`mk:act:${id}:resume`, '▶️ Resume') : c.status === 'EXPIRED' ? btn(`mk:act:${id}:renew`, '🔁 Renew') : btn(`mk:act:${id}:pause`, '⏸ Pause'),
+        c.status === 'PAUSED' ? btn(`mk:act:${id}:resume`, '▶️ Resume') : c.status === 'EXPIRED' ? btn(`mk:act:${id}:renew`, '🔁 Renew') : btn(`mk:imore:${id}`, '☰ More'),
       ],
     });
   }
 
-  async change(phone: string, user: User, id: number): Promise<unknown> {
+  /** ☰ More on an item: pause, renew, sold out, delete. */
+  async itemMore(phone: string, user: User, id: number): Promise<unknown> {
     const l = await this.m.get(id);
     if (!l || l.seller_id !== user.id) return this.manage(phone, user);
+    return this.send(phone, { kind: 'list', text: `*${cut(l.title, 60)}*`, button: 'More', sections: [{ title: 'More', rows: [
+      { id: `mk:act:${id}:pause`, title: '⏸ Pause', description: 'Hide it for now; resume any time' },
+      { id: `mk:act:${id}:renew`, title: '🔁 Renew', description: `Live for ${this.m.cfg().expireDays} more days` },
+      { id: `mk:act:${id}:soldout`, title: '⚪ Mark sold out' },
+      { id: `mk:act:${id}:delete`, title: '🗑️ Delete' },
+      { id: `mk:item:${id}`, title: '⬅️ Back to item' },
+    ] }] });
+  }
+
+  async change(phone: string, user: User, id: number, chat = false): Promise<unknown> {
+    const l = await this.m.get(id);
+    if (!l || l.seller_id !== user.id) return this.manage(phone, user);
+    if (!chat && (await this.editForm(phone, l))) return;
     return this.send(phone, { kind: 'list', text: `✏️ *${cut(l.title, 60)}*: what would you like to change?`, button: 'Change', sections: [{ title: 'Change', rows: [
       { id: `mk:e:${id}:price`, title: '💰 Price', description: this.money(l.price_minor) },
       { id: `mk:e:${id}:promo`, title: '🏷️ Promo price', description: onPromo(l) ? `Now ${this.money(l.promo_minor!)}` : 'Sell for less, for a while' },
@@ -845,6 +974,8 @@ export class MarketChat {
       case 'manage': return this.manage(phone, user, Number(x) || 0);
       case 'item': return this.item(phone, user, n);
       case 'chg': return this.change(phone, user, n);
+      case 'chgchat': return this.change(phone, user, n, true);
+      case 'imore': return this.itemMore(phone, user, n);
       case 'e': return this.editAsk(phone, user, n, y ?? '');
       case 'act': return this.applyEdit(phone, user, n, { action: y as 'pause' | 'resume' | 'renew' | 'soldout' | 'delete' });
       case 'share': return this.share(phone, user, n);

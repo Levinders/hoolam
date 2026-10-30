@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startHarness, type Harness } from '../scripts/harness.js';
 import { findPlace } from '../src/market/areas.js';
 import { readSearch } from '../src/market/market.js';
+import { editItemFormJson, listFormJson, marketOrderFormJson } from '../src/market/market-forms.js';
 import { buyerMenu, sellerMenu } from '../src/whatsapp/messages.js';
 
 let h: Harness;
@@ -54,6 +55,27 @@ describe('the market', () => {
     await h.say(p, 'hi', 'Ada');
     await h.tap(p, 'menu:market');
     expect(await lastBody(p)).not.toContain('Hoolam market');
+  });
+
+  it('the market forms are sound: every ${data.x} is declared, every ${form.x} is a field, navigate carries what the next screen needs', () => {
+    const flat = (cs: any[]): any[] => cs.flatMap((c) => (c.type === 'Form' ? flat(c.children) : [c]));
+    for (const json of [listFormJson('aGVsbG8='), editItemFormJson(), marketOrderFormJson()]) {
+      const byId = Object.fromEntries(json.screens.map((sc: any) => [sc.id, sc]));
+      for (const sc of json.screens as any[]) {
+        const parts = flat(sc.layout.children);
+        const fields = new Set(parts.map((c) => c.name).filter(Boolean));
+        const text = JSON.stringify(sc.layout);
+        for (const [, k] of text.matchAll(/\$\{data\.(\w+)\}/g)) expect(Object.keys(sc.data ?? {}), `${sc.id} uses data.${k}`).toContain(k);
+        for (const [, k] of text.matchAll(/\$\{form\.(\w+)\}/g)) expect([...fields], `${sc.id} uses form.${k}`).toContain(k);
+        expect(parts.filter((c) => c.type === 'PhotoPicker').length).toBeLessThanOrEqual(1);
+        const foot = parts.find((c) => c.type === 'Footer')['on-click-action'];
+        if (foot.name === 'navigate') {
+          const next = byId[foot.next.name];
+          expect(Object.keys(foot.payload).sort()).toEqual(Object.keys(next.data).sort());
+          expect(JSON.stringify(foot.payload)).not.toMatch(/photos/); // photos only go with the last button
+        } else expect(sc.terminal).toBe(true);
+      }
+    }
   });
 
   it('reads typed areas, misspellings included, and searches', () => {
@@ -207,5 +229,97 @@ describe('the market', () => {
     await h.tap(b, `mk:go:${l.id}:1`);
     const ad = (await h.db.query(`SELECT taps, orders FROM market_ad_links WHERE listing_id=$1`, [l.id])).rows[0];
     expect(ad).toEqual({ taps: 1, orders: 1 });
+  });
+
+  describe('forms first, the chat as the backup', () => {
+    let fn = 0;
+    const submit = (p: string, token: string, form: Record<string, unknown>) =>
+      h.app.chat.handle({ id: `mkform${++fn}`, phone: p, name: null, type: 'form', text: '', buttonId: null, mediaId: null, form: { flow_token: token, ...form } });
+    const lastOut = async (p: string) => (await h.db.query('SELECT kind, body FROM outbound_messages WHERE phone=$1 ORDER BY id DESC LIMIT 1', [p])).rows[0];
+    beforeAll(() => { for (const k of ['mkList', 'mkEdit', 'mkOrder'] as const) h.app.forms.set(k, { flowId: `f-${k}`, mode: 'published' }); });
+    afterAll(() => { for (const k of ['mkList', 'mkEdit', 'mkOrder'] as const) h.app.forms.set(k, null); });
+
+    it('List an item: the form, then the check with the real photo, then List it', async () => {
+      const s = await seller('Form Shop');
+      await h.tap(s.phone, 'menu:items');
+      await h.tap(s.phone, 'mk:new');
+      const out = await lastOut(s.phone);
+      expect(out.kind).toBe('form');
+      expect(out.body.flowToken).toBe('mklist:v1');
+      expect(out.body.data.categories.map((c: { id: string }) => c.id)).toContain('shoes');
+      // a typo in the area: the chat asks "did you mean", then the check
+      await submit(s.phone, 'mklist:v1', { title: 'Brown suede loafers', category: 'shoes', price: '32k', stock: '2', details: 'Size 44', delivery: ['pickup', 'waybill'], area: 'ikaja', photos: [{ id: 'mf1' }, { id: 'mf2' }] });
+      expect(h.last(s.phone)).toMatch(/did you mean/);
+      await h.tap(s.phone, 'mk:lpl:0');
+      expect(h.last(s.phone)).toMatch(/Check your item/);
+      expect(h.last(s.phone)).toMatch(/₦32,000 · 2 in stock/);
+      expect(h.last(s.phone)).toMatch(/2 photos/);
+      expect(h.last(s.phone)).toMatch(/\[✅ List it\] \[✏️ Change\] \[🔄 Start again\]/);
+      // Change reopens the form filled in, and a second submit without photos keeps the first ones
+      await h.tap(s.phone, 'mk:lchg');
+      const again = await lastOut(s.phone);
+      expect(again.body.data.title).toBe('Brown suede loafers');
+      expect(again.body.data.price).toBe('32000');
+      await submit(s.phone, 'mklist:v1', { title: 'Brown suede loafers, size 44', category: 'shoes', price: '30000', stock: '2', details: '', delivery: ['pickup'], area: 'Ikeja, Lagos', photos: [] });
+      expect(h.last(s.phone)).toMatch(/₦30,000/);
+      expect(h.last(s.phone)).toMatch(/2 photos/);
+      await h.tap(s.phone, 'mk:lgo');
+      expect(h.last(s.phone)).toMatch(/is live/);
+      const l = (await h.db.query(`SELECT * FROM market_listings WHERE title='Brown suede loafers, size 44'`)).rows[0];
+      expect(Number(l.price_minor)).toBe(3_000_000);
+      expect(l.delivery).toEqual(['pickup']);
+      expect((await h.db.query('SELECT count(*)::int AS n FROM market_photos WHERE listing_id=$1', [l.id])).rows[0].n).toBe(2);
+    });
+
+    it('a wrong answer in the list form says what to fix', async () => {
+      const s = await seller('Typo Shop');
+      await h.tap(s.phone, 'mk:new');
+      await submit(s.phone, 'mklist:v1', { title: 'Red cap', category: 'shoes', price: 'cheap', stock: '1', delivery: ['pickup'], area: 'Ikeja, Lagos', photos: [{ id: 'x1' }] });
+      expect(h.last(s.phone)).toMatch(/isn't a price we can read/);
+      expect(h.last(s.phone)).toMatch(/Fix it/);
+    });
+
+    it('Edit item: the form filled in, every change saved at once', async () => {
+      const s = await seller('Edit Shop');
+      h.app.forms.set('mkList', null);
+      const l = await list(s.phone, { title: 'Gold hoop earrings', price: '15000', where: 'Ikeja, Lagos' });
+      h.app.forms.set('mkList', { flowId: 'f-mkList', mode: 'published' });
+      await h.tap(s.phone, `mk:chg:${l.id}`);
+      const out = await lastOut(s.phone);
+      expect(out.kind).toBe('form');
+      expect(out.body.data).toMatchObject({ price: '15000', promo: '', promo_for: '0', stock: '2', delivery: ['pickup', 'rider', 'waybill'] });
+      await submit(s.phone, `mkedit:${l.id}`, { price: '15000', promo: '12000', promo_for: '7', stock: '5', delivery: ['rider'], details: 'Real gold plated' });
+      const x = (await h.db.query('SELECT * FROM market_listings WHERE id=$1', [l.id])).rows[0];
+      expect(Number(x.promo_minor)).toBe(1_200_000);
+      expect(x.promo_ends).toBeTruthy();
+      expect(x.stock).toBe(5);
+      expect(x.delivery).toEqual(['rider']);
+      expect(x.details).toBe('Real gold plated');
+      expect(h.last(s.phone)).toMatch(/~₦15,000~ \*₦12,000\*/);
+      // the chat list is still there
+      await h.tap(s.phone, `mk:chgchat:${l.id}`);
+      expect(h.last(s.phone)).toMatch(/what would you like to change/);
+    });
+
+    it('a market order: the delivery form, then the order to check; typing the address still works', async () => {
+      const s = await seller('Order Form Shop');
+      h.app.forms.set('mkList', null);
+      const l = await list(s.phone, { title: 'Blue jeans, size 32', price: '12000', stock: null, where: 'Ikeja, Lagos' });
+      const b = phone();
+      await h.say(b, 'hi', 'Yemi');
+      await h.tap(b, `mk:go:${l.id}:1`);
+      const out = await lastOut(b);
+      expect(out.kind).toBe('form');
+      expect(out.body.flowToken).toBe('mkorder:v1');
+      await submit(b, 'mkorder:v1', { address: '3 Opebi Road, Ikeja', arrive_by: '2026-11-05' });
+      const st = (await h.db.query('SELECT state, data FROM chat_sessions WHERE phone=$1', [b])).rows[0];
+      expect(st.state).toBe('BUY_CONFIRM');
+      expect(st.data).toMatchObject({ address: '3 Opebi Road, Ikeja', arriveBy: '2026-11-05' });
+      const b2 = phone();
+      await h.say(b2, 'hi', 'Ola');
+      await h.tap(b2, `mk:go:${l.id}:1`);
+      await h.say(b2, '9 Allen Avenue, Ikeja');
+      expect((await h.db.query('SELECT state FROM chat_sessions WHERE phone=$1', [b2])).rows[0].state).toBe('BUY_DATE');
+    });
   });
 });

@@ -9,7 +9,7 @@ import { pendingEvents, processEvent, storeEvent, type Handler } from './webhook
 import { FakeKycChecker, KycService, NoKycChecker, PremblyChecker, type KycChecker } from './kyc.js';
 import { buyFlowJson, sellFlowJson } from './whatsapp/buy-flow.js';
 import { kycFlowJson } from './whatsapp/kyc-flow.js';
-import { ALL_TEMPLATES, ensureAmbApplyFlow, ensureAmbDetailsFlow, ensureSignInTemplate, SIGN_IN_CODE, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
+import { ALL_TEMPLATES, ensureAmbApplyFlow, ensureAmbDetailsFlow, ensureSignInTemplate, SIGN_IN_CODE, ensureBuyEditFlow, ensureBuyFlow, ensureKycFlow, ensureOrderFlow, ensureOrdersFlow, ensureSellEditFlow, ensureSellFlow, ensureStaticFlow, ensureTemplate, fetchTemplateStatuses, registerFlowsKey, syncAutomation } from './whatsapp/automation.js';
 import { decryptRequest, encryptResponse, FlowDecryptError, flowKeys, type FlowKeys } from './whatsapp/flow-crypto.js';
 import { OrdersFlow, ordersFlowJson, signToken, type Entry } from './whatsapp/orders-flow.js';
 import { FormRegistry, type FormKey, type FormUse } from './whatsapp/forms.js';
@@ -20,6 +20,7 @@ import { CampaignLinks } from './links.js';
 import { Ambassadors } from './ambassadors.js';
 import { Market, type Listing } from './market/market.js';
 import { itemPage } from './item-page.js';
+import { editItemFormJson, editItemFormName, listFormJson, listFormName, marketOrderFormJson, marketOrderFormName } from './market/market-forms.js';
 import { categoryTitle } from './deals/categories.js';
 import { AmbassadorDetailsFlow } from './whatsapp/amb-flow.js';
 import { registerAmbassadorRoutes } from './amb-routes.js';
@@ -124,7 +125,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   // Every WhatsApp form, once it exists on Meta (see setupMeta), sent in the state Meta reports. A form WhatsApp
   // refuses rests for 30 minutes on its own; meanwhile the chat asks the same questions. Console → Settings → WhatsApp shows them.
   const forms = new FormRegistry(30, Date.now, log);
-  if (c.WHATSAPP_DRY_RUN) for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails'] as FormKey[]) forms.off(k, 'WhatsApp is in dry run (WHATSAPP_DRY_RUN)');
+  if (c.WHATSAPP_DRY_RUN) for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails', 'mkList', 'mkEdit', 'mkOrder'] as FormKey[]) forms.off(k, 'WhatsApp is in dry run (WHATSAPP_DRY_RUN)');
   /** A form to send, if the console switch is on and the form is ready. */
   const formFor = (key: FormKey): FormUse | null => (settings.formsEnabled() ? forms.use(key) : null);
   /** WhatsApp refused a form we sent: rest that one form, with Meta's reason (saved with the failed message). */
@@ -194,7 +195,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return { name: 'Hoolam', phone, org: COMPANY.legalName, email: settings.contact().email || undefined, url: (c.SITE_URL || 'https://hoolam.com').replace(/\/$/, '') };
     },
     hoolamNumber: () => settings.waNumber(),
-    market, itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
+    market, marketForm: (k) => formFor(k), itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
     ambassadors, ambApplyForm: () => formFor('ambApply'), ambDetailsForm: () => formFor('ambDetails'),
     onAmbFormRefused: (key, phone) => formRefused(key, phone), formSecret, siteUrl: c.SITE_URL || 'https://hoolam.com',
   });
@@ -845,7 +846,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (c.WHATSAPP_SYNC_MENU) await syncMenu();
       if (!c.WHATSAPP_WABA_ID) {
         log('buyer form + seller alerts need WHATSAPP_WABA_ID in Render. Buyers answer in the chat until then.');
-        for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
+        for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'orders', 'order', 'ambApply', 'ambDetails', 'mkList', 'mkEdit', 'mkOrder'] as FormKey[]) forms.off(k, 'Needs WHATSAPP_WABA_ID on Render');
         return;
       }
       const o = { token: c.WHATSAPP_TOKEN, phoneNumberId: c.WHATSAPP_PHONE_NUMBER_ID, graphVersion: c.WHATSAPP_GRAPH_VERSION, wabaId: c.WHATSAPP_WABA_ID, log };
@@ -869,7 +870,11 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
         await ensureSellEditFlow(into('sellEdit'));
         await ensureKycFlow(into('kyc'), kycFlowJson(why));
         await ensureAmbApplyFlow(into('ambApply'));
-      } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'ambApply'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
+        // the market's forms: list an item, edit an item, delivery for a market order (the chat asks the same when they can't be used)
+        { const j = listFormJson(); await ensureStaticFlow(into('mkList'), j, listFormName(j), 'market list form'); }
+        { const j = editItemFormJson(); await ensureStaticFlow(into('mkEdit'), j, editItemFormName(j), 'market edit form'); }
+        { const j = marketOrderFormJson(); await ensureStaticFlow(into('mkOrder'), j, marketOrderFormName(j), 'market order form'); }
+      } else for (const k of ['buy', 'buyEdit', 'sell', 'sellEdit', 'kyc', 'ambApply', 'mkList', 'mkEdit', 'mkOrder'] as FormKey[]) forms.off(k, 'Switched off on Render (WHATSAPP_BUY_FORM=false)');
       if (c.WHATSAPP_ORDERS_FORM && c.PUBLIC_BASE_URL) {
         keys ??= await flowKeys(db, c.FLOWS_PRIVATE_KEY);
         log(`forms key: ${keys.source === 'env' ? 'from FLOWS_PRIVATE_KEY' : keys.source === 'new' ? 'made a new one (kept in the database)' : 'loaded from the database'}`);

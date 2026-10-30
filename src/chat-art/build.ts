@@ -48,8 +48,8 @@ export const ART = {
   orderRequest: (d: { to: 'seller' | 'buyer'; who: string; item: string; amount: string; code: string; check: string; dealId: string }): Art =>
     ({ card: 'orderRequest', data: { to: d.to, who: d.who, item: d.item, amount: d.amount, code: d.code, check: d.check, photoDeal: d.dealId } }),
   /** One market item (the photo in the Hoolam frame, price, Verified, where, the seller's photo and record). */
-  marketItem: (d: { listingId: number; sellerId: string; title: string; price: string; was?: string | null; offPct?: number | null; verified: boolean; where: string; seller: string; record: string; ribbon?: string | null; tone?: 'green' | 'gold' | 'grey' | 'red' | null; greyed?: boolean }): Art =>
-    ({ card: 'marketItem', data: { title: d.title, price: d.price, was: d.was ?? null, offPct: d.offPct ?? null, verified: d.verified, where: d.where, seller: d.seller, record: d.record, ribbon: d.ribbon ?? null, tone: d.tone ?? null, greyed: !!d.greyed, photoListing: d.listingId, sellerUser: d.sellerId } }),
+  marketItem: (d: { listingId: number; sellerId: string; title: string; price: string; was?: string | null; offPct?: number | null; verified: boolean; where: string; seller: string; record: string; ribbon?: string | null; tone?: 'green' | 'gold' | 'grey' | 'red' | null; greyed?: boolean; photo?: Buffer | null }): Art =>
+    ({ card: 'marketItem', data: { photoBytes: d.photo ?? null, title: d.title, price: d.price, was: d.was ?? null, offPct: d.offPct ?? null, verified: d.verified, where: d.where, seller: d.seller, record: d.record, ribbon: d.ribbon ?? null, tone: d.tone ?? null, greyed: !!d.greyed, photoListing: d.listingId, sellerUser: d.sellerId } }),
   /** A seller's My items picture. */
   myItems: (d: { sellerId: string; name: string; live: number; soldOut: number; views: number; note?: string | null }): Art =>
     ({ card: 'myItems', data: { name: d.name, live: d.live, soldOut: d.soldOut, views: d.views, note: d.note ?? null, photoUser: d.sellerId } }),
