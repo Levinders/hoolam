@@ -41,9 +41,8 @@ const problemText = () => { const n = live.problemReplyHours(); return `${n} hou
 export const exampleNumber = () => localPhone(live.hoolamNumber()) || '08012345678';
 
 const HELP_ROWS = (switchTo: 'buyer' | 'seller') => [
-  { id: 'menu:problem', title: '🚩 Report a problem', description: switchTo === 'seller' ? 'We hold the money until it’s sorted' : 'Get help with an order' },
+  { id: 'menu:support', title: '🙋 Get help', description: 'Report a problem or talk to a rep' },
   { id: 'menu:how', title: '💡 How it works', description: 'The steps and fees' },
-  { id: 'menu:human', title: '🙋 Talk to a rep', description: `Live rep within ${repText(true)}` },
 ];
 /** Its own section under Help: switching sides (and the ambassador row, when it applies). */
 const MORE = (switchTo: 'buyer' | 'seller') => ({
@@ -298,6 +297,12 @@ export const msg = {
   accountSaved: (bankName: string, last4: string): Outbound => withMenu(`✅ Saved. New orders pay into ${bankName} ••••${last4}.\n\nOrders already running keep their account.`),
 
   // ----- talk to a person -----
+  /** Get help: report a problem with an order, or talk to a rep. */
+  getHelp: (side: 'buyer' | 'seller'): Outbound => ({
+    kind: 'buttons',
+    text: `🙋 *How can we help?*\n\n🚩 *Report a problem*: something wrong with an order. ${side === 'seller' ? 'The money stays with Hoolam until it\'s sorted.' : 'We freeze the money until it\'s sorted.'}\n\n💬 *Talk to a rep*: questions, or anything else. A live rep replies within ${repText()}.`,
+    buttons: [{ id: 'menu:problem', title: '🚩 Report a problem' }, { id: 'menu:human', title: '💬 Talk to a rep' }],
+  }),
   askHumanMessage: (): Outbound => ({ kind: 'text', text: `🙋 Type your message for the team. A photo works too.\n\nA live rep replies right here, within ${repText()}.` }),
   humanLogged: (ref: string, replyTo?: string | null): Outbound => ({
     ...withMenu(`A rep will reply here within ${repText()}. (Ref ${ref})`),

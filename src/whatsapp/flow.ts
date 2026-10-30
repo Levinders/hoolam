@@ -147,7 +147,8 @@ const PHRASES: Record<string, MenuItem> = {
   'a seller sent me a deal code': 'pay',
   'buy': 'buy', 'buy something': 'buy', 'i want to buy something': 'buy', 'buy safely': 'buy',
   'how does hoolam work': 'how', 'how it works': 'how', 'how hoolam works': 'how',
-  'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'talk to a rep': 'human', 'rep': 'human', 'agent': 'human', 'support': 'human',
+  'get help': 'support', 'i need help': 'support', 'help me': 'support',
+  'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'talk to a rep': 'human', 'rep': 'human', 'agent': 'human', 'support': 'support',
   'my orders': 'orders', 'orders': 'orders', 'my deals': 'orders', 'deals': 'orders', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
   'check a seller': 'check', 'check seller': 'check', 'my trust card': 'card', 'trust card': 'card',
   'market': 'market', 'browse': 'market', 'browse the market': 'market', 'shop': 'market', 'my items': 'items', 'list an item': 'items',
@@ -827,6 +828,9 @@ export class Conversation {
         await this.save(phone, 'IDLE');
         return this.send(phone, msg.accountInfo(acct.account_name, acct.bank_name, acct.account_number.slice(-4)));
       }
+      case 'support':
+        await this.save(phone, 'IDLE');
+        return this.send(phone, msg.getHelp(modeOf(user)));
       case 'human':
         await this.save(phone, 'HUMAN_MESSAGE');
         return this.send(phone, msg.askHumanMessage());

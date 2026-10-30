@@ -290,9 +290,9 @@ describe('promises and limits from the console', () => {
     await h.app.settings.save(h.db, { rep_reply_minutes: 45, problem_reply_hours: 12, handover_code_tries: 3 }, null);
     try {
       const p = phone();
-      await h.say(p, 'hi'); await h.say(p, 'menu');
-      const menu = (await h.db.query(`SELECT body FROM outbound_messages WHERE phone=$1 ORDER BY id DESC LIMIT 1`, [p])).rows[0].body;
-      expect(JSON.stringify(menu)).toMatch(/Live rep within 45 mins/);
+      await h.say(p, 'hi'); await h.tap(p, 'menu:support');
+      expect(h.last(p)).toMatch(/A live rep replies within 45 minutes/); // Get help: Report a problem · Talk to a rep
+      expect(h.last(p)).toMatch(/\[🚩 Report a problem\] \[💬 Talk to a rep\]/);
       await h.say(p, '/human');
       expect(h.last(p)).toMatch(/within 45 minutes/);
       expect(h.app.deals.handoverTries()).toBe(3);
