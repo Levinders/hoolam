@@ -207,7 +207,7 @@ Everyone starts on the buying menu; becoming a seller (a one-time setup that cre
 
 **My account (sellers):** "👤 My account" with their name as buyers see it, Verified seller, orders completed and "Paid into GTBank ••••1234" (or "No payout account yet"), then **🛡️ My trust card** · **🏦 Payout account** · Main menu. Typing "my account" opens it too.
 
-**Help (both menus):** 🚩 Report a problem · 💡 How it works · 🙋 Talk to a rep ("Live rep within" the console's reply time).
+**Help (both menus):** 🙋 Get help ("Report a problem or talk to a rep") · 💡 How it works. Get help opens "How can we help?" with **🚩 Report a problem** (something wrong with an order; the money stays with Hoolam until it's sorted) and **💬 Talk to a rep** ("A live rep replies within" the console's reply time). Typing "get help", "support" or "help me" opens it too; /problem and /rep still go straight there.
 
 **More (both menus, its own section under Help):** 🔁 Switch to selling / buying.
 
@@ -711,6 +711,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 30 Oct 2026 | Menus: one **Get help** row opens Report a problem or Talk to a rep | 33a34d4 |
 | 30 Oct 2026 | Fixed the 8 forms Meta refused (filled-in fields now sit outside a Form wrapper; the problem form's photos stay under 100 MB); rating asks "How's your <item>?", optional, shown on the seller's page without a tick | 2494781 |
 | 30 Oct 2026 | Forms: payout account (live: the account name is looked up and matched to the ID before saving), report a problem (reason, details, up to 5 photos kept as the buyer's proof; photos sent in the chat are kept too), my page (also the seller setup), rating (a few words with a tick to show them, or what went wrong); the chat steps stay as the backup; migration 030 | d387252 |
 | 30 Oct 2026 | Market forms: List an item (then Check your item in the chat with the real photo: List it, Change, Start again), Edit item (filled in, all changes at once; ☰ More for pause, renew, sold out, delete) and Delivery for a market order; the chat steps stay as the backup. Buying menu: Buy something stays first, Browse the market under it | 7336acc, 3d58ac8 |
