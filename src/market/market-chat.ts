@@ -743,6 +743,21 @@ export class MarketChat {
     return this.send(phone, { kind: 'buttons', art: this.art(c, null, { ribbon: x.ribbon, tone: x.tone, greyed: kind !== 'expiring' && kind !== 'promoEnded' }), text: x.text, buttons: x.buttons });
   }
 
+  /** The team's answers: listing approved or declined, the upgrade confirmed, listing allowed again. */
+  async decided(phone: string, ok: boolean, reason: string | null): Promise<unknown> {
+    return ok
+      ? this.send(phone, { kind: 'buttons', text: '✅ You can now list in the Hoolam market.', buttons: [btn('mk:new', '➕ List an item')] })
+      : this.send(phone, { kind: 'buttons', text: `We can't let you list in the market yet${reason ? `: ${reason}` : '.'}\n\nYou can still sell to anyone with *Sell something*.`, buttons: [btn('menu:human', '🙋 Talk to a rep')] });
+  }
+  async upgraded(phone: string, ok: boolean, items: number): Promise<unknown> {
+    return ok
+      ? this.send(phone, { kind: 'buttons', text: `⬆️ Done. You can now have *${items} items* live, for 30 days.`, buttons: [btn('mk:new', '➕ List an item')] })
+      : this.send(phone, { kind: 'buttons', text: 'We couldn\'t confirm your payment for more items. Talk to a rep to sort it out.', buttons: [btn('menu:human', '🙋 Talk to a rep')] });
+  }
+  async allowedAgain(phone: string): Promise<unknown> {
+    return this.send(phone, { kind: 'buttons', text: '✅ You can list in the market again. Your paused items are still in *Manage my items*.', buttons: [btn('mk:manage', '📋 Manage my items')] });
+  }
+
   // ---------------------------------------------------------------------------------------------
   // bringing people back (each behind its own switch in Features → Market; only to people who said yes)
 

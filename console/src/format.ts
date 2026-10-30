@@ -100,6 +100,17 @@ export const PAYOUT: Record<string, { label: string; tone: Tone }> = {
 /** Plain words for audit-trail actions. */
 export const ACTIONS: Record<string, string> = {
   'ambassador.approve': 'Approved an ambassador application',
+  'market.keep': 'Kept a market item after a look',
+  'market.keep_all': 'Kept market items after a look',
+  'market.remove': 'Removed a market item',
+  'market.seller_approve': 'Let a seller list in the market',
+  'market.seller_decline': 'Declined a seller for the market',
+  'market.seller_stop': 'Stopped a seller listing in the market',
+  'market.seller_allow': 'Let a seller list in the market again',
+  'market.seller_limit': 'Set a seller\'s market item limit',
+  'market.upgrade_done': 'Confirmed a seller\'s paid market upgrade',
+  'market.upgrade_decline': 'Declined a market upgrade',
+  'market.ad_link': 'Made a market ad link',
   'ambassador.decline': 'Declined an ambassador application',
   'ambassador.invite': 'Invited an ambassador',
   'ambassador.pause': 'Paused an ambassador',

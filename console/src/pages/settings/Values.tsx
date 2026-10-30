@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, BarChart3, Megaphone, BadgeCheck, UserRound, Clapperboard, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, Search, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Check, Store, BarChart3, Megaphone, BadgeCheck, UserRound, Clapperboard, Eye, AtSign, BellRing, Building2, ChevronDown, Mail, Phone, Gauge, CircleCheck, Clock, Flag, Hourglass, KeyRound, Lock, Search, MessageCircle, RotateCcw, Save, Truck } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { post, put } from '../../api';
@@ -12,7 +12,7 @@ import { SellerVideos } from './SellerVideos';
 
 type Band = { upTo: number | null; fee: number };
 type Val = number | boolean | string | Band[];
-export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social' | 'bands'; min?: number; max?: number; core?: boolean; optional?: boolean; social?: string };
+export type Def = { key: string; group: string; label: string; help: string; type: 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social' | 'bands' | 'text'; min?: number; max?: number; core?: boolean; optional?: boolean; social?: string };
 interface SettingsData { currency: string; defs: Def[]; values: Record<string, Val>; defaults: Record<string, Val>; updated: Record<string, { at: string; by: string | null }>; history: any[] }
 
 /** Nigerian numbers the way people write them (07034577787); others +1 555 138 0045. */
@@ -78,7 +78,10 @@ function SettingRow({ s, k, editable, custom, stacked }: { s: Draft; k: string; 
       <div className="sr-control">
         {custom ? custom(s, editable) : d.type === 'boolean'
           ? <Switch on={!!v} onChange={(x) => editable && s.setDraft({ ...s.draft, [k]: x })} label={d.label} />
-          : d.type === 'email' || d.type === 'social' ? (
+          : d.type === 'text' ? (
+            <textarea id={`f-${k}`} className="input words" disabled={!editable} value={String(v ?? '')} spellCheck={false}
+              placeholder="e.g. replica, first copy, codeine" onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value })} />
+          ) : d.type === 'email' || d.type === 'social' ? (
             <input id={`f-${k}`} className="input" style={{ width: "100%", maxWidth: 440 }} type={d.type === "email" ? "email" : "text"} inputMode={d.type === 'email' ? 'email' : 'url'} autoComplete="off" spellCheck={false}
               disabled={!editable} value={String(v ?? '')} placeholder={d.type === 'email' ? 'hello@hoolam.com' : d.social === 'linkedin' ? 'linkedin.com/company/…' : '@username or link'}
               onChange={(e) => s.setDraft({ ...s.draft, [k]: e.target.value })} />
@@ -113,7 +116,7 @@ function SaveBar({ s, keys, applies, confirmExtra }: { s: Draft; keys: string[];
   const invalid = s.changed.find((k) => {
     const d = s.def(k); const v = s.draft[k];
     if (d?.type === 'bands') return !!bandsError(v as Band[]);
-    return d && !['boolean', 'phone', 'email', 'social'].includes(d.type) && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max));
+    return d && !['boolean', 'phone', 'email', 'social', 'text'].includes(d.type) && (v === '' || Number.isNaN(Number(v)) || (d.min != null && Number(v) < d.min) || (d.max != null && Number(v) > d.max));
   });
   return (
     <>
@@ -473,6 +476,69 @@ const AMB_GROUPS: { title: string; help: string; keys: string[] }[] = [
   { title: 'Joining', help: 'Where people can apply, and who sees "Become an ambassador" in WhatsApp.', keys: ['amb_apply_web', 'amb_apply_whatsapp', 'amb_menu_after'] },
 ];
 
+/** Settings → Features → Market: its settings in the order an owner thinks about them. */
+const MK_CATS: [string, string][] = [['clothing', 'Clothing'], ['shoes', 'Shoes'], ['bags', 'Bags & accessories'], ['beauty', 'Beauty & hair'], ['phones', 'Phones & gadgets'], ['electronics', 'Electronics'], ['appliances', 'Home appliances'], ['home', 'Furniture & home'], ['food', 'Food & drinks'], ['other', 'Something else']];
+const MARKET_GROUPS: { title: string; help: string; keys: string[]; cats?: boolean; fees?: boolean }[] = [
+  { title: 'Who can list', help: 'Sellers need a checked ID and a payout account. Approval adds your yes on top.', keys: ['mk_approval', 'mk_items_per_seller', 'mk_upgrade_on', 'mk_upgrade_items', 'mk_upgrade_price'] },
+  { title: 'What can be listed', help: 'Tick the categories sellers can list in. Items go live straight away; automatic checks stop blocked words, too-low prices and photos from another seller.', keys: ['mk_expire_days', 'mk_blocked_words'], cats: true },
+  { title: 'Fees on market orders', help: 'Separate from your usual fees. Buyers always see the full amount before they pay.', keys: ['mk_usual_fee', 'mk_usual_txn', 'mk_fees_on', 'mk_buyer_rate', 'mk_buyer_min', 'mk_buyer_max', 'mk_seller_rate', 'mk_seller_min', 'mk_seller_max'], fees: true },
+  { title: 'Keeping it clean', help: 'Buyers can report an item. You look over new items on the Market page.', keys: ['mk_reports_hide', 'mk_strikes'] },
+  { title: 'Bringing people back', help: 'Each is off until you turn it on. Only people who said yes to updates get these.', keys: ['mk_back_in_stock', 'mk_new_from_sellers', 'mk_ad_links'] },
+];
+/** Hide settings that only matter when their switch is on (the upgrade plan, the market fees). */
+const marketShown = (k: string, v: (k: string) => Val) =>
+  /^mk_upgrade_(items|price)$/.test(k) ? !!v('mk_upgrade_on') : /^mk_(buyer|seller)_/.test(k) ? !!v('mk_fees_on') : true;
+const MARKET_KEYS = ['feature_market', ...MARKET_GROUPS.flatMap((g) => g.keys), ...MK_CATS.map(([id]) => `mk_cat_${id}`)];
+
+/** Tick boxes for the categories (each is its own on/off setting). */
+function MarketCategories({ s, editable }: { s: Draft; editable: boolean }) {
+  const on = MK_CATS.filter(([id]) => !!(s.draft[`mk_cat_${id}`] ?? s.data!.values[`mk_cat_${id}`])).length;
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <div className="mk-cats" role="group" aria-label="Categories in the market">
+        {MK_CATS.map(([id, title]) => {
+          const k = `mk_cat_${id}`, v = !!(s.draft[k] ?? s.data!.values[k]);
+          return (
+            <button key={id} type="button" role="checkbox" aria-checked={v} disabled={!editable} className={`mk-cat${v ? ' on' : ''}${s.changed.includes(k) ? ' changed' : ''}`}
+              onClick={() => s.setDraft({ ...s.draft, [k]: !v })}><span className="box">{v && <Check />}</span>{title}</button>
+          );
+        })}
+      </div>
+      <span className="sr-meta">{on ? `${on} categor${on === 1 ? 'y' : 'ies'} open to sellers and buyers.` : 'No category ticked: nothing can be listed.'}</span>
+    </div>
+  );
+}
+
+/** What a ₦20,000 market order costs each side, with the fees as set now. */
+function MarketFeeExample({ s }: { s: Draft }) {
+  const v = (k: string) => s.draft[k] ?? s.data!.values[k];
+  const price = 20_000;
+  const extra = (side: 'buyer' | 'seller') => {
+    if (!v('mk_fees_on')) return 0;
+    let f = (price * Number(v(`mk_${side}_rate`))) / 100;
+    f = Math.max(f, Number(v(`mk_${side}_min`)));
+    if (Number(v(`mk_${side}_max`)) > 0) f = Math.min(f, Number(v(`mk_${side}_max`)));
+    return Math.round(f);
+  };
+  const usual = v('mk_usual_fee') ? feeOf(price, Object.fromEntries(['fee_rate_percent', 'fee_min', 'fee_max', 'fee_round_to'].map((k) => [k, v(k)]))) : 0;
+  const txn = v('mk_usual_txn') ? bandFee(v('seller_txn_fee') as Band[], price) : 0;
+  const bx = extra('buyer'), sx = extra('seller');
+  const m = (n: number) => money(n * 100);
+  return (
+    <div className="mk-example" aria-live="polite">
+      <b>A {m(price)} market order</b>
+      <dl>
+        <dt>Buyer pays</dt><dd className="tot">{m(price + usual + bx)}</dd>
+        {usual > 0 && <><dt className="muted">· Hoolam fee</dt><dd className="muted">{m(usual)}</dd></>}
+        {bx > 0 && <><dt className="muted">· Market fee</dt><dd className="muted">{m(bx)}</dd></>}
+        <dt>Seller receives</dt><dd className="tot">{m(price - txn - sx)}</dd>
+        {txn > 0 && <><dt className="muted">· Transaction fee</dt><dd className="muted">−{m(txn)}</dd></>}
+        {sx > 0 && <><dt className="muted">· Market fee</dt><dd className="muted">−{m(sx)}</dd></>}
+      </dl>
+    </div>
+  );
+}
+
 /**
  * Settings → Features: things the owner turns on when they're ready. Each is a compact card with its switch;
  * a feature's own settings (and anything else about it) sit under it, folded away until opened.
@@ -480,7 +546,7 @@ const AMB_GROUPS: { title: string; help: string; keys: string[] }[] = [
  */
 export function FeaturesPage() {
   const { can } = useAuth();
-  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key), 'feature_about_founder', 'feature_seller_video', 'feature_menu_order_code', 'feature_menu_check_seller'];
+  const keys = ['feature_seller_stats', 'feature_ambassadors', ...AMB_GROUPS.flatMap((g) => g.keys), 'feature_site_numbers', ...SITE_NUMBERS.map((x) => x.key), 'feature_about_founder', 'feature_seller_video', 'feature_menu_order_code', 'feature_menu_check_seller', ...MARKET_KEYS];
   const s = useDraft(keys);
   if (s.error) return <ErrorBanner error={s.error} onRetry={s.reload} />;
   if (s.loading || !s.data) return <div className="stack"><Skeleton h={44} w={320} /><Skeleton h={120} /><Skeleton h={120} /></div>;
@@ -509,6 +575,21 @@ export function FeaturesPage() {
               <div key={g.title} className="feature-group">
                 <div className="fg-head"><h3>{g.title}</h3><p>{g.help}</p></div>
                 <div className="setting-list">{g.keys.map((k) => <SettingRow key={k} s={s} k={k} editable={editable} />)}</div>
+              </div>
+            ))}
+          </div>
+        </FeatureCard>
+        <FeatureCard s={s} k="feature_market" icon={Store} title="Market" editable={editable}
+          line="Sellers list items in WhatsApp; buyers near them browse swipe cards and buy with the money held as usual."
+          more="Settings" open={on('feature_market')}
+          link={<Link className="btn sm ghost" to="/market">Open the market page<ArrowUpRight /></Link>}>
+          <div className="feature-groups">
+            {MARKET_GROUPS.map((g) => (
+              <div key={g.title} className="feature-group">
+                <div className="fg-head"><h3>{g.title}</h3><p>{g.help}</p></div>
+                {g.cats && <div className="mk-pad"><MarketCategories s={s} editable={editable} /></div>}
+                {g.fees && <div className="mk-pad"><MarketFeeExample s={s} /></div>}
+                <div className="setting-list">{g.keys.filter((k) => marketShown(k, (x) => s.draft[x] ?? s.data!.values[x])).map((k) => <SettingRow key={k} s={s} k={k} editable={editable} />)}</div>
               </div>
             ))}
           </div>

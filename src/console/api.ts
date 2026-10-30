@@ -18,6 +18,8 @@ import { titleName, type KycService } from '../kyc.js';
 import { ChatError, type LiveChat } from '../livechat.js';
 import { registerSupportApi } from './support-api.js';
 import { registerAmbassadorConsole } from './amb-api.js';
+import { registerMarketConsole, type MarketConsoleHelpers } from './market-api.js';
+import type { Market } from '../market/market.js';
 import type { Ambassadors } from '../ambassadors.js';
 import type { FormRegistry } from '../whatsapp/forms.js';
 import type { Messenger } from '../whatsapp/client.js';
@@ -34,6 +36,7 @@ import { accessDefault, AuthError, hasAccess, permissionsFor, permissionsOf, ROL
 export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; links: CampaignLinks; settings: Settings; messenger: Messenger;
   ambassadors?: Ambassadors;
+  market?: { m: Market; tell: MarketConsoleHelpers['tell']; itemUrl: (code: string) => string; adUrl: (code: string, ad: string) => string };
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   chatArt?: ChatArt; // the chat's pictures, voice notes, videos and stickers (Settings → WhatsApp)
   siteShow?: SiteShow; // live numbers on the website (Settings → Features)
@@ -110,6 +113,8 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
     // the support widget: website live chat and WhatsApp support
     if (d.chat) registerSupportApi(api, { db, chat: d.chat, need, actorOf });
     // the ambassador programme (main menu → Ambassadors)
+    // the market (main menu → Market)
+    if (d.market) registerMarketConsole(api, { ...d.market, need, act, reasonOf, unit, fail: (status, message) => new HttpError(status, message), can: (req, action) => permissionsOf(req.staff!).includes(action) });
     if (d.ambassadors) registerAmbassadorConsole(api, { a: d.ambassadors, need, act, reasonOf, fail: (status, message) => new HttpError(status, message), can: (req, action) => permissionsOf(req.staff!).includes(action) });
 
     // =====================================================================================
@@ -206,10 +211,21 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
         if (st.held) items.push({ key: `amb-held:${st.held}`, kind: 'ambassador', severity: 'medium', title: `${st.held} ambassador earning${st.held === 1 ? '' : 's'} on hold`, detail: 'Something looked wrong (their own order, the same ID or bank account). Approve or cancel.', at: new Date().toISOString(), link: '/ambassadors?tab=held', cta: 'Check' });
         if (due.length) items.push({ key: `amb-pay:${due.length}`, kind: 'ambassador', severity: 'low', title: `${due.length} ambassador payout${due.length === 1 ? '' : 's'} to send`, detail: `${money(due.reduce((t, p) => t + p.amountMinor, 0), 'NGN')} in all. Transfer, then mark each as paid.`, at: new Date().toISOString(), link: '/ambassadors?tab=payouts', cta: 'Pay' });
       }
+      // the market: new listings to look over, reported items, sellers asking to list, paid upgrades to confirm
+      let marketCount = 0;
+      if (d.market && d.market.m.cfg().on) {
+        const o = await d.market.m.overview();
+        const w = o.waiting;
+        marketCount = (o.totals.to_check ? 1 : 0) + w.applications + w.upgrades;
+        if (w.reported) items.push({ key: `mk-rep:${w.reported}`, kind: 'market', severity: 'medium', title: `${w.reported} market item${w.reported === 1 ? '' : 's'} reported by buyers`, detail: 'Look at them, then keep or remove.', at: new Date().toISOString(), link: '/market?tab=check', cta: 'Check' });
+        if (w.applications) items.push({ key: `mk-apps:${w.applications}`, kind: 'market', severity: 'medium', title: `${w.applications} seller${w.applications === 1 ? '' : 's'} asking to list in the market`, detail: 'Approve or decline. They hear back on WhatsApp.', at: new Date().toISOString(), link: '/market?tab=sellers', cta: 'Review' });
+        if (w.upgrades) items.push({ key: `mk-up:${w.upgrades}`, kind: 'market', severity: 'low', title: `${w.upgrades} seller${w.upgrades === 1 ? '' : 's'} want more items`, detail: 'Confirm their payment, then their limit rises.', at: new Date().toISOString(), link: '/market?tab=sellers', cta: 'Confirm' });
+        if (o.totals.to_check >= 20) items.push({ key: `mk-check:${Math.floor(o.totals.to_check / 20)}`, kind: 'market', severity: 'low', title: `${o.totals.to_check} new market items to look over`, detail: 'A quick look keeps the market clean.', at: new Date().toISOString(), link: '/market?tab=check', cta: 'Look', dismissible: true });
+      }
       for (const r of stuck.rows) items.push({ key: `webhook:${r.id}`, kind: 'system', severity: 'medium', title: `A ${r.source} update keeps failing`, detail: `${r.attempts} tries · ${String(r.last_error ?? '').slice(0, 100)}`, at: r.received_at, link: `/audit`, cta: 'Details', dismissible: true });
       const order = { high: 0, medium: 1, low: 2 };
       const open = items.filter((i) => !gone.has(i.key)).sort((a, b) => order[a.severity] - order[b.severity] || +new Date(a.at) - +new Date(b.at));
-      return { items: open, counts: { inbox: open.length, disputes: disputes.rowCount, support: support.rowCount, ambassadors: ambCount } };
+      return { items: open, counts: { inbox: open.length, disputes: disputes.rowCount, support: support.rowCount, ambassadors: ambCount, market: marketCount } };
     });
 
     api.post('/inbox/dismiss', async (req) => {

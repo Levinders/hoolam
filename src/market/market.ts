@@ -579,6 +579,20 @@ export class Market {
          (SELECT count(*)::int FROM deals d WHERE d.seller_id=u.id AND d.status='COMPLETED') AS completed
        FROM market_sellers s JOIN users u ON u.id=s.user_id WHERE s.status IN ('APPLIED','DECLINED','STOPPED') ORDER BY (s.status='APPLIED') DESC, s.created_at DESC LIMIT 200`)).rows;
   }
+  /** Everyone who has listed: live items, their limit, strikes, sales from the market. */
+  async sellers() {
+    return (await this.o.db.query(
+      `SELECT u.id AS user_id, COALESCE(nullif(u.business_name, ''), u.display_name, 'Seller') AS name, u.phone, u.kyc_status,
+         ms.status, ms.reason, ms.item_limit, ms.limit_until,
+         count(l.id) FILTER (WHERE l.status IN ('LIVE','PAUSED','HIDDEN','SOLD_OUT'))::int AS items,
+         count(l.id) FILTER (WHERE l.status='LIVE')::int AS live,
+         (SELECT count(*)::int FROM market_strikes k WHERE k.user_id=u.id AND k.created_at > now() - interval '90 days') AS strikes,
+         (SELECT count(*)::int FROM deals d WHERE d.seller_id=u.id AND d.from_market AND d.funded_at IS NOT NULL) AS orders,
+         max(l.created_at) AS last_listed
+       FROM market_listings l JOIN users u ON u.id=l.seller_id LEFT JOIN market_sellers ms ON ms.user_id=u.id
+       WHERE l.status<>'DELETED' GROUP BY u.id, ms.user_id ORDER BY max(l.created_at) DESC LIMIT 300`)).rows
+      .map((r: any) => ({ ...r, limit: r.item_limit && (!r.limit_until || new Date(r.limit_until) > new Date()) ? r.item_limit : this.cfg().perSeller }));
+  }
   async upgrades() {
     return (await this.o.db.query(
       `SELECT g.*, COALESCE(nullif(u.business_name, ''), u.display_name, 'Seller') AS name, u.phone

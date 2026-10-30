@@ -39,6 +39,8 @@ export const CAN: Record<string, Role[]> = {
   'audit.view': ['OWNER', 'ADMIN', 'FINANCE'],
   'ambassadors.review': ['OWNER', 'ADMIN'],     // approve or decline applications, invite, remove a photo (reps can be given it in Team)
   'ambassadors.manage': ['OWNER'],               // custom shares, pause or end, held earnings, payouts
+  'market.review': ['OWNER', 'ADMIN'],          // the market's regular check: keep or remove items, approve sellers to list
+  'market.manage': ['OWNER'],                    // seller limits, stop a seller, confirm paid upgrades, ad links
 };
 export const can = (role: Role, action: string) => (CAN[action] ?? []).includes(role);
 export const permissionsFor = (role: Role) => Object.keys(CAN).filter((a) => can(role, a));

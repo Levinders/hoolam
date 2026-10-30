@@ -826,7 +826,20 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const liveChat = new LiveChat({ db, settings, messenger, currency: c.CURRENCY, siteUrl: c.SITE_URL || 'https://hoolam.com', log });
   registerLiveChatRoutes(app, liveChat, db, log);
   const staffAuth = new StaffAuth(db, { setupToken: c.ADMIN_TOKEN, baseUrl: c.PUBLIC_BASE_URL, twoStep: () => settings.get<boolean>('two_step_login') === true });
-  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, chatArt, siteShow, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  const waLink = (text: string) => `https://wa.me/${settings.waNumber().replace(/\D/g, '')}?text=${encodeURIComponent(text)}`;
+  const itemUrl = (code: string) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`;
+  const tellSeller = async (userId: string, fn: (phone: string) => Promise<unknown>) => { const p = await phoneOf(userId); if (p) await fn(p); };
+  const marketConsole = {
+    m: market, itemUrl,
+    adUrl: (code: string, ad: string) => waLink(`Hi Hoolam, I want to buy this: ${code} (ad ${ad})`),
+    tell: {
+      removed: (l: Listing, reason: string, stopped: boolean) => tellSeller(l.seller_id, (p) => chat.mkt!.notify(p, l, stopped ? 'stopped' : 'removed', reason)),
+      decided: (id: string, ok: boolean, reason: string | null) => tellSeller(id, (p) => chat.mkt!.decided(p, ok, reason)),
+      upgraded: (id: string, ok: boolean, items: number) => tellSeller(id, (p) => chat.mkt!.upgraded(p, ok, items)),
+      allowed: (id: string) => tellSeller(id, (p) => chat.mkt!.allowedAgain(p)),
+    },
+  };
+  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, market: marketConsole, chatArt, siteShow, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */

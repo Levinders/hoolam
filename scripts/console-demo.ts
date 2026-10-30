@@ -84,6 +84,53 @@ for (const [p, text] of [[buyers[3]!, 'Hello, I paid yesterday but the seller sa
   await h.say(p, '/human'); await h.say(p, text);
 }
 
+// the market: on, a few sellers' items, buyers browsing, saving and buying, 30 days of numbers
+{
+  const sharp = (await import('sharp')).default;
+  const tones = [[14, 92, 99], [201, 153, 46], [46, 139, 87], [192, 57, 43], [70, 70, 90], [120, 80, 160]];
+  let k = 0;
+  (h.app.chat as any).o.media = { download: async () => {
+    const [r, g, b] = tones[k++ % tones.length]!;
+    const px = Buffer.alloc(240 * 240 * 3);
+    for (let y = 0; y < 240; y++) for (let x = 0; x < 240; x++) { const i = (y * 240 + x) * 3, w = ((x * 7 + y * 3 + k * 37) % 255) / 255; px[i] = r * (0.6 + w * 0.6); px[i + 1] = g * (0.6 + w * 0.5); px[i + 2] = b * (0.6 + w * 0.4); }
+    return { bytes: await sharp(px, { raw: { width: 240, height: 240, channels: 3 } }).jpeg().toBuffer(), mimeType: 'image/jpeg' };
+  } };
+  await h.app.settings.save(h.db, { feature_market: true, mk_cat_phones: true, mk_upgrade_on: true, mk_ad_links: true }, null);
+  const listing: [number, string, string, string, string][] = [
+    [0, 'Nike Air Force 1, size 43', 'shoes', '45k', 'Ikeja, Lagos'], [0, 'Adidas slides, size 42', 'shoes', '12000', 'Ikeja, Lagos'], [0, 'New Balance 550, size 44', 'shoes', '58000', 'Ikeja, Lagos'],
+    [1, 'Brazilian wig, 18 inch', 'beauty', '65000', 'Lekki Phase 1, Lagos'], [1, 'Bone straight, 22 inch', 'beauty', '120000', 'Lekki Phase 1, Lagos'], [1, 'Edge control and gel set', 'beauty', '6500', 'Lekki Phase 1, Lagos'],
+    [2, 'iPhone 12, 128GB, UK used', 'phones', '320000', 'Wuse 2, Abuja'], [2, 'AirPods Pro 2', 'phones', '85000', 'Wuse 2, Abuja'],
+    [3, 'Vintage denim jacket', 'clothing', '18500', 'Woji, Port Harcourt'], [3, 'Ankara gown, size 12', 'clothing', '25000', 'Woji, Port Harcourt'], [3, 'Black leather bag', 'bags', '22000', 'Woji, Port Harcourt'],
+  ];
+  for (const [si, title, cat, price, where] of listing) {
+    const p = sellers[si]![0]!;
+    await h.tap(p, 'menu:items'); await h.tap(p, 'mk:new');
+    for (let n = 0; n < 2; n++) await (h.app.chat as any).handle({ id: `img${Math.random()}`, phone: p, name: null, type: 'image', text: '', buttonId: null, mediaId: `m${Math.random()}` });
+    await h.tap(p, 'mk:photosdone'); await h.say(p, title); await h.tap(p, `mk:lcat:${cat}`); await h.say(p, price); await h.say(p, String(1 + (title.length % 4))); await h.tap(p, 'mk:ldel:all'); await h.say(p, where);
+    if (/Did you mean/.test(h.last(p))) await h.tap(p, 'mk:lpl:0');
+  }
+  const ids = (await h.db.query('SELECT id FROM market_listings ORDER BY id')).rows.map((r) => Number(r.id));
+  await h.db.query(`UPDATE market_listings SET promo_minor = price_minor * 9 / 10, promo_ends = now() + interval '5 days' WHERE id=$1`, [ids[0]]);
+  // buyers browse, save, search and buy
+  for (let i = 0; i < 6; i++) {
+    const b = buyers[i]!;
+    await h.tap(b, 'menu:market'); await h.tap(b, 'mk:all'); await h.tap(b, 'mk:cat:shoes');
+    await h.tap(b, `mk:see:${pick(ids, i)}`); if (i % 2) await h.tap(b, `mk:save:${pick(ids, i)}`);
+    await h.say(b, pick(['ankara gown', 'iphone 12', 'power bank', 'black bag under 30k', 'perfume', 'wig'], i));
+  }
+  { const b = buyers[0]!; await h.tap(b, `mk:go:${ids[5]}:1`); await h.say(b, '12 Allen Avenue, Ikeja'); await h.tap(b, 'bdate:2'); await h.tap(b, 'buy:send');
+    const code = h.last(b).match(/HL-[A-Z2-9]{5}/)?.[0];
+    if (code) { await h.tap(sellers[1]![0]!, `saccept:${code}`); await h.tap(b, `pay:${code}`); const r = await h.db.query('SELECT provider_reference FROM payment_intents WHERE deal_id=(SELECT id FROM deals WHERE code=$1)', [code]); if (r.rows[0]) { h.provider.pay(r.rows[0].provider_reference); await h.app.deals.handleCollection(r.rows[0].provider_reference); } } }
+  // reports on one item, a seller asking for more items
+  for (let i = 0; i < 2; i++) await h.tap(buyers[i + 3]!, `mk:rr:${ids[7]}:${i}`);
+  await h.tap(sellers[0]![0]!, 'mk:upask');
+  // 30 days of browsing numbers
+  await h.db.query(`INSERT INTO market_stats (listing_id, day, seen, views, saves, buys, orders)
+    SELECT l.id, d::date, 20 + (random() * 60)::int, 4 + (random() * 18)::int, (random() * 4)::int, (random() * 3)::int, (random() < .25)::int
+    FROM market_listings l, generate_series(current_date - 29, current_date - 1, interval '1 day') d ON CONFLICT DO NOTHING`);
+  await h.db.query(`UPDATE market_listings SET kept_at = now() WHERE id = ANY($1)`, [ids.slice(0, 4)]);
+}
+
 // the owner account (two-step code from the fixed demo secret)
 await h.db.query(`INSERT INTO staff (email, name, role, password_hash, totp_secret, totp_enabled) VALUES ($1,$2,'OWNER',$3,$4,true)`,
   [OWNER.email, OWNER.name, await hashPassword(OWNER.password), OWNER.secret]);
