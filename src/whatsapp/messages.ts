@@ -41,8 +41,8 @@ const problemText = () => { const n = live.problemReplyHours(); return `${n} hou
 export const exampleNumber = () => localPhone(live.hoolamNumber()) || '08012345678';
 
 const HELP_ROWS = (switchTo: 'buyer' | 'seller') => [
-  { id: 'menu:support', title: '🙋 Get help', description: 'Report a problem or talk to a rep' },
   { id: 'menu:how', title: '💡 How it works', description: 'The steps and fees' },
+  { id: 'menu:support', title: '🙋 Get help', description: 'Report a problem or talk to a rep' },
 ];
 /** Its own section under Help: switching sides (and the ambassador row, when it applies). */
 const MORE = (switchTo: 'buyer' | 'seller') => ({

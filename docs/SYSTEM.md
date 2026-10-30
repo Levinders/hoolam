@@ -207,7 +207,7 @@ Everyone starts on the buying menu; becoming a seller (a one-time setup that cre
 
 **My account (sellers):** "👤 My account" with their name as buyers see it, Verified seller, orders completed and "Paid into GTBank ••••1234" (or "No payout account yet"), then **🛡️ My trust card** · **🏦 Payout account** · Main menu. Typing "my account" opens it too.
 
-**Help (both menus):** 🙋 Get help ("Report a problem or talk to a rep") · 💡 How it works. Get help opens "How can we help?" with **🚩 Report a problem** (something wrong with an order; the money stays with Hoolam until it's sorted) and **💬 Talk to a rep** ("A live rep replies within" the console's reply time). Typing "get help", "support" or "help me" opens it too; /problem and /rep still go straight there.
+**Help (both menus):** 💡 How it works · 🙋 Get help ("Report a problem or talk to a rep"). Get help opens "How can we help?" with **🚩 Report a problem** (something wrong with an order; the money stays with Hoolam until it's sorted) and **💬 Talk to a rep** ("A live rep replies within" the console's reply time). Typing "get help", "support" or "help me" opens it too; /problem and /rep still go straight there.
 
 **More (both menus, its own section under Help):** 🔁 Switch to selling / buying.
 

@@ -39,8 +39,8 @@ describe('message shapes', () => {
     expect(m.kind).toBe('list');
     const ids = (m: ReturnType<typeof buyerMenu>) => m.map((x) => [x.title, x.rows.map((r) => r.id)]);
     // the switch sits in its own section, after Help (the ambassador row joins it when it applies)
-    expect(ids(buyerMenu())).toEqual([['Buying', ['menu:buy', 'menu:orders']], ['Help', ['menu:support', 'menu:how']], ['More', ['menu:tosell']]]);
-    expect(ids(sellerMenu())).toEqual([['Selling', ['menu:sell', 'menu:orders', 'menu:me']], ['Help', ['menu:support', 'menu:how']], ['More', ['menu:tobuy']]]);
+    expect(ids(buyerMenu())).toEqual([['Buying', ['menu:buy', 'menu:orders']], ['Help', ['menu:how', 'menu:support']], ['More', ['menu:tosell']]]);
+    expect(ids(sellerMenu())).toEqual([['Selling', ['menu:sell', 'menu:orders', 'menu:me']], ['Help', ['menu:how', 'menu:support']], ['More', ['menu:tobuy']]]);
     expect(ids(menuFor('buyer', { id: 'menu:amb', title: 'Ambassador' })).at(-1)).toEqual(['More', ['menu:tosell', 'menu:amb']]);
     // Console → Settings → Features: the two optional buyer rows, off by default
     configureMessages({ menuOrderCode: () => true, menuCheckSeller: () => true });
