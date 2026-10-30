@@ -5,6 +5,8 @@ export interface Button { id: string; title: string } // WhatsApp: max 3 buttons
 export interface ListRow { id: string; title: string; description?: string } // title max 24, description max 72
 export interface ListSection { title: string; rows: ListRow[] }              // section title max 24
 /** Hoolam's contact card: "Save contact" opens the phone's new-contact screen, filled in. */
+/** One swipe card: its picture (drawn from `art`, or a media id), a short text, and up to 2 buttons. */
+export interface CardOut { art?: Art; mediaId?: string; text: string; buttons: Button[] }
 export interface ContactCard { name: string; phone: string; org?: string; email?: string; url?: string }
 export type Outbound = (
   | { kind: 'text'; text: string; noMenu?: boolean }   // noMenu: keep it plain (e.g. a message meant to be forwarded)
@@ -13,6 +15,8 @@ export type Outbound = (
   | { kind: 'buttons'; text: string; buttons: Button[]; headerImage?: string } // headerImage: a media id shown on top (set by the Messenger from `art`)
   | { kind: 'list'; text: string; button: string; sections: ListSection[]; header?: string; footer?: string } // max 10 rows; header/footer max 60
   | { kind: 'image'; mediaId: string; caption?: string }                                                      // caption max 1024
+  | { kind: 'cards'; text: string; cards: CardOut[] }                                                         // swipe cards (2 to 10; 1 sends as one picture with buttons)
+  | { kind: 'askLocation'; text: string }                                                                    // a "Send location" button
   | { kind: 'form'; text: string; cta: string; flowId: string; flowToken: string; screen: string; mode: 'draft' | 'published'; header?: string; footer?: string; live?: boolean; data?: Record<string, unknown> } // live: the form asks our endpoint for its first screen; data: fills in a form's first screen
 ) & {
   replyTo?: string;  // the person's message this answers (WhatsApp shows it quoted above our reply)
@@ -90,6 +94,15 @@ export function checkLimits(msg: Outbound): void {
       if (r.id.length > 200) throw new Error('List row id too long');
     }
     if (new Set(rows.map((r) => r.id)).size !== rows.length) throw new Error('List row ids must be unique');
+  }
+  if (msg.kind === 'cards') {
+    if (msg.cards.length < 1 || msg.cards.length > 10) throw new Error('WhatsApp swipe cards: 1 to 10');
+    for (const c of msg.cards) {
+      if (c.buttons.length < 1 || c.buttons.length > 2) throw new Error('Each swipe card has 1 or 2 buttons');
+      for (const b of c.buttons) if (b.title.length > 20) throw new Error(`Button title too long: "${b.title}"`);
+      if (c.text.length > 160) throw new Error(`Card text too long: "${c.text}"`);
+    }
+    if (msg.text.length > 1024) throw new Error('Swipe card message text too long');
   }
   if (msg.kind === 'form' && msg.cta.length > 30) throw new Error(`Form button too long: "${msg.cta}"`);
   if (msg.kind === 'image' && (msg.caption ?? '').length > 1024) throw new Error('Image caption too long');
@@ -176,6 +189,7 @@ export class Messenger {
     const to = phone.replace(/^\+/, '');
     const quiet = { quiet: true };
     if (msg.react && !this.o.dryRun) await this.deliver(phone, { kind: 'text', text: `[reaction ${msg.react.emoji}]` }, { messaging_product: 'whatsapp', to, type: 'reaction', reaction: { message_id: msg.react.to, emoji: msg.react.emoji } }, 'reaction', quiet);
+    if (msg.kind === 'cards') return this.sendCards(phone, msg);
     let main: Outbound = msg;
     if (msg.art && this.art && !this.o.dryRun) { // in dry run the message is logged as it is (the art is kept in its record)
       const id = await this.art.image(msg.art);
@@ -197,6 +211,30 @@ export class Messenger {
       if (id) await this.deliver(phone, { kind: 'text', text: `[sticker ${msg.sticker}]` }, { messaging_product: 'whatsapp', to, type: 'sticker', sticker: { id } }, 'sticker', quiet);
     }
     return status;
+  }
+
+  /**
+   * Swipe cards: each card's picture is drawn and uploaded, then one carousel message. If WhatsApp refuses it, each
+   * card goes as its own picture with its buttons, so nothing is lost. One card is just a picture with buttons.
+   */
+  private async sendCards(phone: string, msg: Extract<Outbound, { kind: 'cards' }>): Promise<SendStatus> {
+    const to = phone.replace(/^\+/, '');
+    if (this.o.dryRun || !this.art) return this.deliver(phone, msg, toPayload(to, msg), 'cards');
+    const cards: CardOut[] = [];
+    for (const c of msg.cards) {
+      const id = c.mediaId ?? (c.art ? await this.art.image(c.art) : null);
+      if (id) cards.push({ ...c, mediaId: id });
+    }
+    if (!cards.length) return this.deliver(phone, { kind: 'text', text: msg.text }, toPayload(to, { kind: 'text', text: msg.text }));
+    const one = (c: CardOut, text: string) => { const m: Outbound = { kind: 'buttons', text, buttons: c.buttons, headerImage: c.mediaId }; return this.deliver(phone, m, toPayload(to, m)); };
+    if (cards.length === 1) return one(cards[0]!, `${msg.text}\n\n${cards[0]!.text}`);
+    const sent: Outbound = { ...msg, cards };
+    const status = await this.deliver(phone, sent, toPayload(to, sent), 'cards');
+    if (status !== 'FAILED') return status;
+    await this.deliver(phone, { kind: 'text', text: msg.text }, toPayload(to, { kind: 'text', text: msg.text }));
+    let last: SendStatus = 'FAILED';
+    for (const c of cards) last = await one(c, c.text);
+    return last;
   }
 
   /** Sends an approved template. Allowed outside the 24-hour window. */
@@ -330,6 +368,25 @@ export function toPayload(to: string, msg: Outbound): Record<string, unknown> {
       },
     };
   }
+  if (msg.kind === 'cards') {
+    return {
+      ...base, type: 'interactive',
+      interactive: {
+        type: 'carousel', body: { text: msg.text },
+        action: {
+          cards: msg.cards.map((c, i) => ({
+            card_index: i,
+            header: { type: 'image', image: { id: c.mediaId ?? 'dry-run-media' } },
+            body: { text: c.text },
+            action: { buttons: c.buttons.map((b) => ({ type: 'quick_reply', quick_reply: { id: b.id, title: b.title } })) },
+          })),
+        },
+      },
+    };
+  }
+  if (msg.kind === 'askLocation') {
+    return { ...base, type: 'interactive', interactive: { type: 'location_request_message', body: { text: msg.text }, action: { name: 'send_location' } } };
+  }
   if (msg.kind === 'buttons') {
     return {
       ...base, type: 'interactive',
@@ -361,5 +418,7 @@ export function render(msg: Outbound): string {
   if (msg.kind === 'location') return `[📍 ${msg.name ?? 'location'} ${msg.latitude},${msg.longitude}]`;
   if (msg.kind === 'contact') return `[📇 contact card: ${msg.contact.name} +${msg.contact.phone.replace(/\D/g, '')}]`;
   if (msg.kind === 'form') return `${msg.text}  [📝 ${msg.cta}]`;
+  if (msg.kind === 'cards') return `${msg.text}\n${msg.cards.map((c, i) => `  🖼️ ${i + 1}. ${c.text}  ${c.buttons.map((b) => `[${b.title}]`).join(' ')}`).join('\n')}`;
+  if (msg.kind === 'askLocation') return `${msg.text}  [📍 Send location]`;
   return `${msg.header ? msg.header + '\n' : ''}${msg.text}${msg.footer ? '\n' + msg.footer : ''}  [${msg.button} ▾: ${msg.sections.flatMap((s) => s.rows.map((r) => r.title)).join(' | ')}]`;
 }

@@ -13,15 +13,15 @@ import { ACCEPT, MAX_BYTES, slot as slotOf, SLOTS, type Slot } from './slots.js'
  * Messages ask for art by name (`{ card: 'moneyHeld', data }`, `{ picture: 'how-it-works' }`); the Messenger turns
  * that into a picture on top of the message just before it goes. In dry run (tests, no WhatsApp) nothing is drawn.
  */
-export type CardName = 'moneyHeld' | 'payment' | 'handover' | 'paid' | 'refund' | 'frozen' | 'summary' | 'trust' | 'trustStatus' | 'complete' | 'fees' | 'ambMonth' | 'ambWelcome' | 'ambShare' | 'formCheck' | 'formStatus' | 'orderRequest';
-export type PhotoRef = { photoDeal?: string | null; photoUser?: string | null; photoAmb?: string | null; photoBytes?: Buffer | null };
+export type CardName = 'moneyHeld' | 'payment' | 'handover' | 'paid' | 'refund' | 'frozen' | 'summary' | 'trust' | 'trustStatus' | 'complete' | 'fees' | 'ambMonth' | 'ambWelcome' | 'ambShare' | 'formCheck' | 'formStatus' | 'orderRequest' | 'marketItem' | 'myItems' | 'marketPhoto';
+export type PhotoRef = { photoDeal?: string | null; photoUser?: string | null; photoAmb?: string | null; photoBytes?: Buffer | null; photoListing?: number | null; photoPosition?: number | null; sellerUser?: string | null };
 export type Art = { card: CardName; data: Record<string, unknown> & PhotoRef } | { picture: string };
 export interface Clip { slot: string; once?: boolean }
 
 const CARD_SLOT: Partial<Record<CardName, string>> = { // the ambassador share card has its own design (their link page's picture)
   moneyHeld: 'card-money-held', payment: 'card-payment', handover: 'card-handover', paid: 'card-paid', refund: 'card-refund',
   frozen: 'card-frozen', summary: 'card-summary', trust: 'card-trust', trustStatus: 'card-trust-status', complete: 'card-complete',
-  fees: 'card-fees', ambMonth: 'card-amb-month', ambWelcome: 'card-amb-welcome', formCheck: 'card-form-check', formStatus: 'card-form-status', orderRequest: 'card-new-order',
+  fees: 'card-fees', ambMonth: 'card-amb-month', ambWelcome: 'card-amb-welcome', formCheck: 'card-form-check', formStatus: 'card-form-status', orderRequest: 'card-new-order', marketItem: 'card-market-item', myItems: 'card-market-myitems',
 };
 const STICKER_SLOT = { held: 'sticker-held', paid: 'sticker-paid', welldone: 'sticker-welldone', thanks: 'sticker-thanks', verified: 'sticker-verified' } as const;
 export type StickerName = keyof typeof STICKER_SLOT;
@@ -44,6 +44,9 @@ const SAMPLE: Record<CardName, Record<string, unknown>> = {
   ambWelcome: { name: 'Tobi', link: 'hoolam.com/a/tobi' },
   ambShare: { firstName: 'Tobi', link: 'hoolam.com/a/tobi', area: 'UNILAG' },
   formCheck: { side: 'buyer', title: 'Check your order', item: 'Brazilian wig, 18 inch', lines: [{ icon: 'store', text: 'Seller: 0803 123 4567' }, { icon: 'mapPin', text: '12 Woji Road, Port Harcourt' }], big: { label: 'You pay after they accept', value: '₦15,400' }, note: 'Nothing is paid yet. You pay after the seller accepts.' },
+  marketItem: { title: 'Nike Air Force 1, size 43', price: '₦45,000', was: '₦50,000', offPct: 10, verified: true, where: 'Woji · Pickup, rider, waybill', seller: 'Bayo Kicks', record: '120 orders · 98% happy' },
+  marketPhoto: {},
+  myItems: { name: 'Bayo Kicks', live: 5, soldOut: 1, views: 128 },
   orderRequest: { to: 'seller', who: 'Ada', item: 'Brazilian wig, 18 inch', amount: '₦14,500', code: 'HL-7K2QF', check: 'hoolam.com/check' },
   formStatus: { step: 3, title: 'Money held', item: 'Brazilian wig, 18 inch', code: 'HL-7K2QF', amountLabel: 'You paid', amount: '₦15,400', money: 'Held safely by Hoolam' },
 };
@@ -97,6 +100,7 @@ export class ChatArt {
       : id === 'how-it-works' ? await K.howItWorks()
       : id === 'id-check' || id === 'form-id' ? await K.idCheck()
       : id === 'form-start' ? await K.formStart()
+      : id === 'market-where' ? await K.marketWhere()
       : id === 'code-where' ? await K.codeWhere()
       : id === 'sample-trust' ? await K.trustCard({ name: 'Bayo Kicks', city: 'Lagos', since: 'Jan 2026', verified: true, isNew: false, completed: 120, happyPct: 98, rated: 80, ships: 'In 1 day', sample: true })
       : id === 'photo-tips' ? await K.photoTips()
@@ -113,8 +117,10 @@ export class ChatArt {
   private async card(name: CardName, data: Record<string, unknown> & PhotoRef): Promise<Buffer> {
     await refreshMark(); // the uploaded logo icon (or the drawn mark)
     const bg = CARD_SLOT[name] ? (await this.override(CARD_SLOT[name]!))?.bytes ?? null : null;
-    const photo = data.photoBytes ?? (data.photoDeal || data.photoUser || data.photoAmb ? await this.photo(data) : null);
-    const d = { ...data, photoBytes: undefined, photo } as any;
+    const photo = data.photoBytes ?? (data.photoListing ? (await this.db.query('SELECT bytes FROM market_photos WHERE listing_id=$1 ORDER BY position OFFSET $2 LIMIT 1', [data.photoListing, data.photoPosition ?? 0])).rows[0]?.bytes ?? null
+      : data.photoDeal || data.photoUser || data.photoAmb ? await this.photo(data) : null);
+    const sellerPhoto = data.sellerUser ? (await this.db.query('SELECT bytes FROM user_photos WHERE user_id=$1', [data.sellerUser])).rows[0]?.bytes ?? null : null;
+    const d = { ...data, photoBytes: undefined, photo, sellerPhoto } as any;
     switch (name) {
       case 'moneyHeld': return K.moneyHeld(d, bg);
       case 'payment': return K.payment(d, bg);
@@ -125,6 +131,9 @@ export class ChatArt {
       case 'summary': case 'formCheck': return K.summary(d, bg);
       case 'formStatus': return K.orderStatus(d, bg);
       case 'orderRequest': return K.orderRequest(d, bg);
+      case 'marketItem': return K.marketItem(d, bg);
+      case 'myItems': return K.myItems(d, bg);
+      case 'marketPhoto': return photo ? sharp(photo).rotate().resize(1080, 1080, { fit: 'cover' }).jpeg({ quality: 86 }).toBuffer() : K.marketItem({ title: 'Photo', price: '', where: '', seller: '', record: '' } as any, null);
       case 'trust': return K.trustCard(d, bg);
       case 'trustStatus': return K.trustStatus(d, bg);
       case 'complete': return K.complete(d, bg);

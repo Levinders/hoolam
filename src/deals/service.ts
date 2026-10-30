@@ -61,6 +61,14 @@ export interface BuyerDealInput {
   category?: string | null;
   address?: string | null;                          // where to deliver
   addressPin?: string | null;                       // "lat,lng" when a location was shared for it
+  /** From the market: the listings (one, or a basket from one seller). Their photos become the order's photos. */
+  market?: { listingId: number; qty: number; priceMinor: number; title: string }[] | null;
+}
+
+/** Console → Settings → Features → Market → Fees (minor units). */
+export interface MarketFees {
+  usualFee: boolean; usualTxn: boolean; extra: boolean;
+  buyer: { rate: number; minMinor: number; maxMinor: number }; seller: { rate: number; minMinor: number; maxMinor: number };
 }
 
 /** What happened to the alert we tried to send the seller. */
@@ -131,6 +139,10 @@ export interface DealServiceOptions {
   orderPageBase?: string;     // where the private order pages live, e.g. https://hoolam.onrender.com
   /** The ambassador programme: earnings when an order's money is released (see ambassadors.ts). */
   ambassadors?: Pick<Ambassadors, 'onRelease'>;
+  /** Market orders: which fees apply (else every order uses the usual fees). */
+  marketFees?: () => MarketFees;
+  /** Market orders: stock moves when the buyer pays, and comes back on a refund. */
+  market?: { onPaid(dealId: string): Promise<unknown>; onRefund(dealId: string): Promise<unknown>; outOfStock?(dealId: string): Promise<string | null> };
   /** The picture on a new order alert: the item photo in the Hoolam frame (a WhatsApp media id), or null to use the plain photo. */
   alertCard?: (a: { deal: Deal; to: 'seller' | 'buyer'; who: string; amount: string }) => Promise<string | null>;
   log?: (line: string) => void;
@@ -196,9 +208,19 @@ export class DealService {
   }
 
   /** Run fn in a transaction; send the queued WhatsApp messages only after it commits. */
+  /** Work that must wait until a transaction has committed (market stock), per transaction. */
+  private readonly afters = new WeakMap<object, (() => Promise<unknown>)[]>();
+  private after(tx: object, fn: () => Promise<unknown>) {
+    const list = this.afters.get(tx);
+    if (list) list.push(fn);
+    else setTimeout(() => { fn().catch((e) => this.log(`after commit: ${(e as Error).message}`)); }, 50);
+  }
+
   private async run<T>(fn: (tx: Tx, out: Outbox) => Promise<T>): Promise<T> {
     const out: Outbox = [];
-    const result = await withTx(this.o.db, (tx) => fn(tx, out));
+    const afters: (() => Promise<unknown>)[] = [];
+    const result = await withTx(this.o.db, (tx) => { this.afters.set(tx, afters); return fn(tx, out); });
+    for (const a of afters) await a().catch((e) => this.log(`after commit: ${(e as Error).message}`));
     for (const o of out) {
       if (o.receipt) { await this.sendReceipt(o.phone, o.receipt.dealId, o.receipt.kind, o.receipt.payoutId); continue; }
       try { await this.o.messenger.send(o.phone, o.message, o.fallback); } catch (e) { this.log(`send failed: ${(e as Error).message}`); }
@@ -367,10 +389,37 @@ export class DealService {
     await tx.query(`UPDATE deals SET status=$2, updated_at=now()${stamp} WHERE id=$1`, [deal.id, to]);
     await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$3,$4,$5)', [deal.id, deal.status, to, actor, note ?? null]);
     deal.status = to;
+    // market orders: stock goes down when the buyer pays, and comes back on a refund (after this change is saved)
+    if ((deal as Deal & { from_market?: boolean }).from_market && this.o.market) {
+      const mk = this.o.market, id = deal.id;
+      if (to === 'FUNDED') this.after(tx, () => mk.onPaid(id));
+      if (to === 'REFUNDED') this.after(tx, () => mk.onRefund(id));
+    }
   }
 
   // ---------- 1. seller creates ----------
   /** Price, fee and totals. Hoolam's rule: whoever starts the deal pays the fee. */
+  /**
+   * What a buyer-started order costs. A market order follows the market's fee settings: the usual Hoolam fee and
+   * transaction fee each on or off, plus an optional market fee for each side.
+   */
+  buyerQuote(priceMinor: number, market = false) {
+    const q = quote(priceMinor, this.o.currency, this.pricingRules(), 'buyer', this.txnFees());
+    const f = market ? this.o.marketFees?.() : null;
+    if (!f) return q;
+    const unit = this.o.currency === 'NGN' ? 100 : 1;
+    const extra = (x: { rate: number; minMinor: number; maxMinor: number }) => {
+      if (!f.extra || (!x.rate && !x.minMinor)) return 0;
+      let v = Math.round((priceMinor * x.rate) / 100 / unit) * unit;
+      v = Math.max(v, x.minMinor);
+      if (x.maxMinor > 0) v = Math.min(v, x.maxMinor);
+      return Math.min(v, priceMinor - 1);
+    };
+    const feeMinor = (f.usualFee ? q.feeMinor : 0) + extra(f.buyer);
+    const txnFeeMinor = Math.min(priceMinor - 1, (f.usualTxn ? q.txnFeeMinor : 0) + extra(f.seller));
+    return { ...q, feeMinor, txnFeeMinor, txnPayer: txnFeeMinor ? 'seller' as const : null, buyerPaysMinor: priceMinor + feeMinor, sellerGetsMinor: priceMinor - txnFeeMinor };
+  }
+
   previewDeal(priceMinor: number, payer: FeePayer = 'seller', capMinor = this.maxDealMinor) {
     if (priceMinor > capMinor) throw new DealError('TOO_BIG');
     return quote(priceMinor, this.o.currency, this.pricingRules(), payer, this.txnFees());
@@ -542,7 +591,7 @@ export class DealService {
    */
   async createBuyerDeal(buyer: User, input: BuyerDealInput): Promise<{ deal: Deal; link: string; alert: SellerAlert }> {
     this.assertLimit(buyer, input.priceMinor);
-    const q = this.previewDeal(input.priceMinor, 'buyer', Number.MAX_SAFE_INTEGER);
+    const q = this.buyerQuote(input.priceMinor, !!input.market?.length);
     const photos = await this.fetchPhotos(input.photos);
     const deal = await this.run(async (tx) => {
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -562,6 +611,18 @@ export class DealService {
         if (input.addressPin && input.address) await tx.query('UPDATE deals SET delivery_pin=$2 WHERE id=$1', [d.id, input.addressPin]);
         await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor) VALUES ($1,NULL,$2,$3)', [d.id, d.status, 'buyer']);
         await this.savePhotos(tx, d.id, buyer.id, photos, 'ITEM');
+        if (input.market?.length) {
+          for (const m of input.market) {
+            await tx.query('INSERT INTO market_order_items (deal_id, listing_id, qty, price_minor, title) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING', [d.id, m.listingId, m.qty, m.priceMinor, m.title]);
+          }
+          await tx.query('UPDATE deals SET from_market=true WHERE id=$1', [d.id]);
+          // the listings' photos (first of each, up to 3) become the order's photos
+          await tx.query(
+            `INSERT INTO deal_photos (deal_id, uploaded_by, mime_type, bytes, sha256, kind)
+             SELECT $1, l.seller_id, p.mime, p.bytes, p.sha256, 'ITEM' FROM market_photos p JOIN market_listings l ON l.id=p.listing_id
+             WHERE p.listing_id = ANY($2) AND p.position=0 ORDER BY array_position($2::bigint[], p.listing_id) LIMIT 3`, [d.id, input.market.map((m) => m.listingId)]);
+          (d as Deal & { from_market?: boolean }).from_market = true;
+        }
         return d;
       }
       throw new Error('Could not allocate a deal code');
@@ -682,7 +743,7 @@ export class DealService {
       await tx.query('UPDATE deals SET counter_price_minor=$2, counter_seller_id=$3, counter_account_id=$4, counter_reason=$5, updated_at=now() WHERE id=$1', [deal.id, newPriceMinor, seller.id, accountId, reason || null]);
       await tx.query('INSERT INTO deal_events (deal_id, from_status, to_status, actor, note) VALUES ($1,$2,$2,$3,$4)', [deal.id, deal.status, 'seller', `Suggested a new price: ${newPriceMinor}${reason ? `. Reason: ${reason}` : ''}`]);
       const buyer = await this.userById(tx, deal.buyer_id!);
-      const q = quote(newPriceMinor, this.o.currency, this.pricingRules(), 'buyer', this.txnFees());
+      const q = this.buyerQuote(newPriceMinor, !!(deal as Deal & { from_market?: boolean }).from_market);
       out.push({ phone: seller.phone, message: msg.counterSent(deal.code, firstName(buyer.display_name) ?? 'the buyer', this.money(newPriceMinor), this.quoteSums(q, 'BUYER').seller) });
       out.push({ phone: buyer.phone, message: msg.buyerCounterOffer(deal.code, firstName(seller.display_name) ?? 'The seller', deal.item, this.money(deal.price_minor), this.money(newPriceMinor), this.money(q.buyerPaysMinor), reason, this.money(q.buyerPaysMinor - newPriceMinor), deal.id), fallback: dealTemplate('counterOffer', [deal.code, this.text(newPriceMinor), reason || 'not given', this.text(q.buyerPaysMinor - newPriceMinor), this.text(q.buyerPaysMinor)], [`cyes:${deal.code}`, `cancel:${deal.code}`]) });
     });
@@ -695,7 +756,7 @@ export class DealService {
       if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
       if (deal.status !== 'AWAITING_SELLER' || !deal.counter_price_minor || !deal.counter_seller_id) { out.push({ phone: buyer.phone, message: msg.dealClosed(deal.code) }); return; }
       this.assertLimit(buyer, Number(deal.counter_price_minor), true);
-      const q = quote(deal.counter_price_minor, this.o.currency, this.pricingRules(), 'buyer', this.txnFees());
+      const q = this.buyerQuote(deal.counter_price_minor, !!(deal as Deal & { from_market?: boolean }).from_market);
       await tx.query(
         `UPDATE deals SET price_minor=$2, fee_minor=$3, buyer_pays_minor=$4, seller_gets_minor=$5, seller_id=$6, seller_account_id=$7,
                           counter_price_minor=NULL, counter_seller_id=NULL, counter_account_id=NULL, txn_fee_minor=$8, txn_fee_payer=$9 WHERE id=$1`,
@@ -849,6 +910,14 @@ export class DealService {
     if (deal.buyer_id !== buyer.id) throw new DealError('NOT_ALLOWED');
     if (deal.status !== 'AWAITING_PAYMENT') throw new DealError('CLOSED');
     this.assertLimit(buyer, deal.price_minor, true);
+    // a market order: is it still in stock? (someone else may have paid first)
+    if ((deal as Deal & { from_market?: boolean }).from_market && this.o.market?.outOfStock) {
+      const gone = await this.o.market.outOfStock(deal.id);
+      if (gone) {
+        await this.o.messenger.send(buyer.phone, { kind: 'buttons', text: `⚪ Sorry, *${gone}* just sold out, so this order can't be paid. Nothing was taken from you.`, buttons: [{ id: 'menu:market', title: '🛍️ Browse the market' }] });
+        return;
+      }
+    }
 
     if (!forceNew) {
       const existing = await this.o.db.query(

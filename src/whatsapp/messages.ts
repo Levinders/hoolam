@@ -31,6 +31,8 @@ const live = {
   /** Console → Settings → Features: optional rows in the buyer's menu (off by default). */
   menuOrderCode: () => false,
   menuCheckSeller: () => false,
+  /** Features → Market: "Browse the market" (buyers) and "My items" (sellers). */
+  marketOn: () => false,
 };
 export function configureMessages(c: Partial<typeof live>) { Object.assign(live, c); }
 const repText = (short = false) => { const n = live.repReplyMinutes(); return n < 60 ? `${n} ${short ? 'mins' : 'minutes'}` : n % 60 ? `${Math.floor(n / 60)} h ${n % 60} min` : `${n / 60} hour${n === 60 ? '' : 's'}`; };
@@ -55,6 +57,7 @@ export const buyerMenu = (): ListSection[] => [
   {
     title: 'Buying',
     rows: [
+      ...(live.marketOn() ? [{ id: 'menu:market', title: '🛍️ Browse the market', description: 'Items from sellers near you' }] : []),
       { id: 'menu:buy', title: '🛒 Buy something', description: 'Your money’s held until you’re happy' },
       ...(live.menuOrderCode() ? [{ id: 'menu:pay', title: '🔑 I have an order code', description: 'A seller sent you a code? Start here' }] : []),
       { id: 'menu:orders', title: '📋 My orders', description: 'All transactions · track your orders' },
@@ -71,6 +74,7 @@ export const sellerMenu = (): ListSection[] => [
     rows: [
       { id: 'menu:sell', title: '🏷️ Sell something', description: 'Your buyer pays Hoolam first, safely' },
       { id: 'menu:orders', title: '📋 My orders', description: 'Track your sales and payouts' },
+      ...(live.marketOn() ? [{ id: 'menu:items', title: '📦 My items', description: 'List items in the Hoolam market' }] : []),
       { id: 'menu:me', title: '👤 My account', description: 'Your trust card and payout account' },
     ],
   },

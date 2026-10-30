@@ -47,6 +47,12 @@ export const ART = {
   /** The picture on a new order alert (to a seller or a buyer who may not know Hoolam yet). Always shows how it works, in four steps. */
   orderRequest: (d: { to: 'seller' | 'buyer'; who: string; item: string; amount: string; code: string; check: string; dealId: string }): Art =>
     ({ card: 'orderRequest', data: { to: d.to, who: d.who, item: d.item, amount: d.amount, code: d.code, check: d.check, photoDeal: d.dealId } }),
+  /** One market item (the photo in the Hoolam frame, price, Verified, where, the seller's photo and record). */
+  marketItem: (d: { listingId: number; sellerId: string; title: string; price: string; was?: string | null; offPct?: number | null; verified: boolean; where: string; seller: string; record: string; ribbon?: string | null; tone?: 'green' | 'gold' | 'grey' | 'red' | null; greyed?: boolean }): Art =>
+    ({ card: 'marketItem', data: { title: d.title, price: d.price, was: d.was ?? null, offPct: d.offPct ?? null, verified: d.verified, where: d.where, seller: d.seller, record: d.record, ribbon: d.ribbon ?? null, tone: d.tone ?? null, greyed: !!d.greyed, photoListing: d.listingId, sellerUser: d.sellerId } }),
+  /** A seller's My items picture. */
+  myItems: (d: { sellerId: string; name: string; live: number; soldOut: number; views: number; note?: string | null }): Art =>
+    ({ card: 'myItems', data: { name: d.name, live: d.live, soldOut: d.soldOut, views: d.views, note: d.note ?? null, photoUser: d.sellerId } }),
   /** One order in My orders: where the money is, with the real amount. */
   formStatus: (d: { step: number; title: string; item: string; code: string; amountLabel: string; amount: string; money: string; tone?: 'teal' | 'gold' | 'green' | 'red'; photo?: Buffer | null; dealId?: string | null }): Art =>
     ({ card: 'formStatus', data: { step: d.step, title: d.title, item: d.item, code: d.code, amountLabel: d.amountLabel, amount: d.amount, money: d.money, tone: d.tone ?? 'teal', photoBytes: d.photo ?? null, photoDeal: d.dealId ?? null } }),

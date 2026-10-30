@@ -31,6 +31,7 @@ export const SLOTS: Slot[] = [
   { id: 'real-hoolam', kind: 'picture', title: 'This is really Hoolam', when: 'Someone\'s first message, with "Save Hoolam"', size: '1080 × 1080' },
   { id: 'rider', kind: 'picture', title: 'Rider delivery', when: 'The delivery message to a rider or driver', size: '1600 × 900' },
   // ----- pictures inside the WhatsApp forms (small and light; changing one sends the forms to Meta again) -----
+  { id: 'market-where', kind: 'picture', title: 'Market: near you first', when: 'The first time a buyer browses: where should we look first', size: '1600 × 900' },
   { id: 'form-start', kind: 'picture', title: 'Form: Hoolam holds your money', when: 'The first screen of the Buy and Sell forms, the first time someone opens one', size: '1600 × 600' },
   { id: 'form-id', kind: 'picture', title: 'Form: why we check your ID', when: 'The first screen of the ID check form', size: '1600 × 900' },
   { id: 'amb-intro', kind: 'picture', title: 'Become an ambassador', when: 'The ambassador intro (shows the live shares)', size: '1600 × 900' },
@@ -43,6 +44,8 @@ export const SLOTS: Slot[] = [
   { id: 'card-refund', kind: 'card', title: 'Refund sent', when: 'Money back to the buyer', size: '1080 × 1080' },
   { id: 'card-frozen', kind: 'card', title: 'Money frozen', when: 'A problem is reported (to both sides)', size: '1080 × 1080' },
   { id: 'card-new-order', kind: 'card', title: 'New order alert', when: 'A new order sent to a seller or buyer: the item photo in the Hoolam frame, what they receive or pay, how it works in four steps, and how to check it\'s real', size: '1600 × 900' },
+  { id: 'card-market-item', kind: 'card', title: 'Market: item card', when: 'Every item in the market (swipe cards, See more, Share this item, the item page preview) and the seller\'s item messages', size: '1080 × 1080' },
+  { id: 'card-market-myitems', kind: 'card', title: 'Market: my items', when: 'A seller\'s My items: their photo, live, sold out and views this week', size: '1600 × 900' },
   { id: 'card-summary', kind: 'card', title: 'Order summary', when: 'Checking an order, a new order request, a new order for a buyer', size: '1600 × 900' },
   { id: 'card-trust', kind: 'card', title: 'Trust card', when: 'Before paying, Check a seller, My trust card', size: '1600 × 900' },
   { id: 'card-trust-status', kind: 'card', title: 'Trust card for status', when: 'A seller shares their page (9:16 for WhatsApp status)', size: '1080 × 1920' },

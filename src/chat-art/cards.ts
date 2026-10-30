@@ -502,6 +502,94 @@ export async function orderStatus(d: OrderStatus, bg?: Bg): Promise<Buffer> {
   return compose({ w, h, bg }, drawn, s, layers);
 }
 
+// ---------------------------------------------------------------------------------------------
+// the market
+
+export interface MarketItem {
+  title: string; price: string; was?: string | null; offPct?: number | null; verified: boolean; where: string;
+  seller: string; record: string; ribbon?: string | null; tone?: 'green' | 'gold' | 'grey' | 'red' | null;
+  photo?: Buffer | null; sellerPhoto?: Buffer | null; greyed?: boolean;
+}
+/**
+ * One item in the market: the photo fills the card in the Hoolam frame; the price big; Verified, where it is and how it
+ * comes; along the bottom the seller's round photo, name and record. The same picture goes on sellers' status.
+ */
+export async function marketItem(d: MarketItem, bg?: Bg): Promise<Buffer> {
+  const w = SQ, h = SQ, pad = 26, strip = 150;
+  const drawn = `<rect width="${w}" height="${h}" fill="${C.white}"/>`;
+  let base = '';
+  if (!d.photo) base += `<rect x="${pad}" y="${pad}" width="${w - pad * 2}" height="${h - pad * 2}" rx="40" fill="${C.mint}"/>` + icon('package', w / 2 - 110, (h - strip) / 2 - 110, 220, C.teal, 1.6);
+  let top = '';
+  if (d.greyed) top += `<rect x="${pad}" y="${pad}" width="${w - pad * 2}" height="${h - pad * 2 - strip + 40}" rx="40" fill="#FFFFFF" opacity=".55"/>`;
+  // top left: Verified, then where and how
+  let y = pad + 28;
+  if (d.verified) { const p = pill('Verified seller', pad + 26, y, 30, C.white, C.greenDark, { font: 'bold', iconName: 'badgeCheck', align: 'left' }); top += p.svg; y += 84; }
+  top += pill(clip(d.where, 28, w - 360), pad + 26, y, 28, 'rgba(255,255,255,.94)', C.teal, { font: 'semi', iconName: 'mapPin', align: 'left' }).svg;
+  // top right: the promo tag, or a ribbon (sold out, 2 left, live…)
+  if (d.offPct) { const t = `−${d.offPct}%`; const tw = width(t, 34, 'bold') + 48; top += `<rect x="${w - pad - 26 - tw}" y="${pad + 28}" width="${tw}" height="70" rx="35" fill="${C.gold}"/>` + text(t, w - pad - 26 - tw / 2, pad + 76, 34, '#fff', { font: 'bold', align: 'center' }); }
+  else if (d.ribbon) {
+    const bgc = d.tone === 'green' ? C.green : d.tone === 'red' ? C.red : d.tone === 'grey' ? C.soft : C.gold;
+    const rw = width(d.ribbon, 30, 'bold') + 52; top += `<rect x="${w - pad - 26 - rw}" y="${pad + 28}" width="${rw}" height="66" rx="33" fill="${bgc}"/>` + text(d.ribbon, w - pad - 26 - rw / 2, pad + 72, 30, '#fff', { font: 'bold', align: 'center' });
+  }
+  // the price, big, above the seller strip (the old price struck through above it on a promo)
+  const ps = fit(d.price, 64, 460, 'brand');
+  const pw = Math.max(width(d.price, ps, 'brand'), d.was ? width(d.was, 30, 'semi') : 0) + 64;
+  const ph = d.was ? 150 : 108;
+  const px = w - pad - 26 - pw, py = h - pad - strip - 26 - ph;
+  top += `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="26" fill="${C.teal}"/>`;
+  if (d.was) { const ww = width(d.was, 30, 'semi'); top += text(d.was, px + pw - 32, py + 46, 30, '#CFE3E1', { font: 'semi', align: 'right' }) + `<line x1="${px + pw - 32 - ww}" y1="${py + 36}" x2="${px + pw - 32}" y2="${py + 36}" stroke="#CFE3E1" stroke-width="3"/>`; }
+  top += text(d.price, px + pw - 32, py + ph - 30, ps, '#fff', { font: 'brand', align: 'right' });
+  // the seller strip
+  const sy = h - pad - strip;
+  top += `<path d="M${pad} ${sy} H${w - pad} V${h - pad - 40} a40 40 0 0 1 -40 40 H${pad + 40} a40 40 0 0 1 -40 -40 Z" fill="${C.paper}"/>`;
+  const ar = 48, ax = pad + 36 + ar, ay = sy + strip / 2;
+  top += `<circle cx="${ax}" cy="${ay}" r="${ar + 6}" fill="${C.gold}"/>`;
+  if (!d.sellerPhoto) top += `<circle cx="${ax}" cy="${ay}" r="${ar}" fill="${C.mint}"/>` + text((d.seller[0] ?? 'S').toUpperCase(), ax, ay + 16, 44, C.teal, { font: 'brand', align: 'center' });
+  top += text(clip(d.seller, 38, w - 330), ax + ar + 34, ay - 6, 38, C.ink, { font: 'bold' }) + text(clip(d.record, 30, w - 330), ax + ar + 34, ay + 40, 30, C.soft);
+  const layers: OverlayOptions[] = [];
+  if (d.photo) layers.push({ input: await photoLayer(d.photo, w - pad * 2, h - pad * 2, 40), left: pad, top: pad });
+  if (d.sellerPhoto) layers.push({ input: await photoLayer(d.sellerPhoto, ar * 2, ar * 2, ar), left: ax - ar, top: ay - ar });
+  // the seller photo sits above the strip, so draw the strip first, then the avatar, then words: two passes
+  const under = await compose({ w, h, bg }, drawn, base, d.photo ? [layers[0]!] : [], 'png', top);
+  return compose({ w, h, bg: null }, '', '', [{ input: under, left: 0, top: 0 }, ...(d.sellerPhoto ? [layers.at(-1)!] : [])]);
+}
+
+export interface MyItems { name: string; live: number; soldOut: number; views: number; note?: string | null; photo?: Buffer | null }
+/** A seller's items at a glance: their photo and name, then live · sold out · views this week. */
+export async function myItems(d: MyItems, bg?: Bg): Promise<Buffer> {
+  const { w, h } = WIDE;
+  const drawn = `<rect width="${w}" height="${h}" fill="${C.paper}"/>`;
+  const ar = 70, ax = 90 + ar, ay = 130 + ar;
+  let s = `<circle cx="${ax}" cy="${ay}" r="${ar + 8}" fill="${C.gold}"/>`;
+  if (!d.photo) s += `<circle cx="${ax}" cy="${ay}" r="${ar}" fill="${C.mint}"/>` + text((d.name[0] ?? 'S').toUpperCase(), ax, ay + 22, 60, C.teal, { font: 'brand', align: 'center' });
+  s += text('My items', ax + ar + 50, ay - 10, 72, C.ink, { font: 'brand' }) + text(clip(`${d.name} · this week`, 34, w - 500), ax + ar + 52, ay + 50, 34, C.soft);
+  s += brand(w - 320, 128, 56, C.teal, C.teal);
+  const tiles: [string, number, string, string][] = [['live', d.live, C.greenSoft, C.greenDark], ['sold out', d.soldOut, C.goldBg, C.goldInk], ['views', d.views, C.mint, C.teal]];
+  const tw = (w - 180 - 2 * 40) / 3;
+  tiles.forEach(([label, n, bgc, fg], i) => {
+    const x = 90 + i * (tw + 40), y = 400;
+    s += `<rect x="${x}" y="${y}" width="${tw}" height="300" rx="40" fill="${bgc}"/>` + text(compactNum(n), x + tw / 2, y + 170, 120, fg, { font: 'brand', align: 'center' }) + text(label, x + tw / 2, y + 245, 40, fg, { font: 'semi', align: 'center', opacity: 0.85 });
+  });
+  if (d.note) s += text(clip(d.note, 32, w - 180), w / 2, h - 60, 32, C.soft, { align: 'center', font: 'semi' });
+  const layers: OverlayOptions[] = d.photo ? [{ input: await photoLayer(d.photo, ar * 2, ar * 2, ar), left: ax - ar, top: ay - ar }] : [];
+  return compose({ w, h, bg }, drawn, s, layers);
+}
+const compactNum = (n: number) => (n < 1000 ? String(n) : n < 1_000_000 ? `${(Math.floor(n / 100) / 10).toString().replace(/\.0$/, '')}k` : `${(Math.floor(n / 100_000) / 10).toString().replace(/\.0$/, '')}m`);
+
+/** Where should we look first: near you, then your city, your state, all Nigeria. */
+export async function marketWhere(bg?: Bg): Promise<Buffer> {
+  const { w, h } = WIDE;
+  const drawn = `<rect width="${w}" height="${h}" fill="${C.paper}"/>`;
+  let s = brand(80, 128, 64, C.teal, C.teal);
+  s += text('Near you first, then all Nigeria', w / 2, 250, 66, C.ink, { font: 'brand', align: 'center' });
+  const cx = w / 2, cy = 590;
+  const rings: [number, string, string][] = [[300, 'All Nigeria', C.line], [225, 'Your state', '#D7E7E2'], [150, 'Your city', '#C5DDD6'], [80, '', C.mint]];
+  for (const [r, , fill] of rings) s += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#FFFFFF" stroke-width="6"/>`;
+  s += iconDisc('mapPin', cx, cy, 62, C.teal, '#fff', 0.55, 2.4);
+  s += text('All Nigeria', cx + 340, cy - 200, 34, C.soft, { font: 'semi' }) + text('Your state', cx + 270, cy - 120, 34, C.soft, { font: 'semi' }) + text('Your city', cx + 190, cy - 40, 34, C.teal, { font: 'semi' });
+  return compose({ w, h, bg }, drawn, s);
+}
+
 /** Where the order code is: a seller's message with the code circled. */
 export async function codeWhere(bg?: Bg): Promise<Buffer> {
   const { w, h } = WIDE;

@@ -21,6 +21,8 @@ import { dayText } from '../deals/service.js';
 import { firstName, reviewProblem, VIDEO_MAX_BYTES, type Trust } from '../trust.js';
 import type { Ambassadors } from '../ambassadors.js';
 import { AmbassadorChat, SENT_ME_RE } from './amb-flow.js';
+import { MarketChat } from '../market/market-chat.js';
+import type { Market } from '../market/market.js';
 import { ART } from '../chat-art/build.js';
 
 /**
@@ -38,7 +40,8 @@ type State =
   | 'CHECK_SELLER' | 'RATE_COMMENT' | 'REVIEW_TEXT' | 'REVIEW_CONSENT' | 'PROFILE_VIDEO' | 'PROFILE_NAME' | 'PROFILE_CITY' | 'PROFILE_PHOTO' | 'PROFILE_SOCIAL'
   | 'SETUP_NAME' | 'SETUP_CITY' | 'DISPATCH' | 'HANDOVER_CODE' | 'BUYER_ADDRESS'
   | 'KYC_METHOD' | 'KYC_DOB' | 'KYC_NUMBER' | 'PIN_NOTE'
-  | 'AMB_NAME' | 'AMB_PHOTO' | 'AMB_ASK';
+  | 'AMB_NAME' | 'AMB_PHOTO' | 'AMB_ASK'
+  | `MK_${string}`; // the market (see market-chat.ts)
 
 /**
  * Where to pick up after an ID check: tap the same button again, carry on with the new order, ask the next
@@ -91,6 +94,10 @@ export interface FlowOptions {
   ambApplyForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   ambDetailsForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   onAmbFormRefused?: (key: 'ambApply' | 'ambDetails', phone: string) => Promise<void> | void;
+  /** The Hoolam market (Features → Market). */
+  market?: Market;
+  /** Where item pages live: go.hoolam.com/i/<code> */
+  itemUrl?: (code: string) => string;
   formSecret?: string;
   siteUrl?: string;
   log?: (line: string) => void;
@@ -109,9 +116,11 @@ interface BuyDraft {
   photos?: { mediaId: string; mimeType?: string | null }[]; photosDone?: boolean;
   otherPhone?: string;                                 // the seller's number (buyer's order) or the buyer's (seller's order)
   accountId?: string;                                  // seller: where they're paid
+  market?: { listingId: number; qty: number; priceMinor: number; title: string }[]; // from the market (one seller)
 }
 const MAX_PHOTOS = 3;
 const BUY_FROM_RE = /^buy from @([a-z0-9-]{1,40})\b/i;
+export const BUY_THIS_RE = /\bbuy this:?\s*([a-z0-9]+(?:-[a-z0-9]+)+)\b(?:.*?\bad[: ]+([a-z0-9-]{1,30}))?/i;
 
 const CODE_RE = /\bHL-?([A-Z2-9]{5})\b/i;
 
@@ -133,12 +142,14 @@ const PHRASES: Record<string, MenuItem> = {
   'i need to talk to a person': 'human', 'i want to talk to a person': 'human', 'talk to a person': 'human', 'talk to a rep': 'human', 'rep': 'human', 'agent': 'human', 'support': 'human',
   'my orders': 'orders', 'orders': 'orders', 'my deals': 'orders', 'deals': 'orders', 'fees': 'fees', 'fee': 'fees', 'price': 'fees',
   'check a seller': 'check', 'check seller': 'check', 'my trust card': 'card', 'trust card': 'card',
+  'market': 'market', 'browse': 'market', 'browse the market': 'market', 'shop': 'market', 'my items': 'items', 'list an item': 'items',
   'my account': 'me', 'report a problem': 'problem', 'problem': 'problem', 'my payout account': 'account', 'payout account': 'account', 'account': 'account',
   'switch to selling': 'tosell', 'switch to buying': 'tobuy', 'switch': 'switch', 'im selling': 'tosell', 'im buying': 'tobuy',
 };
 
 export class Conversation {
   private readonly amb: AmbassadorChat | null;
+  readonly mkt: MarketChat | null;
   constructor(private readonly o: FlowOptions) {
     this.amb = o.ambassadors ? new AmbassadorChat(o.ambassadors, {
       save: (phone, state, data = {}) => this.save(phone, state as State, data),
@@ -156,6 +167,23 @@ export class Conversation {
       formRefused: (key, phone) => this.o.onAmbFormRefused?.(key, phone),
       secret: o.formSecret ?? 'hoolam',
       siteUrl: o.siteUrl ?? 'https://hoolam.com',
+      log: o.log,
+    }) : null;
+    this.mkt = o.market ? new MarketChat(o.market, {
+      send: (phone, m) => this.send(phone, m),
+      save: (phone, state, data = {}) => this.save(phone, state as State, data),
+      menu: async (phone, user) => { await this.save(phone, 'IDLE'); return this.send(phone, await this.menuMsg(user, modeOf(user))); },
+      startOrder: async (phone, user, d) => {
+        if (user.menu_mode !== 'buyer') await this.o.deals.setMenuMode(user, 'buyer');
+        return this.continueBuying(phone, { side: 'buy', item: d.item, description: d.description, category: d.category, priceMinor: d.priceMinor, otherPhone: d.sellerPhone, ...(d.address ? { address: d.address } : {}), photos: [], photosDone: true, market: d.market });
+      },
+      setupSeller: (phone, user) => this.startSetup(phone, user, 'items'),
+      kyc: (phone, user) => this.startKyc(phone, user, 'seller', { kind: 'button', id: 'mk:items' }),
+      askBank: async (phone) => { await this.save(phone, 'ACCOUNT_BANK', {}); return this.send(phone, msg.askBank()); },
+      download: async (id) => (this.o.media ? (await this.o.media.download(id))?.bytes ?? null : null),
+      sellerPhone: async (id) => (await this.o.db.query('SELECT phone FROM users WHERE id=$1', [id])).rows[0]?.phone ?? null,
+      buyerQuote: (p) => this.o.deals.buyerQuote(p, true),
+      pageUrl: (code) => this.o.itemUrl?.(code) ?? `${this.o.publicBaseUrl ?? 'https://hoolam.com'}/i/${code}`,
       log: o.log,
     }) : null;
   }
@@ -232,6 +260,13 @@ export class Conversation {
         case 'menu':
           if (code === 'amb' && this.amb) return this.amb.open(m.phone, user);
           return this.openMenuItem(m.phone, user, (code === 'help' ? 'how' : code === 'deals' ? 'orders' : code) as MenuItem);
+        case 'mk': {
+          if (!this.mkt || !this.o.market?.on()) return this.openMenuItem(m.phone, user, 'open');
+          if (/^MK_[LE]_/.test(s.state) && /^mk:(photosdone|lcat|stock1|ldel|lsame|lpl|pend|edel)\b/.test(m.buttonId)) {
+            return this.mkt.listingStep(m.phone, user, s.state, s.data, { type: m.type, text, mediaId: m.mediaId, buttonId: m.buttonId });
+          }
+          return this.mkt.button(m.phone, user, m.buttonId);
+        }
         case 'amb': {
           if (!this.amb) return this.send(m.phone, msg.didntUnderstand());
           const [, what, arg] = m.buttonId.split(':');
@@ -417,9 +452,17 @@ export class Conversation {
 
     // ----- the very first message from someone new: tell the story once, unless they already know what they want -----
     const firstWords = clean(text);
-    if (s.isNew && !m.buttonId && !text.match(CODE_RE) && !BUY_FROM_RE.test(text) && !PHRASES[firstWords] && !firstWords.startsWith('/')) {
+    if (s.isNew && !m.buttonId && !text.match(CODE_RE) && !BUY_FROM_RE.test(text) && !BUY_THIS_RE.test(text) && !PHRASES[firstWords] && !firstWords.startsWith('/')) {
       await this.save(m.phone, 'IDLE');
       return this.send(m.phone, msg.welcome(user.display_name));
+    }
+
+    if (this.mkt && /^stop updates?$/.test(lower)) return this.mkt.setUpdates(m.phone, user, false);
+    // ----- "I want to buy this: nike-air-x7k2" (from an item page or a shared item link; "ad ig-nov" = which ad) -----
+    const buyThis = !m.buttonId ? text.match(BUY_THIS_RE) : null;
+    if (buyThis && this.mkt && this.o.market?.on()) {
+      if (modeOf(user) !== 'buyer') await this.o.deals.setMenuMode(user, 'buyer');
+      return this.mkt.buyCode(m.phone, user, buyThis[1]!.toLowerCase(), buyThis[2]?.toLowerCase() ?? null);
     }
 
     // ----- "Buy from @bayo-shoes" (from a seller's public page) -----
@@ -447,6 +490,9 @@ export class Conversation {
     if (s.state === 'IDLE' && PHRASES[words]) return this.openMenuItem(m.phone, user, PHRASES[words]!);
 
     // ----- a shared location (📎 → Location): for an address question, or the rider's drop-off -----
+    if (m.type === 'location' && m.location && this.mkt && ['MK_WHERE', 'MK_AREA', 'MK_BROWSE'].includes(s.state)) {
+      return this.mkt.location(m.phone, user, m.location.latitude, m.location.longitude);
+    }
     if (m.type === 'location' && m.location) {
       const pin = `${m.location.latitude.toFixed(6)},${m.location.longitude.toFixed(6)}`;
       const place = [m.location.name, m.location.address].filter(Boolean).join(', ') || null;
@@ -461,6 +507,13 @@ export class Conversation {
     }
 
     // ----- typed answers, depending on what we asked -----
+    if (s.state.startsWith('MK_')) {
+      if (!this.mkt || !this.o.market?.on()) { await this.save(m.phone, 'IDLE'); return this.send(m.phone, await this.menuMsg(user, modeOf(user))); }
+      if (s.state === 'MK_WHERE' || s.state === 'MK_AREA') return text ? this.mkt.typedArea(m.phone, user, text) : this.mkt.askWhere(m.phone);
+      if (s.state === 'MK_BROWSE') return text ? this.mkt.typed(m.phone, user, text) : this.mkt.home(m.phone, user);
+      if (s.state === 'MK_APPLY') return this.mkt.apply(m.phone, user, text.slice(0, 200) || null);
+      return this.mkt.listingStep(m.phone, user, s.state, s.data, { type: m.type, text, mediaId: m.mediaId, buttonId: null });
+    }
     switch (s.state) {
       case 'PIN_NOTE': return this.pinNote(m.phone, user, s, text);
       case 'AMB_NAME': case 'AMB_PHOTO': case 'AMB_ASK':
@@ -745,6 +798,13 @@ export class Conversation {
         if (!user.seller_since) return this.startSetup(phone, user, 'card');
         await this.save(phone, 'IDLE');
         return this.showMyCard(phone, user);
+      case 'market':
+        if (!this.mkt || !this.o.market?.on()) return this.openMenuItem(phone, user, 'open');
+        if (modeOf(user) !== 'buyer') await this.o.deals.setMenuMode(user, 'buyer');
+        return this.mkt.browse(phone, user);
+      case 'items':
+        if (!this.mkt || !this.o.market?.on()) return this.openMenuItem(phone, user, 'open');
+        return this.mkt.myItems(phone, user);
       case 'me': {
         if (!user.seller_since) return this.startSetup(phone, user, 'card');
         await this.save(phone, 'IDLE');
@@ -942,7 +1002,7 @@ export class Conversation {
 
   // ===== BECOMING A SELLER (once) =====
   /** Two quick questions that create the trust card. `next`: where to go after. */
-  private async startSetup(phone: string, user: User, next: 'sell' | 'card' | 'menu') {
+  private async startSetup(phone: string, user: User, next: 'sell' | 'card' | 'menu' | 'items') {
     await this.save(phone, 'SETUP_NAME', { next });
     return this.send(phone, msg.setupIntro(await this.shownName(user)));
   }
@@ -954,7 +1014,7 @@ export class Conversation {
     return t?.name ?? user.display_name;
   }
 
-  private async finishSetup(phone: string, user: User, next: 'sell' | 'card' | 'menu' = 'menu') {
+  private async finishSetup(phone: string, user: User, next: 'sell' | 'card' | 'menu' | 'items' = 'menu') {
     await this.o.deals.setMenuMode(user, 'seller');
     await this.save(phone, 'IDLE');
     const t = this.o.trust ? await this.o.trust.seller(user.id) : null;
@@ -965,6 +1025,7 @@ export class Conversation {
       return this.startSelling(phone);
     }
     if (next === 'card') return this.showMyCard(phone, user);
+    if (next === 'items' && this.mkt) { await this.send(phone, msg.setupDone(card, false, art)); return this.mkt.myItems(phone, (await this.userByPhone(phone)) ?? user); }
     return this.send(phone, msg.setupDone(card, false, art));
   }
 
@@ -1299,6 +1360,7 @@ export class Conversation {
     if (me) {
       const lim = this.o.deals.limitFor(me, d.priceMinor);
       if (lim === 'kyc') return this.startKyc(phone, me, 'order', { kind: 'draft', draft: d as Record<string, any> });
+      if (lim === 'too-big' && d.market?.length) { await this.save(phone, 'IDLE'); return this.send(phone, msg.priceTooHigh({ minor: this.o.deals.reachFor(me), currency: this.o.currency })); }
       if (lim === 'too-big') { const { priceMinor: _p, ...rest } = d; d = rest; return ask('BUY_PRICE', msg.priceTooHigh({ minor: this.o.deals.reachFor(me), currency: this.o.currency })); }
     }
     if (sell ? d.address === undefined : !d.address) return ask('BUY_ADDRESS', sell ? msg.askSellAddress() : msg.askDeliveryAddress());
@@ -1408,7 +1470,7 @@ export class Conversation {
       };
     }
     // what the buyer pays at today's price (the seller can still change the price when they accept)
-    const qb = this.o.deals.previewDeal(d.priceMinor, 'buyer', Number.MAX_SAFE_INTEGER);
+    const qb = d.market?.length ? this.o.deals.buyerQuote(d.priceMinor, true) : this.o.deals.previewDeal(d.priceMinor, 'buyer', Number.MAX_SAFE_INTEGER);
     return {
       side: 'buy', item: d.item, about, photos,
       key: [
@@ -1444,7 +1506,7 @@ export class Conversation {
       await this.o.deals.createSellerDeal(user, { ...common, buyerPhone: d.otherPhone, readyBy: d.arriveBy ?? null, accountId: d.accountId! });
       return;
     }
-    const input: BuyerDealInput = { ...common, sellerPhone: d.otherPhone, arriveBy: d.arriveBy ?? null };
+    const input: BuyerDealInput = { ...common, sellerPhone: d.otherPhone, arriveBy: d.arriveBy ?? null, market: d.market ?? null };
     await this.o.deals.createBuyerDeal(user, input);
   }
 

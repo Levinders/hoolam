@@ -2,6 +2,7 @@ import type { Config } from './config.js';
 import type { Db, Queryable } from './db.js';
 import { checkBands, DEFAULT_TXN_BANDS, PRICING, type FeeBand, type PricingRules, type TxnFees } from './pricing.js';
 import { FIRST_VERSION, isHomeVersion } from './site-versions.js';
+import { CATEGORIES } from './deals/categories.js';
 import { COMPANY_SOCIAL_KINDS, COMPANY_SOCIAL_NAMES, companySocialLink, parseCompanySocial, type CompanySocialKind } from './socials.js';
 
 /**
@@ -9,11 +10,11 @@ import { COMPANY_SOCIAL_KINDS, COMPANY_SOCIAL_NAMES, companySocialLink, parseCom
  * a type and limits, so a typo can't break the service. Changes apply to NEW deals only: a deal keeps
  * the fee and limits it was created with.
  */
-export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social' | 'bands';
+export type SettingType = 'number' | 'money' | 'percent' | 'hours' | 'minutes' | 'boolean' | 'phone' | 'email' | 'social' | 'bands' | 'text';
 
 export interface SettingDef {
   key: string;
-  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact' | 'Features' | 'Ambassadors' | 'Security';
+  group: 'Fees' | 'Limits' | 'Timing' | 'WhatsApp' | 'Contact' | 'Features' | 'Ambassadors' | 'Market' | 'Security';
   /** Within a feature's settings: the heading it sits under (Earnings, Payouts…). */
   sub?: string;
   label: string;
@@ -67,6 +68,30 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'amb_menu_after', group: 'Ambassadors', sub: 'Joining', label: 'Show in the menu after', help: 'Completed orders someone needs before "Become an ambassador" shows in their WhatsApp menu. Ambassadors and people who applied always see it.', type: 'number', min: 0, max: 50, core: true },
   { key: 'feature_seller_video', group: 'Features', label: 'Seller videos', help: 'Sellers can send a short video in WhatsApp (My page → Video). Hoolam checks each one before it shows on their page. Off: they don\'t see the option and no videos show; approved ones are kept for when it\'s back on.', type: 'boolean', core: true },
   { key: 'feature_menu_order_code', group: 'Features', label: '"I have an order code" in the menu', help: 'Buyers see "I have an order code" in their WhatsApp menu. Off: it\'s left out of the menu; order links, typed codes and the View button on order alerts still work.', type: 'boolean', core: true },
+  // ----- Features → Market (owner only). Everything below shows under the Market card. -----
+  { key: 'feature_market', group: 'Features', label: 'Market', help: 'Sellers list items in WhatsApp (My items) and buyers browse them as swipe cards (Browse the market), then buy with the money held as usual. Off: no menu row, listing or market page shows; nothing listed is lost.', type: 'boolean', core: true },
+  { key: 'mk_approval', group: 'Market', sub: 'Who can list', label: 'Approval before listing', help: 'On: sellers tap Apply to list, and you approve or decline them here. Off: any seller with a checked ID and a payout account lists straight away.', type: 'boolean', core: true },
+  { key: 'mk_items_per_seller', group: 'Market', sub: 'Who can list', label: 'Items per seller', help: 'Live listings each seller can have. You can set a higher number for one seller on the Market page.', type: 'number', min: 1, max: 100_000, core: true },
+  { key: 'mk_upgrade_on', group: 'Market', sub: 'Who can list', label: 'More items for a fee', help: 'On: a seller at the limit sees Get more items with the plan below; you confirm their payment on the Market page and their limit rises. Off: they\'re told to talk to a rep.', type: 'boolean', core: true },
+  { key: 'mk_upgrade_items', group: 'Market', sub: 'Who can list', label: 'Items with the upgrade', help: 'How many live items a seller can have on the paid plan.', type: 'number', min: 2, max: 100_000, core: true },
+  { key: 'mk_upgrade_price', group: 'Market', sub: 'Who can list', label: 'Upgrade price per month', help: 'What the paid plan costs for 30 days.', type: 'money', min: 0, max: 10_000_000, core: true },
+  ...CATEGORIES.map((c): SettingDef => ({ key: `mk_cat_${c.id}`, group: 'Market', sub: 'What can be listed', label: c.title, help: `Sellers can list in ${c.title}, and buyers can browse it.`, type: 'boolean', core: true })),
+  { key: 'mk_expire_days', group: 'Market', sub: 'What can be listed', label: 'Listings expire after', help: 'Days before a listing hides unless the seller renews it. They\'re reminded 3 days before.', type: 'number', min: 3, max: 365, core: true },
+  { key: 'mk_blocked_words', group: 'Market', sub: 'What can be listed', label: 'Blocked words', help: 'Words that stop a listing, separated by commas. Checked in the name and details, ignoring capitals.', type: 'text', core: true },
+  { key: 'mk_usual_fee', group: 'Market', sub: 'Fees', label: 'Usual Hoolam fee applies', help: 'On: the buyer pays Hoolam\'s usual fee on market orders, as on any order they start. Off: no Hoolam fee on market orders.', type: 'boolean', core: true },
+  { key: 'mk_usual_txn', group: 'Market', sub: 'Fees', label: 'Usual transaction fee applies', help: 'On: the seller pays the usual transaction fee on market orders. Off: no transaction fee on market orders.', type: 'boolean', core: true },
+  { key: 'mk_fees_on', group: 'Market', sub: 'Fees', label: 'Market fees', help: 'On: the market fees below are added on market orders, on top of whichever usual fees are on.', type: 'boolean', core: true },
+  { key: 'mk_buyer_rate', group: 'Market', sub: 'Fees', label: 'Buyer market fee', help: 'Percentage of the order, paid by the buyer.', type: 'percent', min: 0, max: 20, core: true },
+  { key: 'mk_buyer_min', group: 'Market', sub: 'Fees', label: 'Buyer market fee, at least', help: 'The smallest buyer market fee (0 for none).', type: 'money', min: 0, max: 100_000, core: true },
+  { key: 'mk_buyer_max', group: 'Market', sub: 'Fees', label: 'Buyer market fee, at most', help: 'The biggest buyer market fee.', type: 'money', min: 0, max: 1_000_000, core: true },
+  { key: 'mk_seller_rate', group: 'Market', sub: 'Fees', label: 'Seller market fee', help: 'Percentage of the order, taken from what the seller receives.', type: 'percent', min: 0, max: 20, core: true },
+  { key: 'mk_seller_min', group: 'Market', sub: 'Fees', label: 'Seller market fee, at least', help: 'The smallest seller market fee (0 for none).', type: 'money', min: 0, max: 100_000, core: true },
+  { key: 'mk_seller_max', group: 'Market', sub: 'Fees', label: 'Seller market fee, at most', help: 'The biggest seller market fee.', type: 'money', min: 0, max: 1_000_000, core: true },
+  { key: 'mk_reports_hide', group: 'Market', sub: 'Keeping it clean', label: 'Reports before hiding', help: 'Reports from different buyers that hide an item until the team looks.', type: 'number', min: 1, max: 50, core: true },
+  { key: 'mk_strikes', group: 'Market', sub: 'Keeping it clean', label: 'Strikes before listing stops', help: 'Removed listings (in 90 days) before a seller can\'t list until you let them.', type: 'number', min: 1, max: 50, core: true },
+  { key: 'mk_back_in_stock', group: 'Market', sub: 'Bringing people back', label: 'Back in stock messages', help: 'Buyers who saved an item hear when it\'s back, once they agreed to updates.', type: 'boolean', core: true },
+  { key: 'mk_new_from_sellers', group: 'Market', sub: 'Bringing people back', label: 'New from sellers you\'ve bought from', help: 'Past buyers who agreed get swipe cards of a seller\'s new items (at most once a week each).', type: 'boolean', core: true },
+  { key: 'mk_ad_links', group: 'Market', sub: 'Bringing people back', label: 'Ads that open WhatsApp on an item', help: 'Make a link per item for Facebook and Instagram ads; Hoolam counts the taps and orders each ad brings.', type: 'boolean', core: true },
   { key: 'feature_menu_check_seller', group: 'Features', label: '"Check a seller" in the menu', help: 'Buyers see "Check a seller" in their WhatsApp menu. Off: it\'s left out of the menu; typing "check a seller" and the trust card before paying still work.', type: 'boolean', core: true },
   { key: 'feature_about_founder', group: 'Features', label: 'Who\'s behind Hoolam on About', help: 'Your photo, name, a one-line promise and your voice note on the About page. Off: the section is left out.', type: 'boolean', core: true },
   { key: 'feature_site_numbers', group: 'Features', label: 'Live numbers on the website', help: 'Real counts from your orders on the website (home, about and ambassadors pages). Each number shows only once it reaches its minimum below. Test orders never count.', type: 'boolean', core: true },
@@ -105,7 +130,12 @@ export class Settings {
       feature_ambassadors: false, amb_seller_pct: 20, amb_buyer_pct: 10, amb_seller_bonus: 1000, amb_bonus_orders: 3,
       amb_payout_day: 1, amb_payout_min: 5000, amb_term_3: true, amb_term_6: true, amb_term_12: true, amb_notice_days: 7,
       amb_apply_web: true, amb_apply_whatsapp: true, amb_menu_after: 1,
-      feature_site_numbers: true, feature_about_founder: false, feature_seller_video: false, feature_menu_order_code: false, feature_menu_check_seller: false, site_min_completed: 50, site_min_started: 100, site_min_refunded: 5, site_min_amb_paid: 100_000,
+      feature_site_numbers: true, feature_about_founder: false, feature_seller_video: false, feature_menu_order_code: false, feature_menu_check_seller: false,
+      feature_market: false, mk_approval: false, mk_items_per_seller: 50, mk_upgrade_on: false, mk_upgrade_items: 150, mk_upgrade_price: 3000,
+      ...Object.fromEntries(CATEGORIES.map((c) => [`mk_cat_${c.id}`, ['clothing', 'shoes', 'bags', 'beauty'].includes(c.id)])),
+      mk_expire_days: 30, mk_blocked_words: 'fake, replica, counterfeit, first copy, clone, gun, rifle, pistol, ammunition, weed, cannabis, codeine, tramadol, cocaine, rx only, prescription',
+      mk_usual_fee: true, mk_usual_txn: true, mk_fees_on: false, mk_buyer_rate: 0, mk_buyer_min: 0, mk_buyer_max: 0, mk_seller_rate: 0, mk_seller_min: 0, mk_seller_max: 0,
+      mk_reports_hide: 3, mk_strikes: 3, mk_back_in_stock: false, mk_new_from_sellers: false, mk_ad_links: false, site_min_completed: 50, site_min_started: 100, site_min_refunded: 5, site_min_amb_paid: 100_000,
       contact_email: 'hello@hoolam.com', contact_phone: '',
       home_version: FIRST_VERSION, // the live home page version (Console → Settings → Website content)
       ...Object.fromEntries(COMPANY_SOCIAL_KINDS.map((k) => [`company_${k}`, ''])),
@@ -141,6 +171,7 @@ export class Settings {
     if (def.type === 'boolean') return typeof value === 'boolean' ? null : `${def.label} must be on or off`;
     if (def.type === 'bands') { const e = checkBands(value); return e ? `${def.label}: ${e}` : null; }
     if (def.optional && value === '') return null;
+    if (def.type === 'text') return typeof value === 'string' && value.length <= 4000 ? null : `${def.label} must be text (up to 4,000 characters)`;
     if (def.type === 'email') return typeof value === 'string' && /^[^\s@<>"]{1,64}@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) ? null : 'Enter a full email address, like hello@hoolam.com.';
     if (def.type === 'social') {
       if (typeof value !== 'string') return `${def.label} must be a link or a username`;
@@ -162,6 +193,10 @@ export class Settings {
     if ((next.fee_min as number) > (next.fee_max as number)) throw new Error('The minimum fee can\'t be above the maximum fee');
     if ((next.max_deal as number) > (next.max_deal_verified as number)) throw new Error('The largest order once verified can\'t be below the largest order without ID');
     if (!next.amb_term_3 && !next.amb_term_6 && !next.amb_term_12) throw new Error('Keep at least one ambassador term (3, 6 or 12 months)');
+    if ((next.mk_buyer_min as number) > (next.mk_buyer_max as number) && (next.mk_buyer_max as number) > 0) throw new Error('The buyer market fee minimum can\'t be above its maximum');
+    if ((next.mk_seller_min as number) > (next.mk_seller_max as number) && (next.mk_seller_max as number) > 0) throw new Error('The seller market fee minimum can\'t be above its maximum');
+    if (!CATEGORIES.some((c) => next[`mk_cat_${c.id}`])) throw new Error('Keep at least one market category');
+    for (const k of ['mk_items_per_seller', 'mk_upgrade_items', 'mk_expire_days', 'mk_reports_hide', 'mk_strikes']) if (k in changes && !Number.isInteger(changes[k])) throw new Error('Use a whole number');
     for (const k of ['amb_bonus_orders', 'amb_payout_day', 'amb_notice_days', 'amb_menu_after', 'site_min_completed', 'site_min_started', 'site_min_refunded']) if (k in changes && !Number.isInteger(changes[k])) throw new Error('Use a whole number');
     for (const [k, v] of Object.entries(changes)) {
       await q.query(
@@ -188,6 +223,24 @@ export class Settings {
   /** The most one order can be once the person has checked their ID (never below the no-ID limit). */
   maxDealVerifiedMinor(): number { return Math.max(this.maxDealMinor(), Math.round(this.get<number>('max_deal_verified') * this.unit)); }
   acceptHours(): number { return this.get('seller_accept_hours'); }
+  /** Console → Settings → Features → Market: everything the market reads. Money in minor units. */
+  market() {
+    const m = (k: string) => Math.round(this.get<number>(k) * this.unit);
+    return {
+      on: this.get<boolean>('feature_market'), approval: this.get<boolean>('mk_approval'), perSeller: this.get<number>('mk_items_per_seller'),
+      upgrade: { on: this.get<boolean>('mk_upgrade_on'), items: this.get<number>('mk_upgrade_items'), priceMinor: m('mk_upgrade_price') },
+      categories: CATEGORIES.filter((c) => this.get<boolean>(`mk_cat_${c.id}`)).map((c) => c.id as string),
+      expireDays: this.get<number>('mk_expire_days'),
+      blocked: String(this.get<string>('mk_blocked_words') ?? '').split(/[,\n]/).map((w) => w.trim().toLowerCase()).filter((w) => w.length > 1),
+      fees: {
+        usualFee: this.get<boolean>('mk_usual_fee'), usualTxn: this.get<boolean>('mk_usual_txn'), extra: this.get<boolean>('mk_fees_on'),
+        buyer: { rate: this.get<number>('mk_buyer_rate'), minMinor: m('mk_buyer_min'), maxMinor: m('mk_buyer_max') },
+        seller: { rate: this.get<number>('mk_seller_rate'), minMinor: m('mk_seller_min'), maxMinor: m('mk_seller_max') },
+      },
+      reportsHide: this.get<number>('mk_reports_hide'), strikes: this.get<number>('mk_strikes'),
+      backInStock: this.get<boolean>('mk_back_in_stock'), newFromSellers: this.get<boolean>('mk_new_from_sellers'), adLinks: this.get<boolean>('mk_ad_links'),
+    };
+  }
   /** The home page version visitors see. */
   homeVersion(): string { const v = this.get<string>('home_version'); return isHomeVersion(v) ? v : FIRST_VERSION; }
   nudgeHours(): number { return this.get('nudge_after_hours'); }

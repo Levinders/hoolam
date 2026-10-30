@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
-import { DealError, DealService, viewKey, type Deal } from './deals/service.js';
+import { DealError, DealService, isVerified, viewKey, type Deal } from './deals/service.js';
 import { FakeProvider } from './payments/fake.js';
 import type { PaymentProvider } from './payments/provider.js';
 import { pendingEvents, processEvent, storeEvent, type Handler } from './webhooks.js';
@@ -18,6 +18,7 @@ import { Media } from './whatsapp/media.js';
 import { isBot, Trust } from './trust.js';
 import { CampaignLinks } from './links.js';
 import { Ambassadors } from './ambassadors.js';
+import { Market, type Listing } from './market/market.js';
 import { AmbassadorDetailsFlow } from './whatsapp/amb-flow.js';
 import { registerAmbassadorRoutes } from './amb-routes.js';
 import { Settings } from './settings.js';
@@ -70,7 +71,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   const links = new CampaignLinks(db); // hoolam.com/<name> campaign links (Console → Settings → Links)
   // messages mention reply times and use Hoolam's number as the example: always the console's current values
   configureMessages({ repReplyMinutes: () => settings.repReplyMinutes(), problemReplyHours: () => settings.problemReplyHours(), hoolamNumber: () => settings.waNumber(),
-    menuOrderCode: () => settings.get<boolean>('feature_menu_order_code') === true, menuCheckSeller: () => settings.get<boolean>('feature_menu_check_seller') === true });
+    menuOrderCode: () => settings.get<boolean>('feature_menu_order_code') === true, menuCheckSeller: () => settings.get<boolean>('feature_menu_check_seller') === true, marketOn: () => settings.market().on });
   const siteMedia = new SiteMedia(db);
   // every picture Hoolam draws uses the uploaded logo icon (Settings → Brand), or the drawn mark when there is none
   setMarkSource(() => siteMedia.get('mark').catch(() => null));
@@ -100,9 +101,21 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     publicBaseUrl: c.PUBLIC_BASE_URL, secret: formSecret, onSiteChange: () => siteSync.changed(), log,
   });
   if (skipAccountMatch) log('ID checks are real but money is pretend: payout account names are not matched to the ID until real payments are on');
+  // the Hoolam market (Features → Market): listing needs the seller's ID check and payout account
+  const market = new Market({
+    db, settings, currency: c.CURRENCY, testMode, log,
+    verified: async (id) => !deals.kycOn || isVerified((await db.query('SELECT kyc_status, kyc_verified_at FROM users WHERE id=$1', [id])).rows[0]),
+    hasBank: async (id) => !!(await db.query('SELECT 1 FROM bank_accounts WHERE user_id=$1 LIMIT 1', [id])).rowCount,
+  });
+  const phoneOf = async (id: string) => (await db.query('SELECT phone FROM users WHERE id=$1', [id])).rows[0]?.phone as string | undefined;
+  /** Each seller hears when an item sells out (with its picture); savers hear when it's back (if that switch is on). */
+  const marketSoldOut = async (ls: Listing[]) => { for (const l of ls) { const p = await phoneOf(l.seller_id); if (p && chat.mkt) await chat.mkt.notify(p, l, 'soldout').catch((e) => log(`market: ${(e as Error).message}`)); } };
+  const marketBack = async (ls: Listing[]) => { if (market.cfg().backInStock) for (const l of ls) await backInStock(l).catch((e) => log(`market back in stock: ${(e as Error).message}`)); };
   const deals = new DealService({
     db, provider, messenger, media, trust, settings, kyc, currency: c.CURRENCY, maxDealMinor: c.MAX_DEAL_MINOR, waNumber: () => settings.waNumber(), payBase: c.PAY_URL,
     acceptHours: c.SELLER_ACCEPT_HOURS, testMode, orderPageBase: c.PUBLIC_BASE_URL, ambassadors, log,
+    marketFees: () => settings.market().fees,
+    market: { onPaid: async (id) => marketSoldOut(await market.onPaid(id)), onRefund: async (id) => marketBack(await market.onRefund(id)), outOfStock: (id) => market.outOfStock(id) },
     // new order alerts: the item photo in the Hoolam frame, with "Check it's real: hoolam.com/check"
     alertCard: (a) => chatArt.image(ART.orderRequest({ to: a.to, who: a.who, item: a.deal.item, amount: a.amount, code: a.deal.code, check: checkText, dealId: a.deal.id })),
   });
@@ -179,9 +192,19 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return { name: 'Hoolam', phone, org: COMPANY.legalName, email: settings.contact().email || undefined, url: (c.SITE_URL || 'https://hoolam.com').replace(/\/$/, '') };
     },
     hoolamNumber: () => settings.waNumber(),
+    market, itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
     ambassadors, ambApplyForm: () => formFor('ambApply'), ambDetailsForm: () => formFor('ambDetails'),
     onAmbFormRefused: (key, phone) => formRefused(key, phone), formSecret, siteUrl: c.SITE_URL || 'https://hoolam.com',
   });
+  if (chat.mkt) chat.mkt.onBackInStock = (l) => void marketBack([l]);
+  /** "Back in stock" to people who saved it and said yes to updates (Features → Market → Back in stock). */
+  async function backInStock(l: Listing) {
+    if (!chat.mkt) return;
+    for (const w of await market.waitingFor(l.id)) {
+      await chat.mkt.backInStock(w.phone, l);
+      await market.told(w.user_id, l.id);
+    }
+  }
   const ambDetails = new AmbassadorDetailsFlow(ambassadors, formSecret, log);
 
   // Keep the exact bytes of every JSON body: webhook signatures are computed over them.
@@ -820,16 +843,38 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       const r = await deals.sweep({ nudgeAfterHours: settings.nudgeHours() });
       if (r.nudged || r.expired) log(`sweep: nudged ${r.nudged}, expired ${r.expired}`);
       await trust.purgeSeen().catch((e) => log(`seller page stats: ${(e as Error).message}`)); // the one-way visitor codes last 2 days
+      await marketJobs().catch((e) => log(`market: ${(e as Error).message}`));
       // ambassadors: term notices and rollovers, the monthly payouts, month-end summaries
       const a = await ambassadors.sweep().catch((e) => { log(`ambassadors: ${(e as Error).message}`); return null; });
       if (a && (a.notices || a.rolled || a.payouts || a.summaries)) log(`ambassadors: ${a.notices} notice(s), ${a.rolled} term(s) renewed, ${a.payouts} payout(s) made, ${a.summaries} summary(ies)`);
     }
   }
 
+  /** The market's regular work: "hides soon" and expired notices, promos that ended, and the bring-back messages (each off unless switched on). */
+  async function marketJobs() {
+    const cfg = market.cfg();
+    if (!cfg.on || !chat.mkt) return;
+    const mk = chat.mkt;
+    const tell = async (l: Listing, kind: 'expiring' | 'expired' | 'promoEnded') => { const p = await phoneOf(l.seller_id); if (p) await mk.notify(p, l, kind).catch((e) => log(`market notice: ${(e as Error).message}`)); };
+    const due = await market.expiryDue();
+    for (const l of due.warn) await tell(l, 'expiring');
+    for (const l of due.expired) await tell(l, 'expired');
+    for (const l of await market.promosEnded()) await tell(l, 'promoEnded');
+    if (cfg.backInStock || cfg.newFromSellers) {
+      for (const b of await market.toAskUpdates()) { await mk.askUpdates(b.phone); await market.setBrowser(b.user_id, { asked: true }); }
+    }
+    if (cfg.newFromSellers) {
+      for (const [sellerId, ids] of await market.newBySeller()) {
+        const cards = (await Promise.all(ids.slice(0, 9).map((id) => market.card(id)))).filter((x): x is NonNullable<typeof x> => !!x);
+        for (const b of await market.pastBuyers(sellerId)) { await mk.newFromSeller(b.phone, cards); await market.newsSent(b.user_id); }
+      }
+    }
+  }
+
   const load = async () => { await settings.load(); await siteMedia.load(); };
   app.addHook('onClose', async () => siteSync.stop());
   return {
-    app, load, deals, chat, liveChat, messenger, trust, links, ambassadors, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
+    app, load, deals, chat, market, liveChat, messenger, trust, links, ambassadors, settings, kyc, checker, siteMedia, siteSync, staffAuth, tick, syncMenu, setupMeta, orders, formSecret,
     forms,
     setBuyForm: (f: FormUse | null) => forms.set('buy', f), setSellForm: (f: FormUse | null) => forms.set('sell', f),
     setOrdersForm: (f: FormUse | null) => forms.set('orders', f), setOrderForm: (f: FormUse | null) => forms.set('order', f), backupForms,

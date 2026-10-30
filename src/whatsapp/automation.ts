@@ -20,7 +20,7 @@ import type { Art } from '../chat-art/index.js';
  *
  * Every ice breaker and command here must also be understood in flow.ts (PHRASES and SLASH).
  */
-export type MenuItem = 'open' | 'sell' | 'buy' | 'orders' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human' | 'card' | 'check' | 'tosell' | 'tobuy' | 'switch' | 'me';
+export type MenuItem = 'open' | 'sell' | 'buy' | 'orders' | 'deals' | 'account' | 'pay' | 'problem' | 'how' | 'fees' | 'human' | 'card' | 'check' | 'tosell' | 'tobuy' | 'switch' | 'me' | 'market' | 'items';
 
 /**
  * Shown in a brand-new chat. Each one is a first line a real person would say, and where it leads.
