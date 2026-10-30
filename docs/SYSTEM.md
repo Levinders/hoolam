@@ -438,7 +438,7 @@ The server creates every form on Meta when it starts; a changed form gets a new 
 | My orders (`hoolam_orders_…`) | Live | Filter → list → order → dispatch / rider details / code → done |
 | Single order (`hoolam_order_…`) | Live | Opens on one order: a new order for a seller, the buyer's review, dispatch, enter code |
 | Market: list an item (`hoolam_mklist_…`) | Static, filled in on Change | Name, category (the ticked ones), price, how many, details; then photos (1 to 4), delivery (tick pickup, rider, waybill) and area. Photos sit on the second screen because WhatsApp only sends them with the last button |
-| Market: edit an item (`hoolam_mkedit_…`) | Static, filled in | Price, promo price and how long (or keep the current end), how many, delivery, details; every change saved at once |
+| Market: edit an item (`hoolam_mkedit_…`) | Static, filled in | Price, promo price and how long (or keep the current end), how many, delivery, details, new photos (replace them all); every change saved at once. The photos there now are sent just before it as swipe cards, with **🔁 Replace photos** (the chat way) |
 | Market: delivery (`hoolam_mkorder_…`) | Static | A market order's delivery address and expected date |
 | Payout account (`hoolam_payout_…`) | Live | The 10-digit number (and, for checked people, "It must be in your own name: …") → the likely banks first → "This account belongs to ADA OBI · GTBank · 0123456789", "✓ Matches the name on your ID", a tick, **Save account**. Checked again on the server when it arrives, then it carries on like "Yes" in the chat. Used everywhere an account is asked for: selling, accepting an order, My account, refunds, ambassadors, the market. Not sent when an ID check must come first |
 | Report a problem (`hoolam_problem_…`) | Static | Sent once the money is frozen: the order and "₦X is frozen with Hoolam", what went wrong (not arrived, wrong item, damaged, not as described, fake, missing, something else), the details, up to 5 photos as proof (kept on the order as **Buyer's proof**), the rep reply time |
@@ -711,6 +711,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 30 Oct 2026 | Market: the list form works again (how many is a number on both screens); Edit item shows the current photos and can replace them (form or chat) | 60c39b6 |
 | 30 Oct 2026 | Menus: one **Get help** row opens Report a problem or Talk to a rep | 33a34d4 |
 | 30 Oct 2026 | Fixed the 8 forms Meta refused (filled-in fields now sit outside a Form wrapper; the problem form's photos stay under 100 MB); rating asks "How's your <item>?", optional, shown on the seller's page without a tick | 2494781 |
 | 30 Oct 2026 | Forms: payout account (live: the account name is looked up and matched to the ID before saving), report a problem (reason, details, up to 5 photos kept as the buyer's proof; photos sent in the chat are kept too), my page (also the seller setup), rating (a few words with a tick to show them, or what went wrong); the chat steps stay as the backup; migration 030 | d387252 |
