@@ -201,7 +201,7 @@ Everyone starts on the buying menu; becoming a seller (a one-time setup that cre
 | 🔑 I have an order code (only with its Features switch on) | 📋 My orders: track your sales and payouts |
 | 📋 My orders: all transactions, track your orders | 👤 My account: your trust card and payout account |
 | 🔍 Check a seller (only with its Features switch on) | 📦 My items (only while the market is on) |
-| 🛍️ Browse the market (first row, only while the market is on) | |
+| 🛍️ Browse the market (second row, under Buy something, only while the market is on) | |
 
 **Optional buyer rows** (Console → Settings → Features, owner only, both off by default): **"I have an order code" in the menu** and **"Check a seller" in the menu**. Off only hides the menu row: order links (hoolam.com/HL-X), typed codes, the View button on order alerts, typing "check a seller", /pay and /check, and the trust card before paying all still work.
 

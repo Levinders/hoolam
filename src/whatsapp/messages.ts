@@ -57,8 +57,8 @@ export const buyerMenu = (): ListSection[] => [
   {
     title: 'Buying',
     rows: [
-      ...(live.marketOn() ? [{ id: 'menu:market', title: '🛍️ Browse the market', description: 'Items from sellers near you' }] : []),
       { id: 'menu:buy', title: '🛒 Buy something', description: 'Your money’s held until you’re happy' },
+      ...(live.marketOn() ? [{ id: 'menu:market', title: '🛍️ Browse the market', description: 'Items from sellers near you' }] : []),
       ...(live.menuOrderCode() ? [{ id: 'menu:pay', title: '🔑 I have an order code', description: 'A seller sent you a code? Start here' }] : []),
       { id: 'menu:orders', title: '📋 My orders', description: 'All transactions · track your orders' },
       ...(live.menuCheckSeller() ? [{ id: 'menu:check', title: '🔍 Check a seller', description: 'See their record before you buy' }] : []),

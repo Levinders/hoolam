@@ -69,6 +69,7 @@ describe('the market', () => {
   it('a seller lists an item in the chat; a buyer browses, sees more, saves and buys it', async () => {
     await h.app.settings.save(h.db, { feature_market: true }, null);
     expect(JSON.stringify(buyerMenu())).toContain('menu:market');
+    expect(buyerMenu()[0]!.rows.slice(0, 2).map((r) => r.id)).toEqual(['menu:buy', 'menu:market']); // Buy something stays first
     expect(JSON.stringify(sellerMenu())).toContain('menu:items');
 
     const s = await seller();
