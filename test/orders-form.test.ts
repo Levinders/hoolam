@@ -456,9 +456,10 @@ describe('the buyer checks their order before it goes to the seller', () => {
     const json = buyEditFlowJson('X') as any;
     const item = json.screens[0];
     expect(Object.keys(item.data)).toEqual(expect.arrayContaining(['item', 'description', 'category', 'price', 'address', 'arrive_by', 'other_phone', 'photo_note']));
-    const fields = item.layout.children[1].children.filter((c: any) => c.name);
+    const fields = item.layout.children.filter((c: any) => c.name); // no Form wrapper: WhatsApp refuses filled-in fields inside one
+    expect(fields.length).toBeGreaterThan(3);
     for (const f of fields) expect(f['init-value']).toBe(`\${data.${f.name}}`);
-    const picker = json.screens[2].layout.children[2].children[0];
+    const picker = json.screens[2].layout.children.find((c: any) => c.type === 'PhotoPicker');
     expect(picker['min-uploaded-photos']).toBe(0);
   });
 });
