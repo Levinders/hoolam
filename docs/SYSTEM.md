@@ -149,6 +149,7 @@ Everything passes through the one server: messages come in from Meta, money move
 | Live chat | `chat_visitors` (name, WhatsApp number, linked user), `chat_visitor_keys` (hashes of browser keys), `chat_threads` (ref LC-…, status, handler, rating, the WhatsApp nudge), `chat_messages` (VISITOR, STAFF, NOTE for the team only, SYSTEM), `chat_files` (photos and PDFs), `chat_reads` (what each teammate has read), `chat_content` (welcome, Questions, News with an optional picture, quick replies, saved replies), `chat_media` (news pictures). One conversation per WhatsApp number; a browser key from a new device keeps `since_id` so it sees only later messages. Migrations 021, 022 and 023 (Home cards removed). |
 | Ambassadors | `ambassador_applications` (PENDING / APPROVED / DECLINED; from the website, WhatsApp or a team invite; declined ones deleted after 12 months), `ambassadors` (SETUP / ACTIVE / PAUSED / ENDED, link name, area, term and next term, custom shares), `ambassador_names` (every link name ever used, never given to anyone else), `ambassador_photos`, `ambassador_referrals` (who brought whom, by link, code or team), `ambassador_earnings` (SHARE or BONUS per order and side; CONFIRMED, HELD or VOID), `ambassador_payouts` (DUE / PAID, final), `ambassador_link_taps`, `ambassador_codes` and `ambassador_sessions` (dashboard sign-in). `users.kyc_id_hash` (a one-way code of the ID number, to spot the same person twice) and `users.amb_asked_at`; `staff.access_ambassadors`. Migration 026. |
 | Market | `market_listings` (code, title, price and promo, stock, delivery: pickup / rider / waybill, area, city, state, status LIVE / PAUSED / HIDDEN / SOLD_OUT / EXPIRED / REMOVED / DELETED, `kept_at` from the regular check, `expires_at`), `market_photos` (with a look fingerprint to spot another seller's photo), `market_sellers` (APPLIED / APPROVED / DECLINED / STOPPED, own item limit and until when), `market_strikes`, `market_upgrades` (ASKED / DONE / DECLINED), `market_saves`, `market_reports`, `market_browsers` (where someone browses, their page and basket, yes or no to updates), `market_order_items` (the items an order came from; stock taken once paid), `market_stats` (per item and day: seen, opened, saved, Buy taps, paid orders), `market_searches` (90 days), `market_ad_links`; `deals.from_market`. Migration 029. |
+| Sources | `users.source`, `source_detail`, `source_at` (where each person came from). Migration 032. |
 | Activity | `user_activity` (each person's taps, messages, forms; 12 months). Migration 031. |
 | System | `settings` (console values, incl. `home_version`), `app_secrets` (forms key), `contact_optouts` (old, now empty) |
 
@@ -584,6 +585,14 @@ Buyers & sellers → a person → **Activity** (Owner and Admin): last active, t
 - **Read from where it's already kept:** order steps (`deals`, `deal_events`, also on each order's page), Hoolam's messages (`outbound_messages`, also in Support → Messages), the team's actions (`audit_log`, also in the Audit trail).
 - **Never kept:** ID numbers and dates of birth (typed or in the ID check form), handover codes; account and phone numbers keep their last 4 digits. Kept 12 months (cleared in the 10-minute sweep).
 
+### Where each person came from (Source)
+
+Shown under a person's name ("Source: Instagram ad “Black Friday” · 12 Oct", linked to the ambassador, seller or order), first in their Activity, as a column and **Any source** filter on Buyers & sellers, and in Insights (**Where new people come from**, each source opens the people from it). Decided once, from their first message (`src/sources.ts`, `users.source`, `source_detail`, `source_at`, migration 032):
+- **Facebook or Instagram ad / post:** WhatsApp sends which ad or post (its headline and link) with the first message from a "Send WhatsApp message" button.
+- **Campaign link / Website:** every WhatsApp button on hoolam.com adds "(ref: web-<page>)", or the campaign link's name when they arrived through hoolam.com/<name> (kept for the visit; `site/assets/wa-ref.js`). The chat ignores the tag.
+- **Ambassador** ("… sent me (TOBI)", or recorded later when they type the ambassador's name), **A seller's page** ("Buy from @…"), **Market item / Market ad link** ("I want to buy this: …"), **Someone's order** (an order reached their number before they wrote).
+- **Messaged Hoolam directly:** none of these (a saved number, word of mouth, a forwarded message). People from before 31 Oct 2026 got their ambassador or the order that reached them, else **Not recorded**.
+
 ### Settings worth knowing
 
 - **Fees:** Hoolam's fee and the two transaction fee tables (each folds open with an arrow), with a "Try it" calculator.
@@ -719,6 +728,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 31 Oct 2026 | Each person's **Source** (ad or post, campaign link, website page, ambassador, seller's page, market, someone's order, or directly): under their name, in Activity, a filter on Buyers & sellers, and Insights; the website's WhatsApp buttons add "(ref: …)"; migration 032 | 47d7006 |
 | 31 Oct 2026 | Each person's **Activity** tab in the console: taps, messages, forms, order steps, Hoolam's messages (read or delivered), the team's actions; nothing sensitive kept; 12 months; migration 031 | 3d35db2 |
 | 30 Oct 2026 | Market: the list form works again (how many is a number on both screens); Edit item shows the current photos and can replace them (form or chat) | 60c39b6 |
 | 30 Oct 2026 | Menus: one **Get help** row opens Report a problem or Talk to a rep | 33a34d4 |
