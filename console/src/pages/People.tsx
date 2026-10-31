@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, post } from '../api';
 import { useAuth } from '../auth';
-import { ACTIONS, ago, dateOnly, dateTime, hours, money, phone } from '../format';
+import { ACTIONS, ago, dateOnly, dateTime, hours, money, phone, sourceText, SOURCES } from '../format';
 import { useData, useDebounced } from '../hooks';
 import { SupportMessage } from './SupportMessage';
 import { PersonActivity } from './PersonActivity';
@@ -12,13 +12,14 @@ import { Avatar, Button, ConfirmAction, Empty, ErrorBanner, Pager, Seg, Skeleton
 export function People() {
   const [sp, setSp] = useSearchParams();
   const kind = sp.get('kind') ?? 'all';
+  const source = sp.get('source') ?? '';
   const page = Number(sp.get('page') ?? 1);
   const [q, setQ] = useState(sp.get('q') ?? '');
   const dq = useDebounced(q, 300);
   const nav = useNavigate();
   const set = (k: string, v: string | null) => { const n = new URLSearchParams(sp); if (v) n.set(k, v); else n.delete(k); if (k !== 'page') n.delete('page'); setSp(n, { replace: true }); };
   useEffect(() => { if ((sp.get('q') ?? '') !== dq) set('q', dq || null); }, [dq]); // eslint-disable-line react-hooks/exhaustive-deps
-  const { data, error, loading, reload } = useData<any>(`/people?page=${page}${kind !== 'all' ? `&kind=${kind}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}`);
+  const { data, error, loading, reload } = useData<any>(`/people?page=${page}${kind !== 'all' ? `&kind=${kind}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}${source ? `&source=${source}` : ''}`);
   return (
     <div className="page">
       <div className="page-head"><div><h1>Buyers & sellers</h1><p className="lede">Everyone who has talked to Hoolam, their record, and the controls to keep orders safe.</p></div></div>
@@ -26,6 +27,10 @@ export function People() {
         <div className="toolbar">
           <div className="input-icon"><Search aria-hidden="true" /><input className="input" placeholder="Name, shop name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search people" /></div>
           <Seg value={kind} onChange={(v) => set('kind', v === 'all' ? null : v)} options={[{ value: 'all', label: 'Everyone' }, { value: 'sellers', label: 'Sellers' }, { value: 'buyers', label: 'Buyers' }, { value: 'paused', label: 'Paused' }, { value: 'review', label: 'Needs review' }, { value: 'verified', label: 'ID verified' }]} />
+          <select className="input" style={{ width: 'auto' }} value={source} onChange={(e) => set('source', e.target.value || null)} aria-label="Source">
+            <option value="">Any source</option>
+            {Object.entries(SOURCES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
         </div>
         {error ? <div className="panel-body"><ErrorBanner error={error} onRetry={reload} /></div>
           : loading && !data ? <SkeletonRows rows={8} />
@@ -34,13 +39,14 @@ export function People() {
             <>
               <div className="table-wrap">
                 <table className="t">
-                  <thead><tr><th>Person</th><th>Phone</th><th className="r">Sales</th><th className="r">Purchases</th><th>Last order</th><th>Joined</th></tr></thead>
+                  <thead><tr><th>Person</th><th>Phone</th><th>Source</th><th className="r">Sales</th><th className="r">Purchases</th><th>Last order</th><th>Joined</th></tr></thead>
                   <tbody>
                     {data.rows.map((u: any) => (
                       <tr key={u.id} className="link" tabIndex={0} onClick={() => nav(`/people/${u.id}`)} onKeyDown={(e) => { if (e.key === 'Enter') nav(`/people/${u.id}`); }}>
                         <td><div className="row"><Avatar name={u.business_name || u.display_name} gold={u.sales > 0} /><div><div className="cell-main">{u.business_name || u.display_name || 'No name'}</div>
                           <div className="cell-sub">{u.business_name && u.display_name ? u.display_name : u.city ?? ''}{u.blocked && <span className="pill red plain" style={{ height: 18, marginLeft: 6 }}>Paused</span>}{u.profile_public && <span className="pill teal plain" style={{ height: 18, marginLeft: 6 }}>Public page</span>}{u.kyc_status === 'VERIFIED' && <span className="pill green plain" style={{ height: 18, marginLeft: 6 }}>ID verified</span>}{u.kyc_status === 'REVIEW' && <span className="pill gold plain" style={{ height: 18, marginLeft: 6 }} title={u.kyc_review_reason ?? ''}>Needs review</span>}</div></div></div></td>
                         <td className="num">{phone(u.phone)}</td>
+                        <td className="cell-sub" style={{ maxWidth: 220 }}>{u.source ? sourceText(u.source, u.source_detail) : <span className="faint">Not recorded</span>}</td>
                         <td className="r num">{u.sales || <span className="faint">0</span>}</td>
                         <td className="r num">{u.purchases || <span className="faint">0</span>}</td>
                         <td className="muted">{u.last_deal_at ? ago(u.last_deal_at) : '—'}</td>
@@ -88,6 +94,11 @@ export function Person() {
           <div>
             <h1>{name}</h1>
             <p className="lede">{phone(u.phone)}{u.city ? ` · ${u.city}` : ''} · on Hoolam since {dateOnly(u.created_at)}</p>
+            <p className="person-source"><span>Source</span>{u.source_detail?.by && ['ambassador', 'order', 'seller_page', 'market', 'market_ad'].includes(u.source)
+              ? <Link to={u.source === 'ambassador' ? `/ambassadors/${u.source_detail.by}` : `/people/${u.source_detail.by}`}>{sourceText(u.source, u.source_detail)}</Link>
+              : <b>{sourceText(u.source, u.source_detail)}</b>}
+              {u.source === 'order' && u.source_detail?.code && <> · <Link to={`/deals/${u.source_detail.code}`}>{u.source_detail.code}</Link></>}
+              {u.source_at && <span className="muted"> · {dateOnly(u.source_at)}</span>}</p>
           </div>
         </div>
         <div className="actions">

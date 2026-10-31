@@ -172,3 +172,27 @@ export const ACTIONS: Record<string, string> = {
   'auth.code_failed': 'Failed sign-in (code)',
   'auth.two_step_enabled': 'Set up two-step sign-in',
 };
+
+/** Where a person came from (Buyers & sellers → Source). */
+export const SOURCES: Record<string, string> = {
+  ad: 'Facebook or Instagram ad', post: 'Facebook or Instagram post', campaign: 'Campaign link', website: 'Website',
+  ambassador: 'Ambassador', order: 'Someone\'s order', seller_page: 'A seller\'s page', market: 'Market item', market_ad: 'Market ad link',
+  direct: 'Messaged Hoolam directly', unknown: 'Not recorded',
+};
+/** The source in a few words: "Instagram ad “Black Friday”", "Bayo Kicks' order HL-7K2QF". */
+export function sourceText(source: string | null | undefined, d: Record<string, any> | null | undefined): string {
+  const x = d ?? {};
+  switch (source) {
+    case 'ad': return `${x.where ?? 'Facebook or Instagram'} ad${x.headline ? ` “${x.headline}”` : ''}`;
+    case 'post': return `${x.where ?? 'Facebook or Instagram'} post${x.headline ? ` “${x.headline}”` : ''}`;
+    case 'campaign': return `Link hoolam.com/${x.slug}`;
+    case 'website': return `Website${x.page && x.page !== 'home' ? ` · ${String(x.page).replace(/-/g, ' ')}` : ' · home page'}`;
+    case 'ambassador': return `Ambassador ${x.byName ?? x.slug ?? ''}`.trim() + (x.via === 'code' ? ' (typed their name)' : x.via === 'team' ? ' (added by the team)' : '');
+    case 'order': return `${x.byName ? `${x.byName}'s` : 'Someone\'s'} order ${x.code ?? ''}`.trim();
+    case 'seller_page': return `${x.byName ?? 'A seller'}'s page (@${x.slug})`;
+    case 'market': return `Market item${x.title ? ` “${x.title}”` : ''}`;
+    case 'market_ad': return `Market ad “${x.ad}”${x.title ? ` · ${x.title}` : ''}`;
+    case 'direct': return 'Messaged Hoolam directly';
+    default: return 'Not recorded (joined before sources were tracked)';
+  }
+}

@@ -11,6 +11,8 @@ export interface Inbound {
   mimeType?: string | null;              // for images
   form?: Record<string, unknown> | null; // the answers from a submitted form (includes flow_token)
   location?: { latitude: number; longitude: number; name: string | null; address: string | null } | null; // a shared location (📎 → Location)
+  /** They came from a Facebook or Instagram ad or post ("Send WhatsApp message"): WhatsApp says which. */
+  referral?: { type: string; id: string | null; headline: string | null; url: string | null } | null;
 }
 
 /** Checks X-Hub-Signature-256 against the raw request body. */
@@ -34,7 +36,9 @@ export function parseInbound(body: unknown): Inbound[] {
         const from = String(m.from ?? '');
         if (!from) continue;
         const name = contacts.find((c) => c.wa_id === from)?.profile?.name ?? null;
-        const base = { id: String(m.id), phone: '+' + from.replace(/^\+/, ''), name, buttonId: null as string | null, mediaId: null as string | null };
+        const ref = m.referral as { source_type?: string; source_id?: string; headline?: string; source_url?: string } | undefined;
+        const base = { id: String(m.id), phone: '+' + from.replace(/^\+/, ''), name, buttonId: null as string | null, mediaId: null as string | null,
+          ...(ref ? { referral: { type: String(ref.source_type ?? 'ad'), id: ref.source_id ?? null, headline: ref.headline ?? null, url: ref.source_url ?? null } } : {}) };
         if (m.type === 'text') out.push({ ...base, type: 'text', text: String(m.text?.body ?? '') });
         else if (m.type === 'interactive' && m.interactive?.button_reply) out.push({ ...base, type: 'button', text: String(m.interactive.button_reply.title ?? ''), buttonId: String(m.interactive.button_reply.id) });
         else if (m.type === 'interactive' && m.interactive?.list_reply) out.push({ ...base, type: 'button', text: String(m.interactive.list_reply.title ?? ''), buttonId: String(m.interactive.list_reply.id) });

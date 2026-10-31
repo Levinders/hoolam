@@ -1,8 +1,8 @@
-import { ChevronDown, FileText, Hand, History, MessageSquare, Package, Send, ShieldCheck, Smartphone, type LucideIcon } from 'lucide-react';
+import { ChevronDown, Compass, FileText, Hand, History, MessageSquare, Package, Send, ShieldCheck, Smartphone, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { ACTIONS, ago, dateOnly, STATUS } from '../format';
+import { ACTIONS, ago, dateOnly, sourceText, STATUS } from '../format';
 import { Button, Empty, ErrorBanner, Seg, SkeletonRows } from '../ui';
 
 /**
@@ -10,10 +10,10 @@ import { Button, Empty, ErrorBanner, Seg, SkeletonRows } from '../ui';
  * and whether they read it, and the team's actions. Newest first, by day, each line opens for the details.
  */
 type Filter = 'all' | 'taps' | 'messages' | 'forms' | 'orders' | 'sent' | 'team';
-type Item = { id: string; at: string; kind: 'tap' | 'message' | 'form' | 'screen' | 'order' | 'sent' | 'team'; title: string; detail: Record<string, any> };
+type Item = { id: string; at: string; kind: 'tap' | 'message' | 'form' | 'screen' | 'order' | 'sent' | 'team' | 'source'; title: string; detail: Record<string, any> };
 type Page = { items: Item[]; more: boolean; next: string | null; summary: { firstSeen: string; lastActive: string | null; today: number; week: number; tapsWeek: number } | null };
 
-const ICON: Record<Item['kind'], LucideIcon> = { tap: Hand, screen: Smartphone, message: MessageSquare, form: FileText, order: Package, sent: Send, team: ShieldCheck };
+const ICON: Record<Item['kind'], LucideIcon> = { tap: Hand, screen: Smartphone, message: MessageSquare, form: FileText, order: Package, sent: Send, team: ShieldCheck, source: Compass };
 const TZ = 'Africa/Lagos';
 const time = (at: string) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
 const dayKey = (at: string) => new Date(at).toLocaleDateString('en-CA', { timeZone: TZ });
@@ -34,6 +34,7 @@ function Rich({ text }: { text: string }) {
 }
 
 function title(i: Item): string {
+  if (i.kind === 'source') return `Source: ${sourceText(i.title, i.detail)}`;
   if (i.kind === 'order') return `${i.detail.code} · ${i.detail.to === 'STARTED' ? `Order started by ${i.detail.by}` : STATUS[i.detail.to]?.label ?? i.detail.to}`;
   if (i.kind === 'team') return `${i.detail.by}: ${ACTIONS[i.title] ?? i.title.replace(/[._]/g, ' ')}`;
   if (i.kind === 'sent') return `Hoolam: ${plain(i.title)}`;

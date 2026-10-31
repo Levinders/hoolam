@@ -12,7 +12,7 @@ export type ActivityKind = 'tap' | 'message' | 'form' | 'screen';
 export type ActivityFilter = 'all' | 'taps' | 'messages' | 'forms' | 'orders' | 'sent' | 'team';
 export interface ActivityItem {
   id: string; at: string;
-  kind: ActivityKind | 'order' | 'sent' | 'team';
+  kind: ActivityKind | 'order' | 'sent' | 'team' | 'source';
   title: string;
   detail: Record<string, unknown>;
 }
@@ -144,6 +144,10 @@ export class Activity {
            OR (a.target_type='deal' AND a.target_id IN (SELECT code FROM deals WHERE buyer_id=$1 OR seller_id=$1)))
          ORDER BY a.at DESC LIMIT $3`, [userId, before, limit, String(userId)]);
       for (const x of r.rows) items.push({ id: `t${x.id}`, at: x.at, kind: 'team', title: x.action, detail: { by: x.actor, reason: x.reason, code: x.target_type === 'deal' ? x.target_id : undefined } });
+    }
+    if (f === 'all') {
+      const src = (await this.db.query('SELECT source, source_detail, source_at FROM users WHERE id=$1', [userId])).rows[0];
+      if (src?.source && src.source_at && new Date(src.source_at) < before) items.push({ id: 'src', at: src.source_at, kind: 'source', title: src.source, detail: src.source_detail ?? {} });
     }
     items.sort((a, b) => +new Date(b.at) - +new Date(a.at));
     const page = items.slice(0, limit);

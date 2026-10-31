@@ -903,5 +903,19 @@ gtag('js',new Date());gtag('config','${GA_ID}',{content_group:'Website'});</scri
   }
 }
 
+// ---------- where people come from: "(ref: …)" on every WhatsApp button (site/assets/wa-ref.js) ----------
+{
+  const refVer = createHash('sha256').update(read('assets/wa-ref.js')).digest('hex').slice(0, 10);
+  const pagesWithWa = ['index.html', '404.html', join('about', 'index.html'), join('contact', 'index.html'), join('legal', 'index.html'), ...LEGAL_PAGES.map((p) => join('legal', p.slug, 'index.html')),
+    ...(amb ? [join('ambassadors', 'index.html')] : []), ...pages.map((p) => join(p.replace(/^\/|\/$/g, ''), 'index.html'))];
+  for (const f of new Set(pagesWithWa)) {
+    const file = join(out, f);
+    if (!existsSync(file)) continue;
+    const html = readFileSync(file, 'utf8');
+    if (html.includes('/assets/wa-ref.js')) continue;
+    writeFileSync(file, html.replace('</body>', `<script src="/assets/wa-ref.js?v=${refVer}" defer></script>\n</body>`));
+  }
+}
+
 const n = Object.keys(baked.images ?? {}).length;
 console.log(`Site built → dist-site/  (${pages.length} pages, home page ${liveVersion} live, ${VERSIONS.length} versions + draft to preview; server: ${app}${live ? `, settings copied, ${n} image${n === 1 ? '' : 's'}, ${linksBuilt} campaign link${linksBuilt === 1 ? '' : 's'}${amb ? `, ambassadors on (${ambBuilt} link${ambBuilt === 1 ? '' : 's'})` : ''}` : ', server not reached: using the built-in numbers'}${site ? `, site: ${site}` : ''})`);

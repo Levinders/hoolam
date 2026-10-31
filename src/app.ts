@@ -20,6 +20,7 @@ import { CampaignLinks } from './links.js';
 import { Ambassadors } from './ambassadors.js';
 import { Market, type Listing } from './market/market.js';
 import { Activity } from './activity.js';
+import { Sources } from './sources.js';
 import { readToken } from './whatsapp/orders-flow.js';
 import { readPayoutToken } from './whatsapp/more-forms.js';
 import { itemPage } from './item-page.js';
@@ -110,6 +111,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
   if (skipAccountMatch) log('ID checks are real but money is pretend: payout account names are not matched to the ID until real payments are on');
   /** What each person does in the chat (Console → a person → Activity). */
   const activity = new Activity(db, log);
+  /** Where each person came from (Console → a person → Source). */
+  const sources = new Sources(db, log);
   // the Hoolam market (Features → Market): listing needs the seller's ID check and payout account
   const market = new Market({
     db, settings, currency: c.CURRENCY, testMode, log,
@@ -201,7 +204,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return { name: 'Hoolam', phone, org: COMPANY.legalName, email: settings.contact().email || undefined, url: (c.SITE_URL || 'https://hoolam.com').replace(/\/$/, '') };
     },
     hoolamNumber: () => settings.waNumber(),
-    activity, market, marketForm: (k) => formFor(k), extraForm: (k) => formFor(k), problemHours: () => settings.problemReplyHours(), itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
+    activity, sources, market, marketForm: (k) => formFor(k), extraForm: (k) => formFor(k), problemHours: () => settings.problemReplyHours(), itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
     ambassadors, ambApplyForm: () => formFor('ambApply'), ambDetailsForm: () => formFor('ambDetails'),
     onAmbFormRefused: (key, phone) => formRefused(key, phone), formSecret, siteUrl: c.SITE_URL || 'https://hoolam.com',
   });
@@ -931,7 +934,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       allowed: (id: string) => tellSeller(id, (p) => chat.mkt!.allowedAgain(p)),
     },
   };
-  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, market: marketConsole, activity, chatArt, siteShow, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, market: marketConsole, activity, sources, chatArt, siteShow, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */

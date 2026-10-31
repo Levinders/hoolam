@@ -21,6 +21,7 @@ import { registerAmbassadorConsole } from './amb-api.js';
 import { registerMarketConsole, type MarketConsoleHelpers } from './market-api.js';
 import type { Market } from '../market/market.js';
 import type { Activity, ActivityFilter } from '../activity.js';
+import type { Sources } from '../sources.js';
 import type { Ambassadors } from '../ambassadors.js';
 import type { FormRegistry } from '../whatsapp/forms.js';
 import type { Messenger } from '../whatsapp/client.js';
@@ -38,6 +39,7 @@ export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; links: CampaignLinks; settings: Settings; messenger: Messenger;
   ambassadors?: Ambassadors;
   activity?: Activity;
+  sources?: Sources;
   market?: { m: Market; tell: MarketConsoleHelpers['tell']; itemUrl: (code: string) => string; adUrl: (code: string, ad: string) => string };
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   chatArt?: ChatArt; // the chat's pictures, voice notes, videos and stickers (Settings → WhatsApp)
@@ -490,10 +492,11 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       if (q.kind === 'paused') where.push('u.blocked');
       if (q.kind === 'review') where.push(`u.kyc_status='REVIEW'`);
       if (q.kind === 'verified') where.push(`u.kyc_status='VERIFIED'`);
+      if (q.source) { args.push(q.source); where.push(q.source === 'unknown' ? `u.source IS NULL AND $${args.length}::text IS NOT NULL` : `u.source=$${args.length}`); }
       const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
       const [rows, total] = await Promise.all([
         db.query(
-          `SELECT u.id, u.phone, u.display_name, u.business_name, u.city, u.blocked, u.deal_cap_minor, u.created_at, u.profile_public, u.kyc_status, u.kyc_review_reason, u.kyc_review_at,
+          `SELECT u.id, u.phone, u.display_name, u.business_name, u.city, u.blocked, u.deal_cap_minor, u.created_at, u.profile_public, u.kyc_status, u.kyc_review_reason, u.kyc_review_at, u.source, u.source_detail,
                   (SELECT count(*)::int FROM deals x WHERE x.seller_id=u.id) AS sales,
                   (SELECT count(*)::int FROM deals x WHERE x.buyer_id=u.id) AS purchases,
                   (SELECT max(updated_at) FROM deals x WHERE x.seller_id=u.id OR x.buyer_id=u.id) AS last_deal_at
@@ -1100,6 +1103,7 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
       const t = timing.rows[0];
       return {
         days, includeTest: test, currency: d.config.CURRENCY,
+        sources: d.sources ? await d.sources.summary(days) : [],
         kpis: k(now.rows[0]), previous: k(prev.rows[0]),
         series: series.rows.map((r) => ({ day: r.day, created: r.created, paid: r.paid, gmv: Number(r.gmv), fees: Number(r.fees) })),
         funnel: k(funnel.rows[0]),

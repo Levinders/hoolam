@@ -997,3 +997,12 @@ textarea.input.words { width: 100%; max-width: 440px; min-height: 76px; resize: 
   .act-more { padding-left: 14px; }
   .act-kv > div { grid-template-columns: 1fr; gap: 0; }
 }
+
+.person-source { margin: 4px 0 0; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.person-source > span:first-child { font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--sunk); border-radius: 6px; padding: 1px 7px; }
+.person-source b { font-weight: 600; }
+.src-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.src-list li { display: grid; grid-template-columns: 180px minmax(0, 1fr) 80px; white-space: nowrap; gap: 12px; align-items: center; font-size: 13px; }
+.src-list .bar { height: 10px; background: var(--sunk); border-radius: 6px; overflow: hidden; }
+.src-list .bar i { display: block; height: 100%; background: var(--teal); border-radius: 6px; }
+@media (max-width: 700px) { .src-list li { grid-template-columns: 1fr 80px; } .src-list .bar { grid-column: 1 / -1; grid-row: 2; } }

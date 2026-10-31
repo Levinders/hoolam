@@ -1,7 +1,7 @@
 import { ArrowDownRight, ArrowUpRight, ChartColumn, Minus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { hours, money, moneyShort, pct } from '../format';
+import { hours, money, moneyShort, pct, SOURCES } from '../format';
 import { useData } from '../hooks';
 import { AreaChart, BarChart, Empty, ErrorBanner, Seg, Skeleton, Switch } from '../ui';
 
@@ -90,6 +90,25 @@ export function Insights() {
               </div>
             </section>
           </div>
+
+          <section className="panel">
+            <div className="panel-head"><h2>Where new people come from</h2><span className="muted small" style={{ marginLeft: 'auto' }}>People who joined in the last {days} days</span></div>
+            <div className="panel-body">
+              {!data.sources?.length ? <p className="small muted">Nobody new in this period.</p> : (() => {
+                const total = data.sources.reduce((t: number, x: any) => t + x.n, 0);
+                return (
+                  <ul className="src-list">{data.sources.map((x: any) => (
+                    <li key={x.source}>
+                      <Link to={`/people?source=${x.source}`}>{SOURCES[x.source] ?? x.source}</Link>
+                      <span className="bar" aria-hidden="true"><i style={{ width: `${Math.max(2, pct(x.n, total))}%` }} /></span>
+                      <span className="num" style={{ textAlign: 'right' }}><b>{x.n}</b> <span className="muted small">{pct(x.n, total)}%</span></span>
+                    </li>
+                  ))}</ul>
+                );
+              })()}
+              <p className="small muted" style={{ marginTop: 12 }}>From each person's first message. Open a source to see who came from it.</p>
+            </div>
+          </section>
 
           <section className="panel">
             <div className="panel-head"><h2>Top sellers</h2><span className="muted small" style={{ marginLeft: 'auto' }}>By completed orders, last {days} days</span></div>

@@ -352,6 +352,9 @@ export class Ambassadors {
       `INSERT INTO ambassador_referrals (referred_id, ambassador_id, via, slug) VALUES ($1,$2,$3,$4) ON CONFLICT (referred_id) DO NOTHING RETURNING referred_id`,
       [user.id, a.userId, via, a.slug]);
     if (!r.rowCount) return 'not-new';
+    // their source: this ambassador (better than "messaged directly")
+    await this.o.db.query(`UPDATE users SET source='ambassador', source_detail=$2, source_at=COALESCE(source_at, now()) WHERE id=$1 AND (source IS NULL OR source='direct')`,
+      [user.id, JSON.stringify({ by: a.userId, byName: a.firstName ?? null, via, slug: a.slug })]).catch(() => {});
     await this.send({ phone: a.phone, message: amsg.joined(), fallback: ambTemplate('update', ['someone new joined Hoolam with your link.'], ['menu:amb']) });
     return 'ok';
   }

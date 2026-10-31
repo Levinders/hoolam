@@ -22,6 +22,7 @@ import { firstName, reviewProblem, VIDEO_MAX_BYTES, type Trust } from '../trust.
 import type { Ambassadors } from '../ambassadors.js';
 import { AmbassadorChat, SENT_ME_RE } from './amb-flow.js';
 import { MarketChat } from '../market/market-chat.js';
+import { REF_RE } from '../sources.js';
 import { readOrderForm } from '../market/market-forms.js';
 import { payoutToken, problemReasonTitle, readPageForm, readPayoutToken, readProblemForm, readRateForm } from './more-forms.js';
 import type { Market } from '../market/market.js';
@@ -104,6 +105,8 @@ export interface FlowOptions {
   onAmbFormRefused?: (key: 'ambApply' | 'ambDetails', phone: string) => Promise<void> | void;
   /** Each person's activity (Console → a person → Activity). */
   activity?: { inbound(m: Inbound, userId: string, state: string): Promise<void> };
+  /** Where each person came from, decided on their first message. */
+  sources?: { first(m: Inbound, userId: string): Promise<void> };
   /** The Hoolam market (Features → Market). */
   market?: Market;
   /** Where item pages live: go.hoolam.com/i/<code> */
@@ -256,7 +259,10 @@ export class Conversation {
     const user = await this.o.deals.upsertUser(m.phone, m.name);
     if (!m.id.startsWith('kyc-') && !m.id.startsWith('form-')) this.lastIn.set(m.phone, m.id);
     if (this.lastIn.size > 5000) this.lastIn.delete(this.lastIn.keys().next().value!);
+    if (s.isNew) await this.o.sources?.first(m, user.id);
     await this.o.activity?.inbound(m, user.id, s.state);
+    // the website's buttons add "(ref: …)" so we know where they came from; the rest of the chat doesn't need it
+    if (REF_RE.test(m.text)) m = { ...m, text: m.text.replace(REF_RE, '') };
     if (s.isNew) await this.contactCardOnce(m.phone).catch((e) => this.o.log?.(`contact card: ${(e as Error).message}`));
     try {
       await this.route(m, s, user);
