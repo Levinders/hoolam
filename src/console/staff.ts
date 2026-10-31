@@ -30,7 +30,8 @@ export const CAN: Record<string, Role[]> = {
   'livechat.content': ['OWNER', 'ADMIN', 'SUPPORT'], // edit what the chat shows (Home, Questions, News, chips, saved replies)
   'user.block': ['OWNER', 'ADMIN'],
   'user.cap': ['OWNER', 'ADMIN'],
-  'user.kyc': ['OWNER', 'ADMIN'],               // approve or remove someone's ID check
+  'user.kyc': ['OWNER', 'ADMIN'],
+  'user.activity': ['OWNER', 'ADMIN'],          // see what a person did in the chat (Activity tab)               // approve or remove someone's ID check
   'settings.view': ['OWNER', 'ADMIN'],          // see Settings at all
   'settings.update': ['OWNER', 'ADMIN'],        // timing, alerts and forms switches
   'settings.core': ['OWNER'],                   // fees, limits, Hoolam's WhatsApp number

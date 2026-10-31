@@ -19,6 +19,9 @@ import { isBot, Trust } from './trust.js';
 import { CampaignLinks } from './links.js';
 import { Ambassadors } from './ambassadors.js';
 import { Market, type Listing } from './market/market.js';
+import { Activity } from './activity.js';
+import { readToken } from './whatsapp/orders-flow.js';
+import { readPayoutToken } from './whatsapp/more-forms.js';
 import { itemPage } from './item-page.js';
 import { pageFormJson, pageFormName, payoutFormJson, payoutFormName, problemFormJson, problemFormName, rateFormJson, rateFormName } from './whatsapp/more-forms.js';
 import { editItemFormJson, editItemFormName, listFormJson, listFormName, marketOrderFormJson, marketOrderFormName } from './market/market-forms.js';
@@ -105,6 +108,8 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
     publicBaseUrl: c.PUBLIC_BASE_URL, secret: formSecret, onSiteChange: () => siteSync.changed(), log,
   });
   if (skipAccountMatch) log('ID checks are real but money is pretend: payout account names are not matched to the ID until real payments are on');
+  /** What each person does in the chat (Console → a person → Activity). */
+  const activity = new Activity(db, log);
   // the Hoolam market (Features → Market): listing needs the seller's ID check and payout account
   const market = new Market({
     db, settings, currency: c.CURRENCY, testMode, log,
@@ -196,7 +201,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return { name: 'Hoolam', phone, org: COMPANY.legalName, email: settings.contact().email || undefined, url: (c.SITE_URL || 'https://hoolam.com').replace(/\/$/, '') };
     },
     hoolamNumber: () => settings.waNumber(),
-    market, marketForm: (k) => formFor(k), extraForm: (k) => formFor(k), problemHours: () => settings.problemReplyHours(), itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
+    activity, market, marketForm: (k) => formFor(k), extraForm: (k) => formFor(k), problemHours: () => settings.problemReplyHours(), itemUrl: (code) => `${c.PUBLIC_BASE_URL.replace(/\/$/, '')}/i/${code}`,
     ambassadors, ambApplyForm: () => formFor('ambApply'), ambDetailsForm: () => formFor('ambDetails'),
     onAmbFormRefused: (key, phone) => formRefused(key, phone), formSecret, siteUrl: c.SITE_URL || 'https://hoolam.com',
   });
@@ -658,6 +663,13 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       return reply.code(e instanceof FlowDecryptError ? 421 : 400).send('cannot decrypt');
     }
     const tok = String((dec.body as { flow_token?: string }).flow_token ?? '');
+    // opening a live form counts as activity ("Opened My orders", "Opened the payout account form")
+    if ((dec.body as { action?: string }).action === 'INIT') {
+      const t = tok.startsWith('o1.') ? readToken(formSecret, tok) : null;
+      const who = t?.phone ?? (tok.startsWith('pb1.') ? readPayoutToken(formSecret, tok) : null);
+      const u = who ? (await db.query('SELECT id FROM users WHERE phone=$1', [who])).rows[0] : null;
+      if (u && who) await activity.record({ userId: u.id, phone: who, kind: 'screen', title: t ? (t.code ? `Opened order ${t.code} in a form` : 'Opened My orders') : 'Opened the payout account form', detail: t?.code ? { code: t.code } : {} });
+    }
     const answer = tok.startsWith('a1.') ? await ambDetails.handle(dec.body) : tok.startsWith('pb1.') ? await chat.payoutFormRequest(dec.body as never) : await orders.handle(dec.body);
     return reply.type('text/plain').send(encryptResponse(answer, dec.aesKey, dec.iv));
   });
@@ -919,7 +931,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       allowed: (id: string) => tellSeller(id, (p) => chat.mkt!.allowedAgain(p)),
     },
   };
-  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, market: marketConsole, chatArt, siteShow, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
+  registerConsoleApi(app, { config: c, db, deals, trust, links, ambassadors, market: marketConsole, activity, chatArt, siteShow, settings, kyc, forms, chat: liveChat, retryForms: async () => { forms.wake(); await setupMeta(); }, messenger, provider, auth: staffAuth, siteMedia, siteSync, log, refreshTemplates: () => refreshTemplates() });
   registerConsoleStatic(app, log);
 
   /** Background work: retry webhooks that failed, check slow payouts, nudge and expire. */
@@ -937,6 +949,7 @@ export function buildApp({ config: c, db, provider, log = console.log }: AppDeps
       if (r.nudged || r.expired) log(`sweep: nudged ${r.nudged}, expired ${r.expired}`);
       await trust.purgeSeen().catch((e) => log(`seller page stats: ${(e as Error).message}`)); // the one-way visitor codes last 2 days
       await marketJobs().catch((e) => log(`market: ${(e as Error).message}`));
+      await activity.purge().catch((e) => log(`activity: ${(e as Error).message}`));
       // ambassadors: term notices and rollovers, the monthly payouts, month-end summaries
       const a = await ambassadors.sweep().catch((e) => { log(`ambassadors: ${(e as Error).message}`); return null; });
       if (a && (a.notices || a.rolled || a.payouts || a.summaries)) log(`ambassadors: ${a.notices} notice(s), ${a.rolled} term(s) renewed, ${a.payouts} payout(s) made, ${a.summaries} summary(ies)`);

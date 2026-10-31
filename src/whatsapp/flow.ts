@@ -102,6 +102,8 @@ export interface FlowOptions {
   ambApplyForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   ambDetailsForm?: () => { flowId: string; mode: 'draft' | 'published' } | null;
   onAmbFormRefused?: (key: 'ambApply' | 'ambDetails', phone: string) => Promise<void> | void;
+  /** Each person's activity (Console → a person → Activity). */
+  activity?: { inbound(m: Inbound, userId: string, state: string): Promise<void> };
   /** The Hoolam market (Features → Market). */
   market?: Market;
   /** Where item pages live: go.hoolam.com/i/<code> */
@@ -254,6 +256,7 @@ export class Conversation {
     const user = await this.o.deals.upsertUser(m.phone, m.name);
     if (!m.id.startsWith('kyc-') && !m.id.startsWith('form-')) this.lastIn.set(m.phone, m.id);
     if (this.lastIn.size > 5000) this.lastIn.delete(this.lastIn.keys().next().value!);
+    await this.o.activity?.inbound(m, user.id, s.state);
     if (s.isNew) await this.contactCardOnce(m.phone).catch((e) => this.o.log?.(`contact card: ${(e as Error).message}`));
     try {
       await this.route(m, s, user);

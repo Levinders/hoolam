@@ -20,6 +20,7 @@ import { registerSupportApi } from './support-api.js';
 import { registerAmbassadorConsole } from './amb-api.js';
 import { registerMarketConsole, type MarketConsoleHelpers } from './market-api.js';
 import type { Market } from '../market/market.js';
+import type { Activity, ActivityFilter } from '../activity.js';
 import type { Ambassadors } from '../ambassadors.js';
 import type { FormRegistry } from '../whatsapp/forms.js';
 import type { Messenger } from '../whatsapp/client.js';
@@ -36,6 +37,7 @@ import { accessDefault, AuthError, hasAccess, permissionsFor, permissionsOf, ROL
 export interface ConsoleDeps {
   config: Config; db: Db; deals: DealService; trust: Trust; links: CampaignLinks; settings: Settings; messenger: Messenger;
   ambassadors?: Ambassadors;
+  activity?: Activity;
   market?: { m: Market; tell: MarketConsoleHelpers['tell']; itemUrl: (code: string) => string; adUrl: (code: string, ad: string) => string };
   provider: PaymentProvider; auth: StaffAuth; siteMedia: SiteMedia; siteSync: SiteSync; log: (l: string) => void;
   chatArt?: ChatArt; // the chat's pictures, voice notes, videos and stickers (Settings → WhatsApp)
@@ -503,6 +505,16 @@ export function registerConsoleApi(app: FastifyInstance, d: ConsoleDeps) {
 
     // the most-viewed sellers' public pages, last 30 days (Settings → Features)
     api.get('/seller-pages/top', async () => ({ rows: await d.trust.topPages(10), shown: d.trust.statsOn() }));
+    // a person's activity: what they did in the chat, their orders' steps, what Hoolam sent them, the team's actions
+    api.get('/people/:id/activity', async (req) => {
+      need(req, 'user.activity');
+      if (!d.activity) throw new HttpError(404, 'Activity isn\'t available');
+      const q = req.query as { filter?: string; before?: string };
+      const filter = (['all', 'taps', 'messages', 'forms', 'orders', 'sent', 'team'].includes(String(q.filter)) ? q.filter : 'all') as ActivityFilter;
+      const r = await d.activity.list((req.params as { id: string }).id, { filter, before: q.before || null });
+      if (!r) throw new HttpError(404, 'No such person');
+      return r;
+    });
     api.get('/people/:id', async (req) => {
       const id = (req.params as { id: string }).id;
       const u = (await db.query('SELECT * FROM users WHERE id=$1', [id])).rows[0];

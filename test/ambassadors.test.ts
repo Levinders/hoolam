@@ -268,7 +268,8 @@ describe('terms', () => {
     const id = (await user(p)).id;
     await h.db.query(`UPDATE ambassadors SET term_ends_at=now() + interval '3 days' WHERE user_id=$1`, [id]);
     await amb().sweep();
-    expect(h.last(p)).toMatch(/Your 3-month term ends on[\s\S]*renews by itself[\s\S]*whatever term/);
+    // (on the last day of a month the month summary follows the notice, so look at the last few)
+    expect(h.transcript.filter((t) => t.phone === p).slice(-3).map((t) => t.text).join('\n')).toMatch(/Your 3-month term ends on[\s\S]*renews by itself[\s\S]*whatever term/);
     await amb().sweep();
     expect(h.transcript.filter((t) => t.phone === p && /term ends on/.test(t.text))).toHaveLength(1); // once
     await h.tap(p, 'amb:switch'); await h.tap(p, 'amb:term:12');

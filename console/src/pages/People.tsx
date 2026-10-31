@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { ACTIONS, ago, dateOnly, dateTime, hours, money, phone } from '../format';
 import { useData, useDebounced } from '../hooks';
 import { SupportMessage } from './SupportMessage';
+import { PersonActivity } from './PersonActivity';
 import { Avatar, Button, ConfirmAction, Empty, ErrorBanner, Pager, Seg, Skeleton, SkeletonRows, StatusPill, useToast } from '../ui';
 
 export function People() {
@@ -62,6 +63,8 @@ export function Person() {
   const { can } = useAuth();
   const toast = useToast();
   const { data, error, loading, reload } = useData<any>(`/people/${id}`);
+  const [sp, setSp] = useSearchParams();
+  const tab = sp.get('tab') === 'activity' ? 'activity' : 'overview';
   const [open, setOpen] = useState<null | 'pause' | 'cap' | 'photo' | 'kyc-approve' | 'kyc-remove' | 'kyc-clear' | 'kyc-decline' | { social: string; label: string } | { review: string; hide: boolean }>(null);
   const [cap, setCap] = useState<string>('');
   const [idName, setIdName] = useState<string>('');
@@ -95,6 +98,13 @@ export function Person() {
             : <Button icon={CirclePause} variant="danger" onClick={() => setOpen('pause')}>Pause account</Button>)}
         </div>
       </div>
+      {can('user.activity') && (
+        <div className="person-tabs">
+          <Seg value={tab} onChange={(t) => { const n = new URLSearchParams(sp); if (t === 'overview') n.delete('tab'); else n.set('tab', t); setSp(n, { replace: true }); }}
+            options={[{ value: 'overview', label: 'Overview' }, { value: 'activity', label: 'Activity' }]} />
+        </div>
+      )}
+      {tab === 'activity' && can('user.activity') ? <PersonActivity id={id} /> : <>
       {u.blocked && <div className="banner red" style={{ marginBottom: 16 }}><CirclePause /><div><b>Paused.</b> They can only talk to the team on WhatsApp. Reason: {u.blocked_reason ?? '—'}</div></div>}
       {data.refusals?.length > 0 && <div className="banner gold" style={{ marginBottom: 16 }}><CirclePause /><div>Tapped “Not me” on an alert from {data.refusals.map((r: any, i: number) => <span key={r.from_id}>{i ? ', ' : ''}<Link to={`/people/${r.from_id}`}>{r.from_name}</Link> ({r.deal_code ?? 'an order'}, {ago(r.created_at)})</span>)}. Those people can't alert them again; everyone else still can.</div></div>}
 
@@ -261,6 +271,7 @@ export function Person() {
           </section>
         </div>
       </div>
+      </>}
 
       {open === 'pause' && <ConfirmAction icon={u.blocked ? Play : CirclePause} tone={u.blocked ? 'teal' : 'danger'}
         title={u.blocked ? `Unpause ${name}?` : `Pause ${name}?`} confirmLabel={u.blocked ? 'Unpause account' : 'Pause account'}
