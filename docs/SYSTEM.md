@@ -149,6 +149,7 @@ Everything passes through the one server: messages come in from Meta, money move
 | Live chat | `chat_visitors` (name, WhatsApp number, linked user), `chat_visitor_keys` (hashes of browser keys), `chat_threads` (ref LC-…, status, handler, rating, the WhatsApp nudge), `chat_messages` (VISITOR, STAFF, NOTE for the team only, SYSTEM), `chat_files` (photos and PDFs), `chat_reads` (what each teammate has read), `chat_content` (welcome, Questions, News with an optional picture, quick replies, saved replies), `chat_media` (news pictures). One conversation per WhatsApp number; a browser key from a new device keeps `since_id` so it sees only later messages. Migrations 021, 022 and 023 (Home cards removed). |
 | Ambassadors | `ambassador_applications` (PENDING / APPROVED / DECLINED; from the website, WhatsApp or a team invite; declined ones deleted after 12 months), `ambassadors` (SETUP / ACTIVE / PAUSED / ENDED, link name, area, term and next term, custom shares), `ambassador_names` (every link name ever used, never given to anyone else), `ambassador_photos`, `ambassador_referrals` (who brought whom, by link, code or team), `ambassador_earnings` (SHARE or BONUS per order and side; CONFIRMED, HELD or VOID), `ambassador_payouts` (DUE / PAID, final), `ambassador_link_taps`, `ambassador_codes` and `ambassador_sessions` (dashboard sign-in). `users.kyc_id_hash` (a one-way code of the ID number, to spot the same person twice) and `users.amb_asked_at`; `staff.access_ambassadors`. Migration 026. |
 | Market | `market_listings` (code, title, price and promo, stock, delivery: pickup / rider / waybill, area, city, state, status LIVE / PAUSED / HIDDEN / SOLD_OUT / EXPIRED / REMOVED / DELETED, `kept_at` from the regular check, `expires_at`), `market_photos` (with a look fingerprint to spot another seller's photo), `market_sellers` (APPLIED / APPROVED / DECLINED / STOPPED, own item limit and until when), `market_strikes`, `market_upgrades` (ASKED / DONE / DECLINED), `market_saves`, `market_reports`, `market_browsers` (where someone browses, their page and basket, yes or no to updates), `market_order_items` (the items an order came from; stock taken once paid), `market_stats` (per item and day: seen, opened, saved, Buy taps, paid orders), `market_searches` (90 days), `market_ad_links`; `deals.from_market`. Migration 029. |
+| Activity | `user_activity` (each person's taps, messages, forms; 12 months). Migration 031. |
 | System | `settings` (console values, incl. `home_version`), `app_secrets` (forms key), `contact_optouts` (old, now empty) |
 
 ### Ledger accounts
@@ -576,6 +577,13 @@ Support isn't in the sidebar any more: it's a round button at the bottom right o
 - **Keys:** the browser keeps a random key (`hoolam:chat:key`); the server stores only its hash. Closed chats and their files are deleted 12 months after closing.
 - **Legal:** privacy "Live chat on our website" (and its row in How long we keep it), cookies lists the chat key; effective date 13 October 2026.
 
+### A person's activity
+
+Buyers & sellers → a person → **Activity** (Owner and Admin): last active, today, this week and on Hoolam since; filters **All · Taps · Messages · Forms · Orders · Hoolam sent · Team**; newest first, grouped by day, with Lagos times. Each line opens: the message (WhatsApp's bold and italics shown as they look), the form answers, the buttons Hoolam's message had and whether it was read or delivered, the order's step and who did it, a link to the order. **Show older** loads more.
+- **Recorded from 31 Oct 2026** (`user_activity`, migration 031, `src/activity.ts`): every tap (with the button's title), message, photo, voice note, location, form sent, and opening a live form.
+- **Read from where it's already kept:** order steps (`deals`, `deal_events`, also on each order's page), Hoolam's messages (`outbound_messages`, also in Support → Messages), the team's actions (`audit_log`, also in the Audit trail).
+- **Never kept:** ID numbers and dates of birth (typed or in the ID check form), handover codes; account and phone numbers keep their last 4 digits. Kept 12 months (cleared in the 10-minute sweep).
+
 ### Settings worth knowing
 
 - **Fees:** Hoolam's fee and the two transaction fee tables (each folds open with an arrow), with a "Try it" calculator.
@@ -711,6 +719,7 @@ A push to `main` on GitHub deploys both Render services; database changes run au
 
 | Date | Change | Commit |
 | --- | --- | --- |
+| 31 Oct 2026 | Each person's **Activity** tab in the console: taps, messages, forms, order steps, Hoolam's messages (read or delivered), the team's actions; nothing sensitive kept; 12 months; migration 031 | 3d35db2 |
 | 30 Oct 2026 | Market: the list form works again (how many is a number on both screens); Edit item shows the current photos and can replace them (form or chat) | 60c39b6 |
 | 30 Oct 2026 | Menus: one **Get help** row opens Report a problem or Talk to a rep | 33a34d4 |
 | 30 Oct 2026 | Fixed the 8 forms Meta refused (filled-in fields now sit outside a Form wrapper; the problem form's photos stay under 100 MB); rating asks "How's your <item>?", optional, shown on the seller's page without a tick | 2494781 |
